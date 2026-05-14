@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import type { PtyApi, DbApi, DialogApi } from '../preload/index'
+import type { PtyApi, DbApi, DialogApi } from '@shared/types/api'
 
 declare global {
   interface Window {

@@ -1,5 +1,5 @@
 {
-  "name": "igo",
+  "name": "IAO",
   "version": "0.1.0",
   "description": "MVP - local terminal canvas in Electron",
   "main": "out/main/index.js",

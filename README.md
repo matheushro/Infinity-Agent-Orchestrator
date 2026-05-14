@@ -1,6 +1,6 @@
-# IGO
+# IAO
 
-IGO - Infinity Agent Orchestrator.
+IAO - Infinity Agent Orchestrator.
 
 MVP for a visual local agent/terminal orchestrator built with Electron, React, and TypeScript.
 

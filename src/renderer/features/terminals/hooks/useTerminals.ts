@@ -1,0 +1,73 @@
+// Owns the terminal node collection: state + persistence side effects.
+// This is the logic extracted out of App.tsx — App just consumes this hook.
+import { useCallback, useEffect, useState } from 'react'
+import { createTerminalId } from '@renderer/lib/id'
+import { COMMANDS } from '../commands'
+import { terminalRepository } from '../services/terminalRepository'
+import type { CommandKey, ShellType, TerminalNodeData } from '../types'
+
+export interface UseTerminalsResult {
+  nodes: TerminalNodeData[]
+  createTerminal: (
+    folder: string,
+    command: CommandKey,
+    name: string,
+    shell: ShellType
+  ) => void
+  updateNode: (id: string, patch: Partial<TerminalNodeData>) => void
+  removeNode: (id: string) => void
+}
+
+export function useTerminals(): UseTerminalsResult {
+  const [nodes, setNodes] = useState<TerminalNodeData[]>([])
+
+  // Restore the terminals that were active in the previous session.
+  useEffect(() => {
+    terminalRepository.listActive().then(setNodes)
+  }, [])
+
+  const createTerminal = useCallback(
+    (folder: string, command: CommandKey, name: string, shell: ShellType) => {
+      // The id and the persist side-effect must live outside the setNodes
+      // updater: React StrictMode runs updaters twice, which would generate
+      // two ids and persist two rows for a single terminal.
+      const id = createTerminalId()
+      const folderName = folder.split('/').filter(Boolean).pop() || folder
+      setNodes((prev) => {
+        const node: TerminalNodeData = {
+          id,
+          x: 40 + ((prev.length * 30) % 300),
+          y: 40 + ((prev.length * 30) % 300),
+          width: 600,
+          height: 380,
+          shell,
+          title: name || `${COMMANDS[command].label} · ${folderName}`,
+          cwd: folder,
+          command
+        }
+        terminalRepository.persist(node)
+        return [...prev, node]
+      })
+    },
+    []
+  )
+
+  const updateNode = useCallback((id: string, patch: Partial<TerminalNodeData>) => {
+    setNodes((prev) =>
+      prev.map((n) => {
+        if (n.id !== id) return n
+        const next = { ...n, ...patch }
+        terminalRepository.persist(next)
+        return next
+      })
+    )
+  }, [])
+
+  const removeNode = useCallback((id: string) => {
+    window.ptyApi.kill(id)
+    terminalRepository.remove(id)
+    setNodes((prev) => prev.filter((n) => n.id !== id))
+  }, [])
+
+  return { nodes, createTerminal, updateNode, removeNode }
+}

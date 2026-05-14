@@ -1,0 +1,53 @@
+// IPC contract shared by main and preload. Channels are centralized here so
+// both sides stay in sync and renderer code never hardcodes channel strings.
+
+export const IpcChannels = {
+  ptyCreate: 'pty:create',
+  ptyInput: 'pty:input',
+  ptyResize: 'pty:resize',
+  ptyKill: 'pty:kill',
+  ptyData: 'pty:data',
+  ptyExit: 'pty:exit',
+  dbListActive: 'db:list-active',
+  dbUpsert: 'db:upsert',
+  dbRemove: 'db:remove',
+  dialogSelectFolder: 'dialog:select-folder'
+} as const
+
+export interface PtyCreateArgs {
+  id: string
+  shell?: string
+  cols: number
+  rows: number
+  cwd?: string
+  command?: string
+}
+
+export interface PtyCreateResult {
+  id: string
+  shell: string
+}
+
+export interface PtyInputPayload {
+  id: string
+  data: string
+}
+
+export interface PtyResizePayload {
+  id: string
+  cols: number
+  rows: number
+}
+
+export interface PtyKillPayload {
+  id: string
+}
+
+export interface PtyDataPayload {
+  id: string
+  data: string
+}
+
+export interface PtyExitPayload {
+  id: string
+}

@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+// A single movable/resizable terminal window on the canvas.
+// Layout/UI only — the xterm/pty session lives in useTerminalSession.
+import { useState } from 'react'
 import { Rnd } from 'react-rnd'
-import { Terminal } from '@xterm/xterm'
-import { FitAddon } from '@xterm/addon-fit'
-import type { TerminalNodeData } from '../App'
-import { COMMANDS } from '../commands'
+import { useTerminalSession } from '../hooks/useTerminalSession'
+import type { TerminalNodeData } from '../types'
 
 interface TerminalNodeProps {
   node: TerminalNodeData
@@ -11,14 +11,12 @@ interface TerminalNodeProps {
   onRemoveNode: (id: string) => void
 }
 
-export default function TerminalNode({
+export function TerminalNode({
   node,
   onUpdateNode,
   onRemoveNode
 }: TerminalNodeProps): JSX.Element {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const termRef = useRef<Terminal | null>(null)
-  const fitRef = useRef<FitAddon | null>(null)
+  const containerRef = useTerminalSession(node)
 
   const [editingTitle, setEditingTitle] = useState(false)
   const [draftTitle, setDraftTitle] = useState(node.title)
@@ -29,79 +27,6 @@ export default function TerminalNode({
     setDraftTitle(next)
     setEditingTitle(false)
   }
-
-  // Initialize xterm and connect it to the pty in the main process once per node.
-  useEffect(() => {
-    if (!containerRef.current) return
-
-    const term = new Terminal({
-      cursorBlink: true,
-      fontSize: 13,
-      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-      theme: { background: '#0b1120', foreground: '#e2e8f0' }
-    })
-    const fit = new FitAddon()
-    term.loadAddon(fit)
-    term.open(containerRef.current)
-    fit.fit()
-
-    termRef.current = term
-    fitRef.current = fit
-
-    let disposed = false
-
-    // Unique id per pty session. Do not reuse node.id, which is only for persistence/layout:
-    // under StrictMode the effect mounts twice, and the dead pty from the first mount
-    // would send `pty:exit` to the new terminal and print "[process exited]".
-    const ptyId = crypto.randomUUID()
-
-    // Create the pty process before wiring listeners.
-    window.ptyApi
-      .create({
-        id: ptyId,
-        shell: node.shell === 'default' ? undefined : node.shell,
-        cols: term.cols,
-        rows: term.rows,
-        cwd: node.cwd,
-        command: COMMANDS[node.command].cmd
-      })
-      .then(() => {
-        if (disposed) return
-        term.focus()
-      })
-
-    // The renderer never executes commands: it only sends typed input.
-    const inputSub = term.onData((data) => window.ptyApi.input(ptyId, data))
-
-    const offData = window.ptyApi.onData((id, data) => {
-      if (id === ptyId) term.write(data)
-    })
-    const offExit = window.ptyApi.onExit((id) => {
-      if (id === ptyId) term.write('\r\n\x1b[31m[process exited]\x1b[0m\r\n')
-    })
-
-    // Keep the pty synced with the container size while dragging/resizing the node.
-    const observer = new ResizeObserver(() => {
-      try {
-        fit.fit()
-        window.ptyApi.resize(ptyId, term.cols, term.rows)
-      } catch {
-        // container still has no useful dimensions
-      }
-    })
-    observer.observe(containerRef.current)
-
-    return () => {
-      disposed = true
-      observer.disconnect()
-      inputSub.dispose()
-      offData()
-      offExit()
-      window.ptyApi.kill(ptyId)
-      term.dispose()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
   return (
     <Rnd
