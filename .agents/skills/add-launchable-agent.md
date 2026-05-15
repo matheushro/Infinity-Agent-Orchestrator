@@ -21,3 +21,5 @@ Use to add a new command users can launch in a terminal (alongside `codex` / `cl
 - No main-process or IPC change is needed — the command is just shell input.
 - The binary must be on the user's `PATH`; the pty inherits `process.env`.
 - Keep `CommandKey` and `COMMANDS` keys in sync (TypeScript will enforce it).
+- Add/extend a `commands.test.ts` assertion for the new entry (shape + key in union),
+  per `skills/add-tests.md`. Run `npm test` and `npm run build`.

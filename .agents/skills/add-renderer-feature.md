@@ -40,4 +40,6 @@ Only create the folders you actually need now — don't scaffold empty dirs.
 - [ ] No Electron import; main reached only via `window.*`.
 - [ ] Logic in hooks/services, not components.
 - [ ] Feature is self-contained — nothing leaks into other features.
+- [ ] Feature hook + service covered by co-located tests (`skills/add-tests.md`);
+      `npm test` passes.
 - [ ] `npm run build` passes.

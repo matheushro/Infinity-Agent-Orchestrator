@@ -21,9 +21,23 @@ IGO (Infinity Agent Orchestrator) is an Electron desktop app: a navigable infini
 - `npm run dev` — start Electron + Vite in development (hot reload).
 - `npm run build` — compile main, preload, and renderer with `electron-vite`.
 - `npm start` — preview the production build.
+- `npm test` — run the Vitest suite once (verification step for every change).
+- `npm run test:watch` — Vitest in watch mode while developing.
 - `npm install` runs a `postinstall` that rebuilds native deps: `electron-rebuild -f -w node-pty -w better-sqlite3`. On Linux this needs `python3`, `make`, `g++`. Run it manually after Electron version bumps.
 
-There are no tests or linter configured. Use `npm run build` (or `npx tsc --noEmit`) as the verification step.
+No linter is configured. **`npm test` and `npm run build` together are the verification
+step** — every change must leave both green.
+
+## Testing — required on every change
+
+Tests are mandatory: any change to behaviour ships with tests, and a bug fix ships with a
+regression test that fails before the fix. The runner is **Vitest** (reuses the Vite config
+and `@shared`/`@main`/`@renderer` aliases), with `@testing-library/react` + jsdom for
+renderer hooks/components. Tests are **co-located** as `<file>.test.ts(x)` next to the unit.
+Test logic where it lives — `main/services/*`, renderer feature `hooks/` and `services/`,
+`lib/` — and mock at the boundary (`node-pty`, `better-sqlite3`, `electron`, `window.*`),
+never spawning a real pty or DB. Full standards: `.agents/rules/testing.md`; step-by-step:
+`.agents/skills/add-tests.md`.
 
 ## Architecture
 
@@ -76,3 +90,5 @@ persisted; theme is persisted in `localStorage` via `useLocalStorage`.
   `src/renderer/features/terminals/commands.ts` (see `.agents/skills/add-launchable-agent.md`).
 - Adding an IPC channel: follow `.agents/skills/add-ipc-channel.md` — every cross-boundary
   type goes in `@shared` exactly once; never hardcode channel strings.
+- Adding/updating tests: follow `.agents/skills/add-tests.md`. This applies to *every*
+  change, not just new features.

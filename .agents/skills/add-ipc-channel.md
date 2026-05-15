@@ -33,4 +33,6 @@ Touches all four layers — do them in order so types stay green.
 - [ ] No hardcoded channel string anywhere — all via `IpcChannels`.
 - [ ] No type duplicated; all cross-boundary types in `@shared`.
 - [ ] `ipc/*` file has no logic; `service/*` has all of it.
+- [ ] Service logic covered by `*.service.test.ts`; renderer hook/service covered too
+      (`skills/add-tests.md`). `npm test` passes.
 - [ ] `npm run build` passes.

@@ -31,4 +31,5 @@ Add the export to `src/renderer/components/ui/index.ts` (the barrel). Consumers 
 - [ ] Zero feature/Electron imports.
 - [ ] Typed props, native props extended where relevant.
 - [ ] Exported from `components/ui/index.ts`.
+- [ ] Behaviour covered by `<Component>.test.tsx` (`skills/add-tests.md`); `npm test` passes.
 - [ ] `npm run build` passes.

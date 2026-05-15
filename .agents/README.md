@@ -13,6 +13,7 @@ Use this index to decide what (if anything) to open:
 | You are about to… | Read |
 |---|---|
 | Touch any file / decide where code goes | `rules/architecture.md` |
+| **Make any change** (test it before calling it done) | `rules/testing.md` |
 | Work in `src/main/**` (pty, db, dialog, IPC handlers) | `rules/main.md` |
 | Work in `src/preload/**` | `rules/preload.md` |
 | Work in `src/renderer/**` (UI, features, hooks) | `rules/renderer.md` |
@@ -21,6 +22,8 @@ Use this index to decide what (if anything) to open:
 | Create a new renderer feature | `skills/add-renderer-feature.md` |
 | Add a launchable agent (codex/claude/…) | `skills/add-launchable-agent.md` |
 | Build a reusable UI component | `skills/add-ui-component.md` |
+| Write / update tests for a change | `skills/add-tests.md` |
 
 For a trivial change that clearly fits an existing pattern, you may skip these entirely.
 When in doubt about layering, `rules/architecture.md` is the only always-relevant file.
+`rules/testing.md` is relevant to **every** change — code is not done until its tests pass.
