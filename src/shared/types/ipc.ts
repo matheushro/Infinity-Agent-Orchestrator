@@ -11,6 +11,9 @@ export const IpcChannels = {
   dbListActive: 'db:list-active',
   dbUpsert: 'db:upsert',
   dbRemove: 'db:remove',
+  edgesList: 'edges:list',
+  edgesUpsert: 'edges:upsert',
+  edgesRemove: 'edges:remove',
   dialogSelectFolder: 'dialog:select-folder'
 } as const
 

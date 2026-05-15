@@ -1,7 +1,7 @@
 // Shape of the bridges exposed by the preload layer on `window`.
 // Lives in `shared` so both the preload implementation and the renderer's
 // global typings reference the same contract.
-import type { TerminalRecord } from './terminal'
+import type { EdgeRecord, TerminalRecord } from './terminal'
 import type { PtyCreateArgs, PtyCreateResult } from './ipc'
 
 export interface PtyApi {
@@ -17,6 +17,9 @@ export interface DbApi {
   listActive(): Promise<TerminalRecord[]>
   upsert(record: TerminalRecord): Promise<void>
   remove(id: string): Promise<void>
+  listEdges(): Promise<EdgeRecord[]>
+  upsertEdge(record: EdgeRecord): Promise<void>
+  removeEdge(id: string): Promise<void>
 }
 
 export interface DialogApi {

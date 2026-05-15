@@ -15,6 +15,8 @@ interface DragState {
 export interface PanZoom {
   pan: { x: number; y: number }
   zoom: number
+  setPan: React.Dispatch<React.SetStateAction<{ x: number; y: number }>>
+  setZoom: React.Dispatch<React.SetStateAction<number>>
   containerRef: React.RefObject<HTMLDivElement>
   /** Ref so the caller can read the live panning state for the cursor style. */
   dragStateRef: React.MutableRefObject<DragState | null>
@@ -35,8 +37,8 @@ export function usePanZoom(): PanZoom {
   const dragStateRef = useRef<DragState | null>(null)
 
   function onBackgroundMouseDown(e: React.MouseEvent): void {
-    // Start panning only when clicking the background, not a node.
-    if (e.target !== e.currentTarget) return
+    // Start panning when the mousedown didn't land on a node.
+    if ((e.target as HTMLElement).closest('.terminal-node')) return
     dragStateRef.current = { startX: e.clientX, startY: e.clientY, panX: pan.x, panY: pan.y }
   }
 
@@ -60,12 +62,12 @@ export function usePanZoom(): PanZoom {
       if (!rect) return
       const cursorX = e.clientX - rect.left
       const cursorY = e.clientY - rect.top
-      // deltaY may come through deltaX when Shift is held on some systems.
       const delta = e.deltaY || e.deltaX
+      // Fine step (~2% per notch) — scales with the magnitude of the wheel event.
+      const factor = Math.exp(-delta * 0.0015)
       setZoom((z) => {
-        const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z * (delta < 0 ? 1.1 : 1 / 1.1)))
+        const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z * factor))
         if (next === z) return z
-        // Keep the world point under the cursor fixed during zoom.
         setPan((p) => ({
           x: cursorX - ((cursorX - p.x) / z) * next,
           y: cursorY - ((cursorY - p.y) / z) * next
@@ -82,6 +84,8 @@ export function usePanZoom(): PanZoom {
   return {
     pan,
     zoom,
+    setPan,
+    setZoom,
     containerRef,
     dragStateRef,
     handlers: { onBackgroundMouseDown, onMouseMove, endPan, onWheel }

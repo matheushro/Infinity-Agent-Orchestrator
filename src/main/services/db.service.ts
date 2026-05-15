@@ -2,7 +2,7 @@
 import { app } from 'electron'
 import { join } from 'path'
 import Database from 'better-sqlite3'
-import type { TerminalRecord } from '@shared/types/terminal'
+import type { EdgeRecord, TerminalRecord } from '@shared/types/terminal'
 
 let db: Database.Database
 
@@ -24,6 +24,16 @@ export function initDb(): void {
       created_at INTEGER NOT NULL
     )
   `)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS edges (
+      id TEXT PRIMARY KEY,
+      source TEXT NOT NULL,
+      target TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (source) REFERENCES terminals(id) ON DELETE CASCADE,
+      FOREIGN KEY (target) REFERENCES terminals(id) ON DELETE CASCADE
+    )
+  `)
 }
 
 export function listActiveTerminals(): TerminalRecord[] {
@@ -43,5 +53,24 @@ export function upsertTerminal(record: TerminalRecord): void {
 }
 
 export function removeTerminal(id: string): void {
+  db.prepare('DELETE FROM edges WHERE source = ? OR target = ?').run(id, id)
   db.prepare('DELETE FROM terminals WHERE id = ?').run(id)
+}
+
+export function listEdges(): EdgeRecord[] {
+  return db
+    .prepare('SELECT id, source, target FROM edges ORDER BY created_at')
+    .all() as EdgeRecord[]
+}
+
+export function upsertEdge(record: EdgeRecord): void {
+  db.prepare(
+    `INSERT INTO edges (id, source, target, created_at)
+     VALUES (@id, @source, @target, @created_at)
+     ON CONFLICT(id) DO UPDATE SET source = @source, target = @target`,
+  ).run({ ...record, created_at: Date.now() })
+}
+
+export function removeEdge(id: string): void {
+  db.prepare('DELETE FROM edges WHERE id = ?').run(id)
 }

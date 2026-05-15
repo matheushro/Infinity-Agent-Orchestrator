@@ -14,6 +14,9 @@ export interface UseTerminalsResult {
     name: string,
     shell: ShellType
   ) => void
+  /** In-memory transient update used during drag/resize — no DB write. */
+  moveNode: (id: string, patch: Partial<TerminalNodeData>) => void
+  /** Persisted update — writes the row to SQLite. */
   updateNode: (id: string, patch: Partial<TerminalNodeData>) => void
   removeNode: (id: string) => void
 }
@@ -52,6 +55,10 @@ export function useTerminals(): UseTerminalsResult {
     []
   )
 
+  const moveNode = useCallback((id: string, patch: Partial<TerminalNodeData>) => {
+    setNodes((prev) => prev.map((n) => (n.id === id ? { ...n, ...patch } : n)))
+  }, [])
+
   const updateNode = useCallback((id: string, patch: Partial<TerminalNodeData>) => {
     setNodes((prev) =>
       prev.map((n) => {
@@ -69,5 +76,5 @@ export function useTerminals(): UseTerminalsResult {
     setNodes((prev) => prev.filter((n) => n.id !== id))
   }, [])
 
-  return { nodes, createTerminal, updateNode, removeNode }
+  return { nodes, createTerminal, moveNode, updateNode, removeNode }
 }

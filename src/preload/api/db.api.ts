@@ -6,5 +6,8 @@ import type { DbApi } from '@shared/types/api'
 export const dbApi: DbApi = {
   listActive: () => ipcRenderer.invoke(IpcChannels.dbListActive),
   upsert: (record) => ipcRenderer.invoke(IpcChannels.dbUpsert, record),
-  remove: (id) => ipcRenderer.invoke(IpcChannels.dbRemove, id)
+  remove: (id) => ipcRenderer.invoke(IpcChannels.dbRemove, id),
+  listEdges: () => ipcRenderer.invoke(IpcChannels.edgesList),
+  upsertEdge: (record) => ipcRenderer.invoke(IpcChannels.edgesUpsert, record),
+  removeEdge: (id) => ipcRenderer.invoke(IpcChannels.edgesRemove, id),
 }

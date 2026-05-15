@@ -18,3 +18,10 @@ export interface TerminalRecord {
   width: number
   height: number
 }
+
+/** Persisted edge connecting two terminal nodes. */
+export interface EdgeRecord {
+  id: string
+  source: string
+  target: string
+}
