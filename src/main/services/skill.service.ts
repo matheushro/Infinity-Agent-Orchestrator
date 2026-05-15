@@ -1,18 +1,20 @@
-// Per-project IAO skill scaffolding. The skill is a markdown contract that
-// teaches the in-terminal agent how to use the `iao` CLI; we ship a template in
-// `resources/skills/iao/` and copy it into the user's project so the agent
-// picks it up automatically. Customizations are never overwritten.
-import { existsSync, mkdirSync, copyFileSync, statSync } from 'fs'
+// User-global IAO skill scaffolding. The skill is a markdown contract that
+// teaches the in-terminal agent how to use the `iao` CLI; we ship a template
+// in `resources/skills/iao/` and copy it into the user's Claude/Codex config
+// roots so the agent picks it up automatically in *any* project, not just the
+// one currently open on the canvas. Customizations are never overwritten.
+import { existsSync, mkdirSync, copyFileSync } from 'fs'
 import { join } from 'path'
+import os from 'os'
 import { app } from 'electron'
 
 const SKILL_FILENAME = 'SKILL.md'
-// Codex discovers skills under `.agents/skills/<name>/`; Claude Code discovers
-// them under `.claude/skills/<name>/`. We materialize the same template in
-// both so either agent can pick it up from its native location.
-const SKILL_RELATIVE_DIRS = [
-  join('.agents', 'skills', 'iao'),
-  join('.claude', 'skills', 'iao')
+// Skills are installed at the user level so any agent launched from any
+// working directory can discover them. Codex reads from `~/.codex/skills/`
+// and Claude Code reads from `~/.claude/skills/`.
+const SKILL_INSTALL_DIRS = [
+  join(os.homedir(), '.codex', 'skills', 'iao'),
+  join(os.homedir(), '.claude', 'skills', 'iao')
 ]
 
 function sourceSkillPath(): string {
@@ -21,30 +23,31 @@ function sourceSkillPath(): string {
   return join(app.getAppPath(), 'resources', 'skills', 'iao', SKILL_FILENAME)
 }
 
-/** Absolute path of the primary (Codex) skill location for a project. */
-export function skillPathFor(projectPath: string): string {
-  return join(projectPath, SKILL_RELATIVE_DIRS[0], SKILL_FILENAME)
+/** Absolute path of the primary (Codex) user-level skill location. */
+export function skillPathFor(_projectPath?: string): string {
+  return join(SKILL_INSTALL_DIRS[0], SKILL_FILENAME)
 }
 
 /**
- * Ensure the IAO skill exists under both `.agents/skills/iao/SKILL.md` (Codex)
- * and `.claude/skills/iao/SKILL.md` (Claude Code). Existing files are left
- * alone so user edits are preserved. Returns the primary path.
+ * Ensure the IAO skill exists under both `~/.codex/skills/iao/SKILL.md` and
+ * `~/.claude/skills/iao/SKILL.md`. Existing files are left alone so user
+ * edits are preserved. Returns the primary path.
+ *
+ * The `_projectPath` argument is accepted for backwards compatibility with
+ * callers that used to scope the skill per-project, but is intentionally
+ * ignored — the skill is always installed at the user-global root.
  */
-export function ensureIAOSkill(projectPath: string): string {
-  if (!projectPath || !existsSync(projectPath) || !statSync(projectPath).isDirectory()) {
-    throw new Error(`skill.service: invalid projectPath "${projectPath}"`)
-  }
+export function ensureIAOSkill(_projectPath?: string): string {
   const src = sourceSkillPath()
   if (!existsSync(src)) {
     throw new Error(`skill.service: template skill missing at ${src}`)
   }
 
-  for (const relDir of SKILL_RELATIVE_DIRS) {
-    const dest = join(projectPath, relDir, SKILL_FILENAME)
+  for (const dir of SKILL_INSTALL_DIRS) {
+    const dest = join(dir, SKILL_FILENAME)
     if (existsSync(dest)) continue
-    mkdirSync(join(projectPath, relDir), { recursive: true })
+    mkdirSync(dir, { recursive: true })
     copyFileSync(src, dest)
   }
-  return skillPathFor(projectPath)
+  return skillPathFor()
 }
