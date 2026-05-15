@@ -20,6 +20,7 @@ export interface PanZoom {
   containerRef: React.RefObject<HTMLDivElement>
   /** Ref so the caller can read the live panning state for the cursor style. */
   dragStateRef: React.MutableRefObject<DragState | null>
+  startPan: (clientX: number, clientY: number) => void
   handlers: {
     onBackgroundMouseDown: (e: React.MouseEvent) => void
     onMouseMove: (e: React.MouseEvent) => void
@@ -37,8 +38,9 @@ export function usePanZoom(): PanZoom {
   const dragStateRef = useRef<DragState | null>(null)
 
   function onBackgroundMouseDown(e: React.MouseEvent): void {
-    // Start panning when the mousedown didn't land on a node.
-    if ((e.target as HTMLElement).closest('.terminal-node')) return
+    // Start panning if Shift + left click, or if mousedown didn't land on a node.
+    const isShiftLeftClick = e.shiftKey && e.button === 0
+    if (!isShiftLeftClick && (e.target as HTMLElement).closest('.terminal-node')) return
     dragStateRef.current = { startX: e.clientX, startY: e.clientY, panX: pan.x, panY: pan.y }
   }
 
@@ -62,12 +64,12 @@ export function usePanZoom(): PanZoom {
       if (!rect) return
       const cursorX = e.clientX - rect.left
       const cursorY = e.clientY - rect.top
-      // Fine, deterministic 1% step per wheel notch, direction from delta sign.
+      // Fine, deterministic 3% step per wheel notch, direction from delta sign.
       // Wheel deltas vary wildly by device/browser zoom — collapse to sign so
-      // each notch maps to a clean ±1% change.
+      // each notch maps to a clean ±3% change.
       const delta = e.deltaY || e.deltaX
       if (delta === 0) return
-      const step = 0.01
+      const step = 0.03
       const direction = delta > 0 ? -1 : 1
       setZoom((z) => {
         const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z + direction * step))
@@ -85,6 +87,10 @@ export function usePanZoom(): PanZoom {
     setPan((p) => ({ x: p.x - e.deltaX, y: p.y - e.deltaY }))
   }
 
+  function startPan(clientX: number, clientY: number): void {
+    dragStateRef.current = { startX: clientX, startY: clientY, panX: pan.x, panY: pan.y }
+  }
+
   return {
     pan,
     zoom,
@@ -92,6 +98,7 @@ export function usePanZoom(): PanZoom {
     setZoom,
     containerRef,
     dragStateRef,
+    startPan,
     handlers: { onBackgroundMouseDown, onMouseMove, endPan, onWheel }
   }
 }

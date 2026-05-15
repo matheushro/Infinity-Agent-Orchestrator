@@ -66,7 +66,7 @@ export function Canvas({
   onCanvasContextMenu,
   getTerminalStyle,
 }: CanvasProps): JSX.Element {
-  const { pan, zoom, setPan, setZoom, containerRef, handlers } = usePanZoom()
+  const { pan, zoom, setPan, setZoom, containerRef, handlers, startPan } = usePanZoom()
   const wrapRef = containerRef
   const [wrapSize, setWrapSize] = useState({ w: 1200, h: 800 })
   const [minimapVisible, setMinimapVisible] = useState(true)
@@ -77,6 +77,9 @@ export function Canvas({
     y1: number
   } | null>(null)
   const marqueeRef = useRef<{ startX: number; startY: number } | null>(null)
+  const rightClickStateRef = useRef<{ startX: number; startY: number; isDragging: boolean } | null>(
+    null
+  )
 
   const liveSize = useCallback((): { w: number; h: number } => {
     const r = wrapRef.current?.getBoundingClientRect()
@@ -305,33 +308,132 @@ export function Canvas({
     window.addEventListener('mouseup', onUp)
   }
 
+  function handleCanvasMouseDown(e: React.MouseEvent): void {
+    // Shift + left click: pan even over terminal nodes
+    const isShiftLeftClick = e.shiftKey && e.button === 0
+    if (!isShiftLeftClick && (e.target as HTMLElement).closest('.terminal-node')) return
+    if ((e.target as HTMLElement).closest('[data-edge-id]')) return
+
+    const DRAG_THRESHOLD = 4
+
+    // Shift + left click: start panning immediately
+    if (isShiftLeftClick) {
+      startPan(e.clientX, e.clientY)
+      return
+    }
+
+    // Right-click: potential hold-to-pan
+    if (e.button === 2) {
+      const startX = e.clientX
+      const startY = e.clientY
+
+      rightClickStateRef.current = { startX, startY, isDragging: false }
+
+      function onTmpMove(ev: MouseEvent): void {
+        if (rightClickStateRef.current?.isDragging) return
+        const dx = ev.clientX - startX
+        const dy = ev.clientY - startY
+        const dist = Math.sqrt(dx * dx + dy * dy)
+        if (dist > DRAG_THRESHOLD) {
+          rightClickStateRef.current!.isDragging = true
+          startPan(ev.clientX, ev.clientY)
+        }
+      }
+
+      function onTmpUp(): void {
+        window.removeEventListener('mousemove', onTmpMove)
+        window.removeEventListener('mouseup', onTmpUp)
+        if (rightClickStateRef.current?.isDragging) {
+          handlers.endPan()
+        }
+        // Keep ref alive for onContextMenu to check
+      }
+
+      window.addEventListener('mousemove', onTmpMove)
+      window.addEventListener('mouseup', onTmpUp)
+      return
+    }
+
+    // Left-click
+    if (e.button !== 0) return
+
+    // Select mode: discriminate between click and drag
+    if (tool === 'select') {
+      const startX = e.clientX
+      const startY = e.clientY
+      let moved = false
+
+      function onTmpMove(ev: MouseEvent): void {
+        if (moved) return
+        const dx = ev.clientX - startX
+        const dy = ev.clientY - startY
+        const dist = Math.sqrt(dx * dx + dy * dy)
+        if (dist > DRAG_THRESHOLD) {
+          moved = true
+          window.removeEventListener('mousemove', onTmpMove)
+          window.removeEventListener('mouseup', onTmpUp)
+          startMarquee(e)
+        }
+      }
+
+      function onTmpUp(): void {
+        window.removeEventListener('mousemove', onTmpMove)
+        window.removeEventListener('mouseup', onTmpUp)
+        if (!moved) {
+          onSelect(null, false)
+          onSelectEdge(null)
+        }
+      }
+
+      window.addEventListener('mousemove', onTmpMove)
+      window.addEventListener('mouseup', onTmpUp)
+      return
+    }
+
+    // Pan mode: start panning immediately
+    if (tool === 'pan') {
+      startPan(e.clientX, e.clientY)
+      return
+    }
+
+    // Other tools (link, delete): deselect on background click
+    onSelect(null, false)
+    onSelectEdge(null)
+  }
+
+  function handleCanvasContextMenu(e: React.MouseEvent): void {
+    if ((e.target as HTMLElement).closest('.terminal-node')) return
+    if ((e.target as HTMLElement).closest('[data-edge-id]')) return
+
+    e.preventDefault()
+    e.stopPropagation()
+
+    // If right-click drag happened, don't show context menu
+    const wasDragging = rightClickStateRef.current?.isDragging ?? false
+    rightClickStateRef.current = null // Clean up the ref now
+
+    if (wasDragging) {
+      return
+    }
+
+    const w = clientToWorld(e.clientX, e.clientY)
+    onCanvasContextMenu(w.x, w.y, e.clientX, e.clientY)
+  }
+
+  function handleCanvasMouseUp(e: React.MouseEvent): void {
+    handlers.endPan()
+  }
+
   return (
     <div
       ref={wrapRef}
       className="canvas-ambient relative flex-1 overflow-hidden"
-      onMouseDown={(e) => {
-        if ((e.target as HTMLElement).closest('.terminal-node')) return
-        if ((e.target as HTMLElement).closest('[data-edge-id]')) return
-        if (e.button !== 0) return
-        if (e.shiftKey) {
-          startMarquee(e)
-          return
-        }
-        onSelect(null, false)
-        onSelectEdge(null)
-        handlers.onBackgroundMouseDown(e)
-      }}
+      onMouseDown={handleCanvasMouseDown}
       onMouseMove={handlers.onMouseMove}
-      onMouseUp={handlers.endPan}
+      onMouseUp={handleCanvasMouseUp}
       onMouseLeave={handlers.endPan}
       onWheel={handlers.onWheel}
-      onContextMenu={(e) => {
-        if ((e.target as HTMLElement).closest('.terminal-node')) return
-        if ((e.target as HTMLElement).closest('[data-edge-id]')) return
-        e.preventDefault()
-        const w = clientToWorld(e.clientX, e.clientY)
-        onCanvasContextMenu(w.x, w.y, e.clientX, e.clientY)
-      }}
+      onContextMenu={handleCanvasContextMenu}
       style={{
         cursor:
           tool === 'link'
