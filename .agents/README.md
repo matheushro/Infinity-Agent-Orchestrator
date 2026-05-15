@@ -1,7 +1,7 @@
 # .agents — project conventions for AI agents
 
 This folder holds the **rules** (architectural standards) and **skills** (step-by-step
-recipes) for working on IGO. It is the single source of truth for "how we build here".
+recipes) for working on IAO. It is the single source of truth for "how we build here".
 
 ## ⚠️ On-demand loading — read only what you need
 

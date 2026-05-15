@@ -1,6 +1,6 @@
 # Rule: Architecture & layering
 
-IGO has four layers. Dependencies flow **one direction only** — never upward, never sideways
+IAO has four layers. Dependencies flow **one direction only** — never upward, never sideways
 across features.
 
 ```

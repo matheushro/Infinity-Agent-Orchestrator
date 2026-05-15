@@ -22,7 +22,7 @@ export function Toolbar({
 }: ToolbarProps): JSX.Element {
   return (
     <header className="flex items-center gap-3 border-b border-slate-700 bg-slate-900 px-4 py-2">
-      <h1 className="text-sm font-semibold text-slate-100">IGO</h1>
+      <h1 className="text-sm font-semibold text-slate-100">IAO</h1>
       <Button size="md" onClick={onNewTerminal}>
         + New terminal
       </Button>
