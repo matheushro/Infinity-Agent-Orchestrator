@@ -268,6 +268,21 @@ body {
 .edges-layer path.selected { stroke: var(--accent); stroke-width: 1.8; }
 .edges-layer .endpoint { fill: var(--edge); }
 .edges-layer .endpoint.selected { fill: var(--accent); }
+/* Invisible thick hit-target so users can grab thin edges easily. */
+.edges-layer path.edge-hit {
+  stroke: transparent;
+  stroke-width: 14;
+  fill: none;
+  cursor: pointer;
+  pointer-events: stroke;
+}
+
+.ctx-item {
+  background: transparent;
+  transition: background 100ms ease;
+  text-align: left;
+}
+.ctx-item:hover { background: color-mix(in oklch, var(--fg) 7%, transparent); }
 
 button { font: inherit; }
 

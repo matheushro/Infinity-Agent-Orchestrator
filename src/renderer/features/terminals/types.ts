@@ -28,3 +28,24 @@ export interface TerminalNodeData {
   cwd: string
   command: CommandKey
 }
+
+/** Per-terminal visual customization. Persisted in localStorage, not in SQLite. */
+export interface TerminalStyle {
+  theme: 'dark' | 'light'
+  fontFamily: string
+  fontSize: number
+}
+
+export const DEFAULT_TERMINAL_STYLE: TerminalStyle = {
+  theme: 'dark',
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+  fontSize: 13,
+}
+
+export const FONT_FAMILY_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'ui-monospace, SFMono-Regular, Menlo, monospace', label: 'System mono' },
+  { value: '"JetBrains Mono", ui-monospace, monospace', label: 'JetBrains Mono' },
+  { value: '"Fira Code", ui-monospace, monospace', label: 'Fira Code' },
+  { value: '"Cascadia Code", ui-monospace, monospace', label: 'Cascadia Code' },
+  { value: '"IBM Plex Mono", ui-monospace, monospace', label: 'IBM Plex Mono' },
+]

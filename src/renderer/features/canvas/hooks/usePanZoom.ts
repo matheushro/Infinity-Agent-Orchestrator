@@ -62,11 +62,15 @@ export function usePanZoom(): PanZoom {
       if (!rect) return
       const cursorX = e.clientX - rect.left
       const cursorY = e.clientY - rect.top
+      // Fine, deterministic 1% step per wheel notch, direction from delta sign.
+      // Wheel deltas vary wildly by device/browser zoom — collapse to sign so
+      // each notch maps to a clean ±1% change.
       const delta = e.deltaY || e.deltaX
-      // Fine step (~2% per notch) — scales with the magnitude of the wheel event.
-      const factor = Math.exp(-delta * 0.0015)
+      if (delta === 0) return
+      const step = 0.01
+      const direction = delta > 0 ? -1 : 1
       setZoom((z) => {
-        const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z * factor))
+        const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z + direction * step))
         if (next === z) return z
         setPan((p) => ({
           x: cursorX - ((cursorX - p.x) / z) * next,

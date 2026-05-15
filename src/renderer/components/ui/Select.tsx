@@ -6,7 +6,8 @@ interface SelectOption {
 }
 
 interface SelectProps {
-  label: string
+  /** Optional inline label rendered before the control. */
+  label?: string
   value: string
   options: SelectOption[]
   onChange: (value: string) => void

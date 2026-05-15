@@ -5,12 +5,19 @@ import { useEffect, useRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { COMMANDS } from '../commands'
-import type { TerminalNodeData } from '../types'
+import { DEFAULT_TERMINAL_STYLE, type TerminalNodeData, type TerminalStyle } from '../types'
+
+const THEMES = {
+  dark: { background: '#0b1120', foreground: '#e2e8f0' },
+  light: { background: '#f7f7f5', foreground: '#1f2430' },
+} as const
 
 export function useTerminalSession(
-  node: TerminalNodeData
+  node: TerminalNodeData,
+  style: TerminalStyle = DEFAULT_TERMINAL_STYLE,
 ): React.RefObject<HTMLDivElement> {
   const containerRef = useRef<HTMLDivElement>(null)
+  const termRef = useRef<Terminal | null>(null)
 
   // Initialize xterm and connect it to the pty in the main process once per node.
   useEffect(() => {
@@ -18,10 +25,11 @@ export function useTerminalSession(
 
     const term = new Terminal({
       cursorBlink: true,
-      fontSize: 13,
-      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-      theme: { background: '#0b1120', foreground: '#e2e8f0' }
+      fontSize: style.fontSize,
+      fontFamily: style.fontFamily,
+      theme: THEMES[style.theme],
     })
+    termRef.current = term
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.open(containerRef.current)
@@ -82,6 +90,15 @@ export function useTerminalSession(
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Apply live style updates (theme, font) without rebuilding the pty session.
+  useEffect(() => {
+    const term = termRef.current
+    if (!term) return
+    term.options.theme = THEMES[style.theme]
+    term.options.fontFamily = style.fontFamily
+    term.options.fontSize = style.fontSize
+  }, [style.theme, style.fontFamily, style.fontSize])
 
   return containerRef
 }

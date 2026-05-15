@@ -3,7 +3,6 @@ import {
   IChevRight,
   IGrid,
   IKeyboard,
-  ILink,
   IMoon,
   ISun,
   Select,
@@ -15,8 +14,6 @@ interface TopbarProps {
   terminalCount: number
   theme: CanvasTheme
   shell: ShellType
-  isLinking: boolean
-  onToggleLinking: () => void
   onToggleTheme: () => void
   onShellChange: (s: ShellType) => void
 }
@@ -25,8 +22,6 @@ export function Topbar({
   terminalCount,
   theme,
   shell,
-  isLinking,
-  onToggleLinking,
   onToggleTheme,
   onShellChange,
 }: TopbarProps): JSX.Element {
@@ -61,21 +56,6 @@ export function Topbar({
       />
 
       <div className="flex items-center gap-1">
-        <button
-          className="icon-btn"
-          onClick={onToggleLinking}
-          title={isLinking ? 'Cancel linking' : 'Link terminals'}
-          style={
-            isLinking
-              ? {
-                  background: 'color-mix(in oklch, var(--accent) 18%, transparent)',
-                  color: 'var(--fg)',
-                }
-              : undefined
-          }
-        >
-          <ILink size={14} />
-        </button>
         <button className="icon-btn" title="Toggle grid">
           <IGrid size={14} />
         </button>

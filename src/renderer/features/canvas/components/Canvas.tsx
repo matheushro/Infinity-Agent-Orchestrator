@@ -1,10 +1,17 @@
 // The navigable infinite canvas. Renders the terminal nodes inside a
 // pan/zoom-able world. Viewport logic lives in usePanZoom.
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { TerminalNode } from '@renderer/features/terminals/components/TerminalNode'
-import type { TerminalNodeData } from '@renderer/features/terminals/types'
+import type { TerminalNodeData, TerminalStyle } from '@renderer/features/terminals/types'
 import type { EdgeRecord } from '@shared/types/terminal'
-import { ICursor, IFit, IHand, IMinus, IPlus } from '@renderer/components/ui'
+import {
+  ICursor,
+  IFit,
+  IHand,
+  ILink,
+  IMinus,
+  IPlus,
+} from '@renderer/components/ui'
 import { usePanZoom } from '../hooks/usePanZoom'
 import { Minimap } from './Minimap'
 
@@ -12,36 +19,57 @@ interface CanvasProps {
   nodes: TerminalNodeData[]
   edges: EdgeRecord[]
   selectedId: string | null
+  selectedEdgeId: string | null
   focusedId: string | null
   focusRequest: string | null
   linkSource: string | null
   isLinking: boolean
+  contextMenuNodeId: string | null
   onSelect: (id: string | null) => void
+  onSelectEdge: (id: string | null) => void
   onFocusConsumed: () => void
   onMoveNode: (id: string, patch: Partial<TerminalNodeData>) => void
   onUpdateNode: (id: string, patch: Partial<TerminalNodeData>) => void
   onRemoveNode: (id: string) => void
   onLinkPick: (id: string) => void
+  onToggleLinking: () => void
+  onNodeContextMenu: (id: string, x: number, y: number) => void
+  getTerminalStyle: (id: string) => TerminalStyle
 }
 
 export function Canvas({
   nodes,
   edges,
   selectedId,
+  selectedEdgeId,
   focusedId,
   focusRequest,
   linkSource,
   isLinking,
+  contextMenuNodeId,
   onSelect,
+  onSelectEdge,
   onFocusConsumed,
   onMoveNode,
   onUpdateNode,
   onRemoveNode,
   onLinkPick,
+  onToggleLinking,
+  onNodeContextMenu,
+  getTerminalStyle,
 }: CanvasProps): JSX.Element {
   const { pan, zoom, setPan, setZoom, containerRef, handlers } = usePanZoom()
   const wrapRef = containerRef
   const [wrapSize, setWrapSize] = useState({ w: 1200, h: 800 })
+
+  // Live measurement: avoids stale wrapSize when the browser zoom level changes
+  // or the window resizes between when the state was captured and when zoom/fit
+  // math runs.
+  const liveSize = useCallback((): { w: number; h: number } => {
+    const r = wrapRef.current?.getBoundingClientRect()
+    if (!r || r.width === 0 || r.height === 0) return wrapSize
+    return { w: r.width, h: r.height }
+  }, [wrapRef, wrapSize])
 
   useEffect(() => {
     const el = wrapRef.current
@@ -60,24 +88,26 @@ export function Canvas({
     if (!focusRequest) return
     const t = nodes.find((n) => n.id === focusRequest)
     if (!t) return
+    const size = liveSize()
     const targetScale = Math.max(0.7, Math.min(1.1, zoom))
     const cx = t.x + t.width / 2
     const cy = t.y + t.height / 2
     setZoom(targetScale)
     setPan({
-      x: wrapSize.w / 2 - cx * targetScale,
-      y: wrapSize.h / 2 - cy * targetScale,
+      x: size.w / 2 - cx * targetScale,
+      y: size.h / 2 - cy * targetScale,
     })
     onFocusConsumed()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusRequest, wrapSize.w, wrapSize.h])
+  }, [focusRequest])
 
   function zoomTo(target: number): void {
+    const size = liveSize()
     setZoom((z) => {
       const next = Math.min(2, Math.max(0.25, target))
       if (next === z) return z
-      const cx = wrapSize.w / 2
-      const cy = wrapSize.h / 2
+      const cx = size.w / 2
+      const cy = size.h / 2
       setPan((p) => ({
         x: cx - ((cx - p.x) / z) * next,
         y: cy - ((cy - p.y) / z) * next,
@@ -87,11 +117,12 @@ export function Canvas({
   }
 
   function zoomBy(delta: number): void {
+    const size = liveSize()
     setZoom((z) => {
       const next = Math.min(2, Math.max(0.25, z * (1 + delta)))
       if (next === z) return z
-      const cx = wrapSize.w / 2
-      const cy = wrapSize.h / 2
+      const cx = size.w / 2
+      const cy = size.h / 2
       setPan((p) => ({
         x: cx - ((cx - p.x) / z) * next,
         y: cy - ((cy - p.y) / z) * next,
@@ -101,7 +132,8 @@ export function Canvas({
   }
 
   function fitAll(): void {
-    if (nodes.length === 0 || wrapSize.w === 0 || wrapSize.h === 0) return
+    const size = liveSize()
+    if (nodes.length === 0 || size.w === 0 || size.h === 0) return
     const pad = 80
     const minX = Math.min(...nodes.map((n) => n.x)) - pad
     const minY = Math.min(...nodes.map((n) => n.y)) - pad
@@ -109,16 +141,14 @@ export function Canvas({
     const maxY = Math.max(...nodes.map((n) => n.y + n.height)) + pad
     const bw = Math.max(1, maxX - minX)
     const bh = Math.max(1, maxY - minY)
-    const s = Math.min(wrapSize.w / bw, wrapSize.h / bh, 1)
+    const s = Math.min(size.w / bw, size.h / bh, 1)
     setZoom(s)
     setPan({
-      x: (wrapSize.w - bw * s) / 2 - minX * s,
-      y: (wrapSize.h - bh * s) / 2 - minY * s,
+      x: (size.w - bw * s) / 2 - minX * s,
+      y: (size.h - bh * s) / 2 - minY * s,
     })
   }
 
-  // Build SVG paths for the persisted edges. Recomputed every render so live
-  // drag updates of node positions reshape the curves in real time.
   const edgePaths = useMemo(() => {
     const byId = new Map(nodes.map((n) => [n.id, n]))
     return edges
@@ -137,11 +167,13 @@ export function Canvas({
         const dx = Math.abs(x2 - x1)
         const c = Math.min(180, Math.max(60, dx * 0.5))
         const sign = x2 > x1 ? 1 : -1
-        const selected = selectedId === a.id || selectedId === b.id
+        const endpointSelected = selectedId === a.id || selectedId === b.id
+        const edgeSelected = selectedEdgeId === edge.id
         return {
           id: edge.id,
           d: `M ${x1} ${y1} C ${x1 + c * sign} ${y1}, ${x2 - c * sign} ${y2}, ${x2} ${y2}`,
-          selected,
+          highlighted: endpointSelected || edgeSelected,
+          edgeSelected,
           x1,
           y1,
           x2,
@@ -149,7 +181,7 @@ export function Canvas({
         }
       })
       .filter(<T,>(e: T | null): e is T => e !== null)
-  }, [edges, nodes, selectedId])
+  }, [edges, nodes, selectedId, selectedEdgeId])
 
   return (
     <div
@@ -157,7 +189,9 @@ export function Canvas({
       className="canvas-ambient relative flex-1 overflow-hidden"
       onMouseDown={(e) => {
         if ((e.target as HTMLElement).closest('.terminal-node')) return
+        if ((e.target as HTMLElement).closest('[data-edge-id]')) return
         onSelect(null)
+        onSelectEdge(null)
         handlers.onBackgroundMouseDown(e)
       }}
       onMouseMove={handlers.onMouseMove}
@@ -185,16 +219,26 @@ export function Canvas({
           style={{ width: 8000, height: 8000, left: 0, top: 0 }}
         >
           {edgePaths.map((p) => (
-            <g key={p.id} transform="translate(4000,4000)">
-              <path d={p.d} className={p.selected ? 'selected' : ''} />
+            <g key={p.id} transform="translate(4000,4000)" data-edge-id={p.id}>
+              {/* Thick invisible hit-area so the line is easy to click. */}
+              <path
+                d={p.d}
+                className="edge-hit"
+                onMouseDown={(e) => {
+                  e.stopPropagation()
+                  onSelectEdge(p.id)
+                  onSelect(null)
+                }}
+              />
+              <path d={p.d} className={p.highlighted ? 'selected' : ''} />
               <circle
-                className={'endpoint' + (p.selected ? ' selected' : '')}
+                className={'endpoint' + (p.highlighted ? ' selected' : '')}
                 cx={p.x1}
                 cy={p.y1}
                 r={2.5}
               />
               <circle
-                className={'endpoint' + (p.selected ? ' selected' : '')}
+                className={'endpoint' + (p.highlighted ? ' selected' : '')}
                 cx={p.x2}
                 cy={p.y2}
                 r={2.5}
@@ -212,11 +256,14 @@ export function Canvas({
               focused={focusedId === node.id}
               scale={zoom}
               linkSource={linkSource}
+              style={getTerminalStyle(node.id)}
+              raised={contextMenuNodeId === node.id}
               onSelect={onSelect}
               onMoveNode={onMoveNode}
               onUpdateNode={onUpdateNode}
               onRemoveNode={onRemoveNode}
               onLinkPick={isLinking ? onLinkPick : null}
+              onContextMenu={onNodeContextMenu}
             />
           ))}
         </div>
@@ -260,6 +307,22 @@ export function Canvas({
         <div className="controls">
           <button onClick={fitAll} title="Fit to view">
             <IFit size={14} />
+          </button>
+        </div>
+        <div className="controls">
+          <button
+            onClick={onToggleLinking}
+            title={isLinking ? 'Cancel linking' : 'Link terminals'}
+            style={
+              isLinking
+                ? {
+                    background: 'color-mix(in oklch, var(--accent) 18%, transparent)',
+                    color: 'var(--fg)',
+                  }
+                : undefined
+            }
+          >
+            <ILink size={14} />
           </button>
         </div>
       </div>

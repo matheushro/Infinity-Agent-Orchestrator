@@ -53,6 +53,8 @@ export const IHand = make('M9 11V5a2 2 0 1 1 4 0v6M13 11V4a2 2 0 1 1 4 0v8M17 11
 export const IFit = make('M4 9V5a1 1 0 0 1 1-1h4M20 9V5a1 1 0 0 0-1-1h-4M4 15v4a1 1 0 0 0 1 1h4M20 15v4a1 1 0 0 1-1 1h-4')
 export const IClose = make('M6 6l12 12M6 18L18 6')
 export const ILink = make('M10 14a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 0 0-7.07-7.07L11 6M14 10a5 5 0 0 0-7.07 0l-2.83 2.83a5 5 0 0 0 7.07 7.07L13 18')
+export const ITrash = make('M4 7h16M10 11v6M14 11v6M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3')
+export const IPalette = make('M12 21a9 9 0 1 1 0-18 9 9 0 0 1 9 9c0 2-1.5 3-3 3h-2a2 2 0 0 0-1 3.74A1.5 1.5 0 0 1 14 21h-2zM7.5 12a1 1 0 1 0 0-2 1 1 0 0 0 0 2zM10 8a1 1 0 1 0 0-2 1 1 0 0 0 0 2zM14 8a1 1 0 1 0 0-2 1 1 0 0 0 0 2zM17 11a1 1 0 1 0 0-2 1 1 0 0 0 0 2z')
 export const ISidebarClose = make('M3 4h18v16H3zM9 4v16M14 9l-3 3 3 3')
 export const ISidebarOpen = make('M3 4h18v16H3zM9 4v16M11 9l3 3-3 3')
 

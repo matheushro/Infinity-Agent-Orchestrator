@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { Rnd } from 'react-rnd'
 import { IClose } from '@renderer/components/ui'
 import { useTerminalSession } from '../hooks/useTerminalSession'
-import type { TerminalNodeData } from '../types'
+import type { TerminalNodeData, TerminalStyle } from '../types'
 
 interface TerminalNodeProps {
   node: TerminalNodeData
@@ -12,6 +12,7 @@ interface TerminalNodeProps {
   focused: boolean
   scale: number
   linkSource: string | null
+  style: TerminalStyle
   onSelect: (id: string) => void
   /** In-memory move during drag/resize. Cheap, no DB write. */
   onMoveNode: (id: string, patch: Partial<TerminalNodeData>) => void
@@ -20,6 +21,10 @@ interface TerminalNodeProps {
   onRemoveNode: (id: string) => void
   /** Linking-mode entrypoint: called when the user picks this node. */
   onLinkPick: ((id: string) => void) | null
+  /** Right-click handler (passes the viewport-space anchor for the menu). */
+  onContextMenu: (id: string, x: number, y: number) => void
+  /** When this node owns the active context menu, it gets a higher z-index. */
+  raised: boolean
 }
 
 export function TerminalNode({
@@ -28,13 +33,16 @@ export function TerminalNode({
   focused,
   scale,
   linkSource,
+  style,
   onSelect,
   onMoveNode,
   onUpdateNode,
   onRemoveNode,
   onLinkPick,
+  onContextMenu,
+  raised,
 }: TerminalNodeProps): JSX.Element {
-  const containerRef = useTerminalSession(node)
+  const containerRef = useTerminalSession(node, style)
 
   const [editingTitle, setEditingTitle] = useState(false)
   const [draftTitle, setDraftTitle] = useState(node.title)
@@ -48,6 +56,7 @@ export function TerminalNode({
 
   const isLinking = onLinkPick !== null
   const isLinkSource = linkSource === node.id
+  const isDark = style.theme === 'dark'
 
   return (
     <Rnd
@@ -94,21 +103,28 @@ export function TerminalNode({
         }
         onSelect(node.id)
       }}
+      onContextMenu={(e: React.MouseEvent) => {
+        e.preventDefault()
+        e.stopPropagation()
+        onSelect(node.id)
+        onContextMenu(node.id, e.clientX, e.clientY)
+      }}
       className={
         'terminal-node overflow-hidden rounded-[12px] ' +
         (selected ? 'is-selected node-shadow-selected ' : 'node-shadow ') +
         (focused ? 'node-pulse ' : '') +
-        (isLinkSource ? 'is-link-source ' : '')
+        (isLinkSource ? 'is-link-source ' : '') +
+        (isDark ? 'terminal-node-dark ' : 'terminal-node-light ')
       }
       style={{
         background: 'var(--node-bg)',
         border: '1px solid var(--line)',
         outline: isLinkSource ? '2px solid var(--accent)' : 'none',
         outlineOffset: 2,
+        zIndex: raised ? 50 : selected ? 10 : 1,
       }}
     >
       <div className="flex h-full flex-col">
-        {/* Header --------------------------------------------------------- */}
         <div
           className="terminal-node-header flex items-center gap-3 px-3 select-none"
           style={{
@@ -177,7 +193,7 @@ export function TerminalNode({
         <div
           ref={containerRef}
           className="min-h-0 flex-1 p-1"
-          style={{ background: 'var(--terminal)' }}
+          style={{ background: isDark ? '#0b1120' : '#f7f7f5' }}
         />
       </div>
     </Rnd>
