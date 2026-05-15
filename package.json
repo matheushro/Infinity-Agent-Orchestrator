@@ -34,6 +34,9 @@
       "target": ["AppImage", "deb"],
       "category": "Development"
     },
+    "deb": {
+      "afterInstall": "build/linux-after-install.sh"
+    },
     "win": {
       "target": ["nsis"]
     },
