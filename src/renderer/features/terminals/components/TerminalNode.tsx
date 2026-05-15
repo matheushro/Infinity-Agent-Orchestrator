@@ -5,6 +5,7 @@ import { Rnd } from 'react-rnd'
 import { IClose } from '@renderer/components/ui'
 import { useTerminalSession } from '../hooks/useTerminalSession'
 import type { TerminalNodeData, TerminalStyle } from '../types'
+import type { CanvasTool } from '@renderer/features/canvas/components/Canvas'
 
 interface TerminalNodeProps {
   node: TerminalNodeData
@@ -13,17 +14,13 @@ interface TerminalNodeProps {
   scale: number
   linkSource: string | null
   style: TerminalStyle
-  onSelect: (id: string) => void
-  /** In-memory move during drag/resize. Cheap, no DB write. */
+  tool: CanvasTool
+  onSelect: (id: string, additive: boolean) => void
+  onDragStart: (id: string) => void
   onMoveNode: (id: string, patch: Partial<TerminalNodeData>) => void
-  /** Persisted final position/size after the gesture ends. */
   onUpdateNode: (id: string, patch: Partial<TerminalNodeData>) => void
   onRemoveNode: (id: string) => void
-  /** Linking-mode entrypoint: called when the user picks this node. */
-  onLinkPick: ((id: string) => void) | null
-  /** Right-click handler (passes the viewport-space anchor for the menu). */
   onContextMenu: (id: string, x: number, y: number) => void
-  /** When this node owns the active context menu, it gets a higher z-index. */
   raised: boolean
 }
 
@@ -34,11 +31,12 @@ export function TerminalNode({
   scale,
   linkSource,
   style,
+  tool,
   onSelect,
+  onDragStart,
   onMoveNode,
   onUpdateNode,
   onRemoveNode,
-  onLinkPick,
   onContextMenu,
   raised,
 }: TerminalNodeProps): JSX.Element {
@@ -54,7 +52,8 @@ export function TerminalNode({
     setEditingTitle(false)
   }
 
-  const isLinking = onLinkPick !== null
+  const isLinking = tool === 'link'
+  const isDelete = tool === 'delete'
   const isLinkSource = linkSource === node.id
   const isDark = style.theme === 'dark'
 
@@ -76,10 +75,13 @@ export function TerminalNode({
         bottomLeft: true,
         topLeft: true,
       }}
-      onDragStart={() => onSelect(node.id)}
+      onDragStart={() => {
+        if (!selected) onSelect(node.id, false)
+        onDragStart(node.id)
+      }}
       onDrag={(_e, d) => onMoveNode(node.id, { x: d.x, y: d.y })}
       onDragStop={(_e, d) => onUpdateNode(node.id, { x: d.x, y: d.y })}
-      onResizeStart={() => onSelect(node.id)}
+      onResizeStart={() => onSelect(node.id, false)}
       onResize={(_e, _dir, ref, _delta, pos) =>
         onMoveNode(node.id, {
           width: ref.offsetWidth,
@@ -96,17 +98,21 @@ export function TerminalNode({
           y: pos.y,
         })
       }
-      onMouseDown={() => {
-        if (isLinking) {
-          onLinkPick?.(node.id)
+      onMouseDown={(e) => {
+        if (isDelete) {
+          onRemoveNode(node.id)
           return
         }
-        onSelect(node.id)
+        if (isLinking) {
+          onSelect(node.id, false)
+          return
+        }
+        onSelect(node.id, (e as unknown as MouseEvent).shiftKey)
       }}
       onContextMenu={(e: React.MouseEvent) => {
         e.preventDefault()
         e.stopPropagation()
-        onSelect(node.id)
+        onSelect(node.id, false)
         onContextMenu(node.id, e.clientX, e.clientY)
       }}
       className={

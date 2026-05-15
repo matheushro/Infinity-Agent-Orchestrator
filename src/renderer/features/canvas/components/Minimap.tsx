@@ -1,16 +1,18 @@
 // Mini-map of the canvas + draggable viewport rectangle.
-// Bounding box is driven by node positions (with a margin) so nodes stay
-// readable even when the viewport is far away or heavily zoomed out.
+// Bounds union node positions and the current viewport, so zoom-out shows
+// more area inside the (fixed-size) map without growing the box itself.
 import { useRef } from 'react'
+import { IClose } from '@renderer/components/ui'
 import type { TerminalNodeData } from '@renderer/features/terminals/types'
 
 interface MinimapProps {
   nodes: TerminalNodeData[]
-  selectedId: string | null
+  selectedIds: string[]
   pan: { x: number; y: number }
   zoom: number
   wrapSize: { w: number; h: number }
   onPan: (dx: number, dy: number) => void
+  onClose: () => void
 }
 
 const W = 168
@@ -18,20 +20,18 @@ const H = 110
 
 export function Minimap({
   nodes,
-  selectedId,
+  selectedIds,
   pan,
   zoom,
   wrapSize,
   onPan,
+  onClose,
 }: MinimapProps): JSX.Element {
-  // World coordinates of the current viewport corners.
   const vw0 = -pan.x / zoom
   const vh0 = -pan.y / zoom
   const vw1 = vw0 + wrapSize.w / zoom
   const vh1 = vh0 + wrapSize.h / zoom
 
-  // Bounding box from nodes alone (with breathing room). When there are no
-  // nodes, fall back to the current viewport so we still draw something.
   let minX: number
   let minY: number
   let maxX: number
@@ -42,12 +42,12 @@ export function Minimap({
     maxX = vw1
     maxY = vh1
   } else {
-    minX = Math.min(...nodes.map((n) => n.x))
-    minY = Math.min(...nodes.map((n) => n.y))
-    maxX = Math.max(...nodes.map((n) => n.x + n.width))
-    maxY = Math.max(...nodes.map((n) => n.y + n.height))
+    minX = Math.min(vw0, ...nodes.map((n) => n.x))
+    minY = Math.min(vh0, ...nodes.map((n) => n.y))
+    maxX = Math.max(vw1, ...nodes.map((n) => n.x + n.width))
+    maxY = Math.max(vh1, ...nodes.map((n) => n.y + n.height))
   }
-  const pad = Math.max(80, Math.max(maxX - minX, maxY - minY) * 0.15)
+  const pad = Math.max(80, Math.max(maxX - minX, maxY - minY) * 0.1)
   minX -= pad
   minY -= pad
   maxX += pad
@@ -98,9 +98,19 @@ export function Minimap({
         >
           Map
         </span>
-        <span className="text-[10.5px] font-mono" style={{ color: 'var(--fg-3)' }}>
-          {Math.round(zoom * 100)}%
-        </span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10.5px] font-mono" style={{ color: 'var(--fg-3)' }}>
+            {Math.round(zoom * 100)}%
+          </span>
+          <button
+            className="icon-btn !w-5 !h-5"
+            onClick={onClose}
+            title="Hide minimap"
+            aria-label="Hide minimap"
+          >
+            <IClose size={10} />
+          </button>
+        </div>
       </div>
       <svg
         width={W}
@@ -122,11 +132,11 @@ export function Minimap({
             height={Math.max(3, n.height * s)}
             rx={1.5}
             fill={
-              selectedId === n.id
+              selectedIds.includes(n.id)
                 ? 'var(--accent)'
                 : 'color-mix(in oklch, var(--fg) 60%, transparent)'
             }
-            opacity={selectedId === n.id ? 0.95 : 0.55}
+            opacity={selectedIds.includes(n.id) ? 0.95 : 0.55}
           />
         ))}
         <rect

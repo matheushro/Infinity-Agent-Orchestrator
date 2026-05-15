@@ -1,9 +1,8 @@
 // Application shell: composes the sidebar, topbar, canvas and modals.
-// Holds only view-level UI state — terminal domain logic lives in features.
 import { useEffect, useState } from 'react'
 import { Sidebar } from './components/Sidebar'
 import { Topbar } from './components/Topbar'
-import { Canvas } from '@renderer/features/canvas/components/Canvas'
+import { Canvas, type CanvasTool } from '@renderer/features/canvas/components/Canvas'
 import { NewTerminalModal } from '@renderer/features/terminals/components/NewTerminalModal'
 import { TerminalContextMenu } from '@renderer/features/terminals/components/TerminalContextMenu'
 import { TerminalStyleModal } from '@renderer/features/terminals/components/TerminalStyleModal'
@@ -20,6 +19,13 @@ interface ContextMenuState {
   y: number
 }
 
+interface CanvasMenuState {
+  worldX: number
+  worldY: number
+  clientX: number
+  clientY: number
+}
+
 export default function App(): JSX.Element {
   const { nodes, createTerminal, moveNode, updateNode, removeNode } = useTerminals()
   const { edges, addEdge, removeEdge } = useEdges()
@@ -28,18 +34,21 @@ export default function App(): JSX.Element {
   const [theme, setTheme] = useLocalStorage<CanvasTheme>('canvasTheme', 'dark')
   const [sidebarCollapsed, setSidebarCollapsed] = useLocalStorage('sidebarCollapsed', false)
   const [modalOpen, setModalOpen] = useState(false)
+  const [pendingCreatePos, setPendingCreatePos] = useState<{ x: number; y: number } | null>(null)
   const [query, setQuery] = useState('')
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null)
   const [focusedId, setFocusedId] = useState<string | null>(null)
   const [focusRequest, setFocusRequest] = useState<string | null>(null)
 
-  /** Linking mode. When active, clicking a node picks source then target. */
-  const [linkingActive, setLinkingActive] = useState(false)
+  const [tool, setTool] = useState<CanvasTool>('select')
   const [linkSource, setLinkSource] = useState<string | null>(null)
 
   const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null)
+  const [canvasMenu, setCanvasMenu] = useState<CanvasMenuState | null>(null)
   const [styleEditorFor, setStyleEditorFor] = useState<string | null>(null)
+
+  const selectedId = selectedIds[0] ?? null
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark')
@@ -49,14 +58,16 @@ export default function App(): JSX.Element {
     function onKey(e: KeyboardEvent): void {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'n') {
         e.preventDefault()
+        setPendingCreatePos(null)
         setModalOpen(true)
       }
-      if (e.key === 'Escape' && linkingActive) {
-        setLinkingActive(false)
-        setLinkSource(null)
+      if (e.key === 'Escape') {
+        if (tool === 'link' || tool === 'delete') {
+          setTool('select')
+          setLinkSource(null)
+        }
       }
       if (e.key === 'Delete') {
-        // Don't intercept Delete while the user is typing in a field.
         const t = e.target as HTMLElement | null
         const editable =
           t &&
@@ -69,16 +80,18 @@ export default function App(): JSX.Element {
           setSelectedEdgeId(null)
           return
         }
-        if (selectedId) {
-          removeNode(selectedId)
-          removeStyle(selectedId)
-          setSelectedId(null)
+        if (selectedIds.length > 0) {
+          for (const id of selectedIds) {
+            removeNode(id)
+            removeStyle(id)
+          }
+          setSelectedIds([])
         }
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [linkingActive, selectedId, selectedEdgeId, removeEdge, removeNode, removeStyle])
+  }, [tool, selectedIds, selectedEdgeId, removeEdge, removeNode, removeStyle])
 
   function requestFocus(id: string): void {
     setFocusedId(id)
@@ -86,18 +99,8 @@ export default function App(): JSX.Element {
     window.setTimeout(() => setFocusedId(null), 850)
   }
 
-  function toggleLinking(): void {
-    if (linkingActive) {
-      setLinkingActive(false)
-      setLinkSource(null)
-    } else {
-      setLinkingActive(true)
-      setLinkSource(null)
-    }
-  }
-
   function startLinkFrom(id: string): void {
-    setLinkingActive(true)
+    setTool('link')
     setLinkSource(id)
   }
 
@@ -107,18 +110,29 @@ export default function App(): JSX.Element {
       return
     }
     if (linkSource !== id) addEdge(linkSource, id)
-    setLinkingActive(false)
+    setTool('select')
     setLinkSource(null)
   }
 
-  function selectNode(id: string | null): void {
-    setSelectedId(id)
-    if (id !== null) setSelectedEdgeId(null)
+  function selectNode(id: string | null, additive: boolean): void {
+    if (id === null) {
+      setSelectedIds([])
+      return
+    }
+    setSelectedEdgeId(null)
+    setSelectedIds((prev) => {
+      if (additive) {
+        if (prev.includes(id)) return prev.filter((p) => p !== id)
+        return [...prev, id]
+      }
+      if (prev.length === 1 && prev[0] === id) return prev
+      return [id]
+    })
   }
 
   function selectEdge(id: string | null): void {
     setSelectedEdgeId(id)
-    if (id !== null) setSelectedId(null)
+    if (id !== null) setSelectedIds([])
   }
 
   const styleEditorNode = styleEditorFor
@@ -135,8 +149,11 @@ export default function App(): JSX.Element {
         collapsed={sidebarCollapsed}
         onCollapsedChange={setSidebarCollapsed}
         onQuery={setQuery}
-        onNewTerminal={() => setModalOpen(true)}
-        onSelect={selectNode}
+        onNewTerminal={() => {
+          setPendingCreatePos(null)
+          setModalOpen(true)
+        }}
+        onSelect={(id) => selectNode(id, false)}
         onFocus={requestFocus}
         onStartLink={startLinkFrom}
         onToggleTheme={setTheme}
@@ -154,36 +171,50 @@ export default function App(): JSX.Element {
         <Canvas
           nodes={nodes}
           edges={edges}
-          selectedId={selectedId}
+          selectedIds={selectedIds}
           selectedEdgeId={selectedEdgeId}
           focusedId={focusedId}
           focusRequest={focusRequest}
           linkSource={linkSource}
-          isLinking={linkingActive}
+          tool={tool}
           contextMenuNodeId={ctxMenu?.nodeId ?? null}
           onSelect={selectNode}
           onSelectEdge={selectEdge}
+          onSelectMany={(ids) => {
+            setSelectedEdgeId(null)
+            setSelectedIds(ids)
+          }}
           onFocusConsumed={() => setFocusRequest(null)}
           onMoveNode={moveNode}
           onUpdateNode={updateNode}
           onRemoveNode={(id) => {
-            if (selectedId === id) setSelectedId(null)
+            setSelectedIds((prev) => prev.filter((p) => p !== id))
             removeNode(id)
             removeStyle(id)
           }}
           onLinkPick={handleLinkPick}
-          onToggleLinking={toggleLinking}
+          onSetTool={(t) => {
+            setTool(t)
+            if (t !== 'link') setLinkSource(null)
+          }}
           onNodeContextMenu={(nodeId, x, y) => setCtxMenu({ nodeId, x, y })}
+          onCanvasContextMenu={(worldX, worldY, clientX, clientY) =>
+            setCanvasMenu({ worldX, worldY, clientX, clientY })
+          }
           getTerminalStyle={getStyle}
         />
       </main>
 
       {modalOpen && (
         <NewTerminalModal
-          onCancel={() => setModalOpen(false)}
+          onCancel={() => {
+            setModalOpen(false)
+            setPendingCreatePos(null)
+          }}
           onConfirm={(folder, command, name) => {
             setModalOpen(false)
-            createTerminal(folder, command, name, shell)
+            createTerminal(folder, command, name, shell, pendingCreatePos ?? undefined)
+            setPendingCreatePos(null)
           }}
         />
       )}
@@ -196,11 +227,24 @@ export default function App(): JSX.Element {
           onLink={() => startLinkFrom(ctxMenu.nodeId)}
           onDelete={() => {
             const id = ctxMenu.nodeId
-            if (selectedId === id) setSelectedId(null)
+            setSelectedIds((prev) => prev.filter((p) => p !== id))
             removeNode(id)
             removeStyle(id)
           }}
           onStyle={() => setStyleEditorFor(ctxMenu.nodeId)}
+        />
+      )}
+
+      {canvasMenu && (
+        <CanvasContextMenu
+          x={canvasMenu.clientX}
+          y={canvasMenu.clientY}
+          onClose={() => setCanvasMenu(null)}
+          onNewTerminal={() => {
+            setPendingCreatePos({ x: canvasMenu.worldX, y: canvasMenu.worldY })
+            setModalOpen(true)
+            setCanvasMenu(null)
+          }}
         />
       )}
 
@@ -214,5 +258,50 @@ export default function App(): JSX.Element {
         />
       )}
     </div>
+  )
+}
+
+function CanvasContextMenu({
+  x,
+  y,
+  onClose,
+  onNewTerminal,
+}: {
+  x: number
+  y: number
+  onClose: () => void
+  onNewTerminal: () => void
+}): JSX.Element {
+  return (
+    <>
+      <div
+        className="fixed inset-0 z-[100]"
+        onMouseDown={onClose}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          onClose()
+        }}
+      />
+      <div
+        className="fixed z-[101] min-w-[180px] py-1 rounded-[10px]"
+        style={{
+          left: x,
+          top: y,
+          background: 'color-mix(in oklch, var(--bg-2) 96%, transparent)',
+          backdropFilter: 'blur(10px)',
+          border: '1px solid var(--line)',
+          boxShadow: '0 12px 32px -8px rgb(var(--shadow-color) / 0.32)',
+          color: 'var(--fg)',
+        }}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <button
+          className="ctx-item flex w-full items-center gap-2.5 px-3 py-2 text-[12.5px]"
+          onClick={onNewTerminal}
+        >
+          New terminal here
+        </button>
+      </div>
+    </>
   )
 }

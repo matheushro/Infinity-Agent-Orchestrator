@@ -12,7 +12,8 @@ export interface UseTerminalsResult {
     folder: string,
     command: CommandKey,
     name: string,
-    shell: ShellType
+    shell: ShellType,
+    position?: { x: number; y: number }
   ) => void
   /** In-memory transient update used during drag/resize — no DB write. */
   moveNode: (id: string, patch: Partial<TerminalNodeData>) => void
@@ -30,7 +31,13 @@ export function useTerminals(): UseTerminalsResult {
   }, [])
 
   const createTerminal = useCallback(
-    (folder: string, command: CommandKey, name: string, shell: ShellType) => {
+    (
+      folder: string,
+      command: CommandKey,
+      name: string,
+      shell: ShellType,
+      position?: { x: number; y: number }
+    ) => {
       // The id and the persist side-effect must live outside the setNodes
       // updater: React StrictMode runs updaters twice, which would generate
       // two ids and persist two rows for a single terminal.
@@ -39,8 +46,8 @@ export function useTerminals(): UseTerminalsResult {
       setNodes((prev) => {
         const node: TerminalNodeData = {
           id,
-          x: 40 + ((prev.length * 30) % 300),
-          y: 40 + ((prev.length * 30) % 300),
+          x: position ? position.x : 40 + ((prev.length * 30) % 300),
+          y: position ? position.y : 40 + ((prev.length * 30) % 300),
           width: 600,
           height: 380,
           shell,

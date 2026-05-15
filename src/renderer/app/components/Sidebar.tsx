@@ -2,11 +2,12 @@
 // link/centre actions per item, and the theme toggle in the footer.
 // Collapsed mode shows a narrow strip with terminal icons; clicking the strip
 // re-opens the full sidebar.
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import type { TerminalNodeData } from '@renderer/features/terminals/types'
 import type { CanvasTheme } from '@renderer/features/canvas/types'
 import {
   IChevDown,
+  IChevRight,
   IClose,
   IFolder,
   ILink,
@@ -136,6 +137,7 @@ function ExpandedSidebar({
   onStartLink,
   onToggleTheme,
 }: SidebarProps): JSX.Element {
+  const [terminalsOpen, setTerminalsOpen] = useState(true)
   const q = query.trim().toLowerCase()
   const filtered = q
     ? terminals.filter(
@@ -159,30 +161,40 @@ function ExpandedSidebar({
         flexShrink: 0,
       }}
     >
-      {/* Brand */}
-      <div className="flex items-center gap-2.5 px-4 pt-4 pb-3">
+      {/* Brand — chevron toggles the terminals list visibility */}
+      <button
+        className="flex items-center gap-2.5 px-4 pt-4 pb-3 w-full text-left"
+        onClick={() => setTerminalsOpen((v) => !v)}
+        title={terminalsOpen ? 'Hide terminals' : 'Show terminals'}
+      >
         <span className="logo-mark" aria-hidden />
         <div className="flex flex-col leading-none">
           <span
-            className="text-[14px] font-semibold tracking-[-0.01em]"
+            className="text-[14px] font-semibold tracking-[-0.01em] flex items-center gap-1"
             style={{ color: 'var(--fg)' }}
           >
             IAO
+            <span style={{ color: 'var(--fg-3)' }}>
+              {terminalsOpen ? <IChevDown size={12} /> : <IChevRight size={12} />}
+            </span>
           </span>
           <span className="text-[10.5px] mt-0.5" style={{ color: 'var(--fg-3)' }}>
             Local workspace
           </span>
         </div>
         <div className="ml-auto flex items-center gap-0.5">
-          <button
+          <span
             className="icon-btn"
-            onClick={() => onCollapsedChange(true)}
+            onClick={(e) => {
+              e.stopPropagation()
+              onCollapsedChange(true)
+            }}
             title="Collapse sidebar"
           >
             <ISidebarClose size={15} />
-          </button>
+          </span>
         </div>
-      </div>
+      </button>
 
       {/* New terminal */}
       <div className="px-3 pb-3">
@@ -237,7 +249,10 @@ function ExpandedSidebar({
         <span className="chip">{terminals.length}</span>
       </div>
 
-      <div className="flex-1 overflow-y-auto nice-scroll px-2 pb-2">
+      <div
+        className="flex-1 overflow-y-auto nice-scroll px-2 pb-2"
+        style={{ display: terminalsOpen ? 'block' : 'none' }}
+      >
         {Object.entries(grouped).map(([root, items], gi) => (
           <div key={root} className={gi > 0 ? 'mt-3' : ''}>
             <div className="flex items-center gap-1.5 px-2 py-1.5">
