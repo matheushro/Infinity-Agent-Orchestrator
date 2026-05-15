@@ -208,9 +208,7 @@ export function Canvas({
           left: 0,
           top: 0,
           transformOrigin: '0 0',
-          transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-          marginLeft: -4000,
-          marginTop: -4000,
+          transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom}) translate(-4000px, -4000px)`,
           backgroundPosition: '4000px 4000px',
         }}
       >
