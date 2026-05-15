@@ -47,6 +47,7 @@ export function useTerminalSession(
     window.ptyApi
       .create({
         id: ptyId,
+        nodeId: node.id,
         shell: node.shell === 'default' ? undefined : node.shell,
         cols: term.cols,
         rows: term.rows,

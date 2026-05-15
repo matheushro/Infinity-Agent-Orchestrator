@@ -24,6 +24,9 @@ export interface PtyCreateArgs {
   rows: number
   cwd?: string
   command?: string
+  // Persistence id of the terminal node this pty belongs to. The iao bridge
+  // uses it to map a pty session to the user-visible terminal (title, edges).
+  nodeId?: string
 }
 
 export interface PtyCreateResult {

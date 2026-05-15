@@ -5,9 +5,11 @@ import { createWindow } from './window'
 import { registerIpcHandlers } from './ipc'
 import { initDb } from './services/db.service'
 import { killAllPtys } from './services/pty.service'
+import { startIaoServer, stopIaoServer } from './services/iao.service'
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   initDb()
+  await startIaoServer()
   registerIpcHandlers()
   createWindow()
 
@@ -18,5 +20,6 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   killAllPtys()
+  stopIaoServer()
   if (process.platform !== 'darwin') app.quit()
 })
