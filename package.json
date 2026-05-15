@@ -3,13 +3,43 @@
   "version": "0.1.0",
   "description": "MVP - local terminal canvas in Electron",
   "main": "out/main/index.js",
-  "author": "",
+  "author": {
+    "name": "Matheus Oliveira",
+    "email": "matheushro.dev@gmail.com"
+  },
   "license": "MIT",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "start": "electron-vite preview",
-    "postinstall": "electron-rebuild -f -w node-pty -w better-sqlite3"
+    "dist": "npm run build && electron-builder",
+    "dist:linux": "npm run build && electron-builder --linux AppImage deb",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "postinstall": "electron-rebuild -f -w node-pty,better-sqlite3"
+  },
+  "build": {
+    "appId": "com.iao.app",
+    "productName": "IAO",
+    "files": [
+      "out/**/*",
+      "resources/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "**/node_modules/node-pty/**",
+      "**/node_modules/better-sqlite3/**"
+    ],
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "Development"
+    },
+    "win": {
+      "target": ["nsis"]
+    },
+    "mac": {
+      "target": ["dmg"]
+    }
   },
   "devDependencies": {
     "@electron/rebuild": "^3.7.0",
@@ -19,6 +49,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
     "electron-vite": "^2.3.0",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.15",

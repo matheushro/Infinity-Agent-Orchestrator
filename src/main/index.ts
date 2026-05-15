@@ -7,6 +7,13 @@ import { initDb } from './services/db.service'
 import { killAllPtys } from './services/pty.service'
 import { startIaoServer, stopIaoServer } from './services/iao.service'
 
+// Linux distros with restricted unprivileged user namespaces (Ubuntu 24.04+)
+// reject Chromium's setuid sandbox unless chrome-sandbox is root:4755. Packaged
+// AppImages can't guarantee that, so disable the sandbox up front.
+if (process.platform === 'linux') {
+  app.commandLine.appendSwitch('no-sandbox')
+}
+
 app.whenReady().then(async () => {
   initDb()
   await startIaoServer()
