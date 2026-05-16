@@ -3,10 +3,11 @@ import { AGENTS } from './agents'
 import type { AgentKey } from './agents'
 
 describe('AGENTS registry', () => {
-  it('contains codex, claude, and copilot', () => {
+  it('contains codex, claude, gemini, and copilot', () => {
     const keys = Object.keys(AGENTS) as AgentKey[]
     expect(keys).toContain('codex')
     expect(keys).toContain('claude')
+    expect(keys).toContain('gemini')
     expect(keys).toContain('copilot')
   })
 
@@ -22,6 +23,11 @@ describe('AGENTS registry', () => {
   it('codex and claude declare a skillDir for IAO skill installation', () => {
     expect(AGENTS.codex.skillDir).toBe('.codex/skills/iao')
     expect(AGENTS.claude.skillDir).toBe('.claude/skills/iao')
+  })
+
+  it('gemini is available as a launchable command', () => {
+    expect(AGENTS.gemini.cmd).toBe('gemini')
+    expect(AGENTS.gemini.label).toBe('Gemini')
   })
 
   it('copilot cmd invokes copilot directly', () => {

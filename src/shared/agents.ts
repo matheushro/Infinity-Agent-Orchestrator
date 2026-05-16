@@ -24,6 +24,12 @@ export const AGENTS = {
     icon: '✳️',
     skillDir: '.claude/skills/iao',
   },
+  gemini: {
+    key: 'gemini',
+    label: 'Gemini',
+    cmd: 'gemini',
+    icon: '✦',
+  },
   copilot: {
     key: 'copilot',
     label: 'GitHub Copilot',

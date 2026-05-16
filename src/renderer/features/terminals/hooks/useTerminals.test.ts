@@ -125,6 +125,20 @@ describe('useTerminals — createTerminal', () => {
     )
   })
 
+  it('uses the Gemini label and command when gemini is selected', async () => {
+    const { result } = renderHook(() => useTerminals('ws-1'))
+    await waitFor(() => expect(mockTerminalRepository.listActive).toHaveBeenCalled())
+
+    act(() => {
+      result.current.createTerminal('/home/user/project', 'gemini', '', 'bash')
+    })
+
+    expect(result.current.nodes[0].title).toBe('Gemini · project')
+    expect(mockTerminalRepository.persist).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'gemini' })
+    )
+  })
+
   it('uses the provided name when non-empty', async () => {
     const { result } = renderHook(() => useTerminals('ws-1'))
     await waitFor(() => expect(mockTerminalRepository.listActive).toHaveBeenCalled())

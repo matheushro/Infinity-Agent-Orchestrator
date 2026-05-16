@@ -75,6 +75,7 @@ describe('NewTerminalModal', () => {
     expect(screen.getByRole('button', { name: /Select/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Codex/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Claude Code/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Gemini/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /GitHub Copilot/ })).toBeInTheDocument()
   })
 
@@ -140,16 +141,19 @@ describe('NewTerminalModal', () => {
 
     const claudeButton = screen.getByRole('button', { name: /Claude Code/ })
     const codexButton = screen.getByRole('button', { name: /Codex/ })
+    const geminiButton = screen.getByRole('button', { name: /Gemini/ })
     const copilotButton = screen.getByRole('button', { name: /GitHub Copilot/ })
 
     expect(claudeButton.style.border).toBe('1px solid var(--accent)')
     expect(codexButton.style.border).toBe('1px solid var(--line-2)')
+    expect(geminiButton.style.border).toBe('1px solid var(--line-2)')
     expect(copilotButton.style.border).toBe('1px solid var(--line-2)')
 
-    fireEvent.click(copilotButton)
+    fireEvent.click(geminiButton)
 
-    expect(copilotButton.style.border).toBe('1px solid var(--accent)')
+    expect(geminiButton.style.border).toBe('1px solid var(--accent)')
     expect(claudeButton.style.border).toBe('1px solid var(--line-2)')
     expect(codexButton.style.border).toBe('1px solid var(--line-2)')
+    expect(copilotButton.style.border).toBe('1px solid var(--line-2)')
   })
 })
