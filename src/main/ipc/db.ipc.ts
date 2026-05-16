@@ -1,6 +1,7 @@
 // IPC handlers for the persistence domain.
 import { ipcMain } from 'electron'
 import { IpcChannels } from '@shared/types/ipc'
+import type { CanvasTextRecord } from '@shared/types/canvas'
 import type { EdgeRecord, TerminalRecord } from '@shared/types/terminal'
 import * as dbService from '../services/db.service'
 
@@ -17,4 +18,13 @@ export function registerDbIpc(): void {
     dbService.upsertEdge(record),
   )
   ipcMain.handle(IpcChannels.edgesRemove, (_event, id: string) => dbService.removeEdge(id))
+  ipcMain.handle(IpcChannels.canvasTextsList, (_event, workspaceId: string) =>
+    dbService.listCanvasTexts(workspaceId),
+  )
+  ipcMain.handle(IpcChannels.canvasTextsUpsert, (_event, record: CanvasTextRecord) =>
+    dbService.upsertCanvasText(record),
+  )
+  ipcMain.handle(IpcChannels.canvasTextsRemove, (_event, id: string) =>
+    dbService.removeCanvasText(id),
+  )
 }

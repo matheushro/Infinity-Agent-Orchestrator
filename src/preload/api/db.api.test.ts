@@ -52,4 +52,20 @@ describe('db.api', () => {
     dbApi.removeEdge('e1')
     expect(mockIpc.invoke).toHaveBeenCalledWith(IpcChannels.edgesRemove, 'e1')
   })
+
+  it('listCanvasTexts invokes canvas-texts:list with workspaceId', () => {
+    dbApi.listCanvasTexts('ws-1')
+    expect(mockIpc.invoke).toHaveBeenCalledWith(IpcChannels.canvasTextsList, 'ws-1')
+  })
+
+  it('upsertCanvasText invokes canvas-texts:upsert with record', () => {
+    const text = { id: 'text-1', text: 'Note', x: 0, y: 0, width: 220, height: 44, workspace_id: 'ws-1' }
+    dbApi.upsertCanvasText(text)
+    expect(mockIpc.invoke).toHaveBeenCalledWith(IpcChannels.canvasTextsUpsert, text)
+  })
+
+  it('removeCanvasText invokes canvas-texts:remove with id', () => {
+    dbApi.removeCanvasText('text-1')
+    expect(mockIpc.invoke).toHaveBeenCalledWith(IpcChannels.canvasTextsRemove, 'text-1')
+  })
 })

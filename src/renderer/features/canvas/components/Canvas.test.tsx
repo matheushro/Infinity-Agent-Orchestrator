@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { CanvasTextRecord } from '@shared/types/canvas'
 import type { EdgeRecord } from '@shared/types/terminal'
 import type { TerminalNodeData, TerminalStyle } from '@renderer/features/terminals/types'
 import type { CanvasTool } from './Canvas'
@@ -96,7 +97,41 @@ const mocks = vi.hoisted(() => {
     )
   }
 
-  return { MockResizeObserver, MockTerminalNode, MockMinimap }
+  function MockCanvasText({
+    text,
+    onSelect,
+    onEdit,
+    onDragStart,
+    onContextMenu,
+  }: {
+    text: CanvasTextRecord
+    selected: boolean
+    editing: boolean
+    scale: number
+    onSelect: (id: string) => void
+    onEdit: (id: string) => void
+    onDragStart: (id: string) => void
+    onMove: (id: string, patch: Partial<CanvasTextRecord>) => void
+    onUpdate: (id: string, patch: Partial<CanvasTextRecord>) => void
+    onRemove: (id: string) => void
+    onEditingComplete: () => void
+    onContextMenu: (id: string, x: number, y: number) => void
+  }): JSX.Element {
+    return (
+      <button
+        className="canvas-text"
+        data-testid={`canvas-text-${text.id}`}
+        onMouseDown={() => onSelect(text.id)}
+        onDoubleClick={() => onEdit(text.id)}
+        onDragStart={() => onDragStart(text.id)}
+        onContextMenu={(event) => onContextMenu(text.id, event.clientX, event.clientY)}
+      >
+        {text.text}
+      </button>
+    )
+  }
+
+  return { MockResizeObserver, MockTerminalNode, MockMinimap, MockCanvasText }
 })
 
 vi.mock('@renderer/features/terminals/components/TerminalNode', () => ({
@@ -105,6 +140,10 @@ vi.mock('@renderer/features/terminals/components/TerminalNode', () => ({
 
 vi.mock('./Minimap', () => ({
   Minimap: mocks.MockMinimap,
+}))
+
+vi.mock('./CanvasText', () => ({
+  CanvasText: mocks.MockCanvasText,
 }))
 
 import { Canvas } from './Canvas'
@@ -125,6 +164,7 @@ const nodeA: TerminalNodeData = {
   title: 'A',
   cwd: '/tmp/a',
   command: 'claude',
+  workspace_id: 'default',
 }
 
 const nodeB: TerminalNodeData = {
@@ -137,6 +177,7 @@ const nodeB: TerminalNodeData = {
   title: 'B',
   cwd: '/tmp/b',
   command: 'claude',
+  workspace_id: 'default',
 }
 
 const nodeC: TerminalNodeData = {
@@ -149,6 +190,7 @@ const nodeC: TerminalNodeData = {
   title: 'C',
   cwd: '/tmp/c',
   command: 'claude',
+  workspace_id: 'default',
 }
 
 const nodeD: TerminalNodeData = {
@@ -161,22 +203,34 @@ const nodeD: TerminalNodeData = {
   title: 'D',
   cwd: '/tmp/d',
   command: 'claude',
+  workspace_id: 'default',
 }
 
 function makeProps(overrides: Record<string, unknown> = {}) {
   return {
     nodes: [],
+    texts: [],
     edges: [],
     selectedIds: [],
+    selectedTextIds: [],
     selectedEdgeId: null,
+    editingTextId: null,
     focusedId: null,
     focusRequest: null,
     linkSource: null,
     tool: 'select' as CanvasTool,
     contextMenuNodeId: null,
     onSelect: vi.fn(),
+    onSelectText: vi.fn(),
     onSelectEdge: vi.fn(),
     onSelectMany: vi.fn(),
+    onSelectManyTexts: vi.fn(),
+    onSelectManyMixed: vi.fn(),
+    onCreateText: vi.fn(),
+    onEditText: vi.fn(),
+    onMoveText: vi.fn(),
+    onUpdateText: vi.fn(),
+    onRemoveText: vi.fn(),
     onFocusConsumed: vi.fn(),
     onMoveNode: vi.fn(),
     onUpdateNode: vi.fn(),
@@ -184,6 +238,7 @@ function makeProps(overrides: Record<string, unknown> = {}) {
     onLinkPick: vi.fn(),
     onSetTool: vi.fn(),
     onNodeContextMenu: vi.fn(),
+    onTextContextMenu: vi.fn(),
     onCanvasContextMenu: vi.fn(),
     getTerminalStyle: vi.fn(() => baseStyle),
     ...overrides,
@@ -276,12 +331,14 @@ describe('Canvas', () => {
 
   it('starts marquee after 4px, converts client to world coords, selects intersected nodes, and deselects on simple click', async () => {
     const onSelectMany = vi.fn()
+    const onSelectManyMixed = vi.fn()
     const onSelect = vi.fn()
     const onSelectEdge = vi.fn()
 
     const { root } = renderCanvas({
       nodes: [nodeD],
       onSelectMany,
+      onSelectManyMixed,
       onSelect,
       onSelectEdge,
     })
@@ -296,7 +353,7 @@ describe('Canvas', () => {
     fireEvent.mouseMove(root, { clientX: 185, clientY: 145 })
     fireEvent.mouseUp(root, { clientX: 185, clientY: 145 })
 
-    await waitFor(() => expect(onSelectMany).toHaveBeenCalledWith(['d']))
+    await waitFor(() => expect(onSelectManyMixed).toHaveBeenCalledWith(['d'], []))
 
     fireEvent.mouseDown(root, { button: 0, clientX: 120, clientY: 80 })
     fireEvent.mouseUp(root, { clientX: 120, clientY: 80 })
@@ -305,17 +362,138 @@ describe('Canvas', () => {
     expect(onSelectEdge).toHaveBeenCalledWith(null)
   })
 
+  it('creates free text on empty-canvas double click using world coordinates', async () => {
+    const onCreateText = vi.fn()
+    const { root } = renderCanvas({ onCreateText })
+
+    fireEvent.doubleClick(root, { button: 0, clientX: 180, clientY: 120 })
+
+    expect(onCreateText).toHaveBeenCalledWith({ x: 80, y: 70 })
+  })
+
+  it('creates free text on a single click when the text tool is active', async () => {
+    const onCreateText = vi.fn()
+    const onSelect = vi.fn()
+    const onSelectText = vi.fn()
+    const onSelectEdge = vi.fn()
+    const onSetTool = vi.fn()
+    const { root } = renderCanvas({
+      tool: 'text',
+      onCreateText,
+      onSelect,
+      onSelectText,
+      onSelectEdge,
+      onSetTool,
+    })
+
+    fireEvent.click(root, { button: 0, clientX: 180, clientY: 120 })
+
+    expect(onCreateText).toHaveBeenCalledWith({ x: 80, y: 70 })
+    expect(onSelect).toHaveBeenCalledWith(null, false)
+    expect(onSelectText).toHaveBeenCalledWith(null)
+    expect(onSelectEdge).toHaveBeenCalledWith(null)
+    expect(onSetTool).toHaveBeenCalledWith('select')
+  })
+
+  it('selects both terminals and texts when dragging a marquee over both', async () => {
+    const onSelectManyMixed = vi.fn()
+    const onSelectManyTexts = vi.fn()
+    const text: CanvasTextRecord = {
+      id: 'text-1',
+      text: 'Note',
+      x: 30,
+      y: 40,
+      width: 80,
+      height: 30,
+      workspace_id: 'default',
+    }
+
+    const { root } = renderCanvas({
+      nodes: [nodeD],
+      texts: [text],
+      onSelectManyMixed,
+      onSelectManyTexts,
+    })
+
+    fireEvent.mouseDown(root, { button: 0, clientX: 120, clientY: 80 })
+    fireEvent.mouseMove(root, { clientX: 185, clientY: 145 })
+    fireEvent.mouseUp(root, { clientX: 185, clientY: 145 })
+
+    await waitFor(() => expect(onSelectManyMixed).toHaveBeenCalledWith(['d'], ['text-1']))
+  })
+
+  it('opens the text context menu on right click over a text element', async () => {
+    const onTextContextMenu = vi.fn()
+    renderCanvas({
+      texts: [
+        {
+          id: 'text-1',
+          text: 'Note',
+          x: 40,
+          y: 50,
+          width: 120,
+          height: 40,
+          workspace_id: 'default',
+        },
+      ],
+      onTextContextMenu,
+    })
+
+    fireEvent.contextMenu(screen.getByTestId('canvas-text-text-1'), {
+      clientX: 160,
+      clientY: 120,
+      button: 2,
+    })
+
+    expect(onTextContextMenu).toHaveBeenCalledWith('text-1', 160, 120)
+  })
+
+  it('selects and edits existing text without creating another text element', async () => {
+    const onCreateText = vi.fn()
+    const onSelectText = vi.fn()
+    const onEditText = vi.fn()
+    const text: CanvasTextRecord = {
+      id: 'text-1',
+      text: 'Note',
+      x: 40,
+      y: 50,
+      width: 120,
+      height: 40,
+      workspace_id: 'default',
+    }
+
+    renderCanvas({
+      texts: [text],
+      onCreateText,
+      onSelectText,
+      onEditText,
+    })
+
+    fireEvent.mouseDown(screen.getByTestId('canvas-text-text-1'), { button: 0 })
+    fireEvent.doubleClick(screen.getByTestId('canvas-text-text-1'), { button: 0 })
+
+    expect(onSelectText).toHaveBeenCalledWith('text-1')
+    expect(onEditText).toHaveBeenCalledWith('text-1')
+    expect(onCreateText).not.toHaveBeenCalled()
+  })
+
   it('switches tool modes through the toolbar and respects pan, link, delete, and shift-left pan behaviors', async () => {
     const onSetTool = vi.fn()
     const { root, rerender, props, surface } = renderCanvas({ onSetTool, nodes: [nodeA] })
 
+    fireEvent.click(screen.getByTitle('Text (T)'))
     fireEvent.click(screen.getByTitle('Pan (H)'))
     fireEvent.click(screen.getByTitle('Link terminals'))
     fireEvent.click(screen.getByTitle('Delete on click'))
 
+    expect(onSetTool).toHaveBeenCalledWith('text')
     expect(onSetTool).toHaveBeenCalledWith('pan')
     expect(onSetTool).toHaveBeenCalledWith('link')
     expect(onSetTool).toHaveBeenCalledWith('delete')
+
+    rerender(<Canvas {...props} tool="text" onSetTool={onSetTool} />)
+    fireEvent.click(screen.getByTitle('Text (T)'))
+    expect(onSetTool).toHaveBeenCalledWith('select')
 
     rerender(<Canvas {...props} tool="link" onSetTool={onSetTool} />)
     fireEvent.click(screen.getByTitle('Link terminals'))

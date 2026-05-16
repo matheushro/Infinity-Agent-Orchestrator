@@ -141,6 +141,19 @@ body {
 .terminal-node:hover .resize-handle,
 .terminal-node.is-selected .resize-handle { opacity: 0.8; }
 
+.canvas-text {
+  color: var(--fg);
+  background: transparent;
+  cursor: grab;
+  transition: box-shadow 100ms ease;
+}
+.canvas-text.is-editing {
+  cursor: text;
+}
+.canvas-text textarea::placeholder {
+  color: var(--fg-3);
+}
+
 .chip {
   display: inline-flex;
   align-items: center;

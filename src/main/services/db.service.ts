@@ -2,6 +2,7 @@
 import { app } from 'electron'
 import { join } from 'path'
 import Database from 'better-sqlite3'
+import type { CanvasTextRecord } from '@shared/types/canvas'
 import type { EdgeRecord, TerminalRecord } from '@shared/types/terminal'
 import type { WorkspaceRecord } from '@shared/types/workspace'
 
@@ -33,6 +34,19 @@ export function initDb(): void {
       active INTEGER NOT NULL DEFAULT 1,
       created_at INTEGER NOT NULL,
       workspace_id TEXT NOT NULL DEFAULT ''
+    )
+  `)
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS canvas_texts (
+      id TEXT PRIMARY KEY,
+      text TEXT NOT NULL,
+      x REAL NOT NULL,
+      y REAL NOT NULL,
+      width REAL NOT NULL,
+      height REAL NOT NULL,
+      workspace_id TEXT NOT NULL,
+      created_at INTEGER NOT NULL
     )
   `)
 
@@ -119,6 +133,17 @@ export function duplicateWorkspace(sourceId: string): WorkspaceRecord {
     insert.run({ ...t, id: crypto.randomUUID(), workspace_id: newId, created_at: now })
   }
 
+  const texts = db
+    .prepare('SELECT * FROM canvas_texts WHERE workspace_id = ?')
+    .all(sourceId) as Array<CanvasTextRecord & { created_at: number }>
+  const insertText = db.prepare(
+    `INSERT INTO canvas_texts (id, text, x, y, width, height, workspace_id, created_at)
+     VALUES (@id, @text, @x, @y, @width, @height, @workspace_id, @created_at)`,
+  )
+  for (const text of texts) {
+    insertText.run({ ...text, id: crypto.randomUUID(), workspace_id: newId, created_at: now })
+  }
+
   return newRecord
 }
 
@@ -171,4 +196,28 @@ export function upsertEdge(record: EdgeRecord): void {
 
 export function removeEdge(id: string): void {
   db.prepare('DELETE FROM edges WHERE id = ?').run(id)
+}
+
+// ── Canvas text elements ────────────────────────────────────────────────────
+
+export function listCanvasTexts(workspaceId: string): CanvasTextRecord[] {
+  return db
+    .prepare(
+      'SELECT id, text, x, y, width, height, workspace_id FROM canvas_texts WHERE workspace_id = ? ORDER BY created_at',
+    )
+    .all(workspaceId) as CanvasTextRecord[]
+}
+
+export function upsertCanvasText(record: CanvasTextRecord): void {
+  db.prepare(
+    `INSERT INTO canvas_texts (id, text, x, y, width, height, workspace_id, created_at)
+     VALUES (@id, @text, @x, @y, @width, @height, @workspace_id, @created_at)
+     ON CONFLICT(id) DO UPDATE SET
+       text = @text, x = @x, y = @y, width = @width, height = @height,
+       workspace_id = @workspace_id`,
+  ).run({ ...record, created_at: Date.now() })
+}
+
+export function removeCanvasText(id: string): void {
+  db.prepare('DELETE FROM canvas_texts WHERE id = ?').run(id)
 }

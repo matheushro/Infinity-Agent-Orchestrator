@@ -10,4 +10,7 @@ export const dbApi: DbApi = {
   listEdges: () => ipcRenderer.invoke(IpcChannels.edgesList),
   upsertEdge: (record) => ipcRenderer.invoke(IpcChannels.edgesUpsert, record),
   removeEdge: (id) => ipcRenderer.invoke(IpcChannels.edgesRemove, id),
+  listCanvasTexts: (workspaceId) => ipcRenderer.invoke(IpcChannels.canvasTextsList, workspaceId),
+  upsertCanvasText: (record) => ipcRenderer.invoke(IpcChannels.canvasTextsUpsert, record),
+  removeCanvasText: (id) => ipcRenderer.invoke(IpcChannels.canvasTextsRemove, id),
 }

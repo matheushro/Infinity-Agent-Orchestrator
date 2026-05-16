@@ -54,11 +54,12 @@ describe('IpcChannels — completude e consistência', () => {
     expect(IpcChannels.dialogSelectFolder).toBe('dialog:select-folder')
   })
 
-  it('IpcChannels contém exatamente os 18 canais conhecidos (sem canais fantasma)', () => {
+  it('IpcChannels contém exatamente os 21 canais conhecidos (sem canais fantasma)', () => {
     const expected = [
       'pty:create', 'pty:input', 'pty:resize', 'pty:kill', 'pty:data', 'pty:exit',
       'db:list-active', 'db:upsert', 'db:remove',
       'edges:list', 'edges:upsert', 'edges:remove',
+      'canvas-texts:list', 'canvas-texts:upsert', 'canvas-texts:remove',
       'dialog:select-folder',
       'workspaces:list', 'workspaces:create', 'workspaces:delete',
       'workspaces:rename', 'workspaces:duplicate',
@@ -94,6 +95,9 @@ describe('IpcChannels — completude e consistência', () => {
     expect(IpcChannels.edgesList).toBeTruthy()
     expect(IpcChannels.edgesUpsert).toBeTruthy()
     expect(IpcChannels.edgesRemove).toBeTruthy()
+    expect(IpcChannels.canvasTextsList).toBeTruthy()
+    expect(IpcChannels.canvasTextsUpsert).toBeTruthy()
+    expect(IpcChannels.canvasTextsRemove).toBeTruthy()
   })
 
   it('canal dialog:select-folder usado no preload de dialog', () => {

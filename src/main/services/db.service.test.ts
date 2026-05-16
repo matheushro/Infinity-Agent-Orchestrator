@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 const store = vi.hoisted(() => ({
   terminals: new Map<string, Record<string, unknown>>(),
   edges: new Map<string, Record<string, unknown>>(),
+  canvasTexts: new Map<string, Record<string, unknown>>(),
   workspaces: new Map<string, Record<string, unknown>>(),
 }))
 
@@ -43,6 +44,20 @@ vi.mock('better-sqlite3', () => {
               return Array.from(store.edges.values())
                 .sort((a, b) => (a.created_at as number) - (b.created_at as number))
                 .map(({ id, source, target }) => ({ id, source, target }))
+            }
+            if (sql.includes('FROM canvas_texts')) {
+              return Array.from(store.canvasTexts.values())
+                .filter(t => !sql.includes('workspace_id = ?') || t.workspace_id === args[0])
+                .sort((a, b) => (a.created_at as number) - (b.created_at as number))
+                .map(({ id, text, x, y, width, height, workspace_id }) => ({
+                  id,
+                  text,
+                  x,
+                  y,
+                  width,
+                  height,
+                  workspace_id,
+                }))
             }
             if (sql.includes('FROM workspaces')) {
               return Array.from(store.workspaces.values())
@@ -87,6 +102,15 @@ vi.mock('better-sqlite3', () => {
                   ? { ...existing, source: rec.source, target: rec.target, created_at: rec.created_at }
                   : { ...rec }
               )
+            } else if (sql.startsWith('INSERT INTO canvas_texts')) {
+              const rec = args[0] as Record<string, unknown>
+              const existing = store.canvasTexts.get(rec.id as string)
+              store.canvasTexts.set(
+                rec.id as string,
+                existing
+                  ? { ...existing, ...rec, created_at: existing.created_at }
+                  : { ...rec }
+              )
             } else if (sql.includes('UPDATE terminals SET workspace_id')) {
               // migration: assign orphaned terminals to default workspace
               for (const [key, t] of store.terminals) {
@@ -103,6 +127,8 @@ vi.mock('better-sqlite3', () => {
               store.terminals.delete(args[0] as string)
             } else if (sql.includes('DELETE FROM edges WHERE id = ?')) {
               store.edges.delete(args[0] as string)
+            } else if (sql.includes('DELETE FROM canvas_texts WHERE id = ?')) {
+              store.canvasTexts.delete(args[0] as string)
             } else if (sql.includes('DELETE FROM workspaces WHERE id = ?')) {
               store.workspaces.delete(args[0] as string)
             }
@@ -121,10 +147,14 @@ import {
   listEdges,
   upsertEdge,
   removeEdge,
+  listCanvasTexts,
+  upsertCanvasText,
+  removeCanvasText,
   listWorkspaces,
   createWorkspace,
   deleteWorkspace,
 } from './db.service'
+import type { CanvasTextRecord } from '@shared/types/canvas'
 import type { TerminalRecord, EdgeRecord } from '@shared/types/terminal'
 import type { WorkspaceRecord } from '@shared/types/workspace'
 
@@ -166,10 +196,24 @@ function makeEdge(overrides: Partial<EdgeRecord> = {}): EdgeRecord {
   }
 }
 
+function makeCanvasText(overrides: Partial<CanvasTextRecord> = {}): CanvasTextRecord {
+  return {
+    id: `text-${++seq}`,
+    text: `Text ${seq}`,
+    x: 10,
+    y: 20,
+    width: 220,
+    height: 44,
+    workspace_id: 'default',
+    ...overrides,
+  }
+}
+
 beforeEach(() => {
   seq = 0
   store.terminals.clear()
   store.edges.clear()
+  store.canvasTexts.clear()
   store.workspaces.clear()
   executedSql.length = 0
   initDb() // initializes the module-level `db` instance (mock: no-op schema ops)
@@ -530,5 +574,34 @@ describe('listActiveTerminals — workspace filter', () => {
     upsertTerminal(makeTerminal({ id: 'scope-2', workspace_id: 'ws-y' }))
     const result = listActiveTerminals('ws-x')
     expect(result.every((r) => r.workspace_id === 'ws-x')).toBe(true)
+  })
+})
+
+// ===========================================================================
+// Canvas text elements
+// ===========================================================================
+
+describe('canvas text persistence', () => {
+  it('lists text elements scoped to a workspace', () => {
+    upsertCanvasText(makeCanvasText({ id: 'text-a', workspace_id: 'ws-a' }))
+    upsertCanvasText(makeCanvasText({ id: 'text-b', workspace_id: 'ws-b' }))
+
+    expect(listCanvasTexts('ws-a').map((text) => text.id)).toEqual(['text-a'])
+  })
+
+  it('upserts text content and layout fields', () => {
+    upsertCanvasText(makeCanvasText({ id: 'text-upsert', text: 'Before', x: 10 }))
+    upsertCanvasText(makeCanvasText({ id: 'text-upsert', text: 'After', x: 42 }))
+
+    const [found] = listCanvasTexts('default').filter((text) => text.id === 'text-upsert')
+    expect(found).toMatchObject({ text: 'After', x: 42, width: 220, height: 44 })
+  })
+
+  it('removes a text element by id', () => {
+    upsertCanvasText(makeCanvasText({ id: 'text-gone' }))
+
+    removeCanvasText('text-gone')
+
+    expect(listCanvasTexts('default').some((text) => text.id === 'text-gone')).toBe(false)
   })
 })

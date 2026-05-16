@@ -15,6 +15,7 @@ import { NewTerminalModal } from '@renderer/features/terminals/components/NewTer
 import { TerminalContextMenu } from '@renderer/features/terminals/components/TerminalContextMenu'
 import { TerminalStyleModal } from '@renderer/features/terminals/components/TerminalStyleModal'
 import { useTerminals } from '@renderer/features/terminals/hooks/useTerminals'
+import { useCanvasTexts } from '@renderer/features/canvas/hooks/useCanvasTexts'
 import { useEdges } from '@renderer/features/canvas/hooks/useEdges'
 import type { TerminalNodeData } from '@renderer/features/terminals/types'
 import type { ShellType } from '@renderer/features/terminals/types'
@@ -23,6 +24,12 @@ import type { WorkspaceRecord } from '@shared/types/workspace'
 
 interface ContextMenuState {
   nodeId: string
+  x: number
+  y: number
+}
+
+interface TextContextMenuState {
+  textId: string
   x: number
   y: number
 }
@@ -74,11 +81,20 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
     const { nodes, createTerminal, moveNode, updateNode, removeNode } = useTerminals(
       workspace.id,
     )
+    const {
+      texts,
+      createText,
+      moveText,
+      updateText,
+      removeText,
+    } = useCanvasTexts(workspace.id)
     const nodeIds = useMemo(() => nodes.map((n) => n.id), [nodes])
     const { edges, addEdge, removeEdge } = useEdges(nodeIds)
 
     const [selectedIds, setSelectedIds] = useState<string[]>([])
+    const [selectedTextIds, setSelectedTextIds] = useState<string[]>([])
     const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null)
+    const [editingTextId, setEditingTextId] = useState<string | null>(null)
     const [focusedId, setFocusedId] = useState<string | null>(null)
     const [focusRequest, setFocusRequest] = useState<string | null>(null)
     const [tool, setTool] = useState<CanvasTool>('select')
@@ -88,6 +104,7 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
       null,
     )
     const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null)
+    const [textCtxMenu, setTextCtxMenu] = useState<TextContextMenuState | null>(null)
     const [canvasMenu, setCanvasMenu] = useState<CanvasMenuState | null>(null)
     const [styleEditorFor, setStyleEditorFor] = useState<string | null>(null)
 
@@ -119,6 +136,10 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
           if (tool === 'link' || tool === 'delete') {
             setTool('select')
             setLinkSource(null)
+            return
+          }
+          if (tool === 'text') {
+            setTool('select')
           }
         }
         if (e.key === 'Delete') {
@@ -129,7 +150,13 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
           if (selectedEdgeId) {
             removeEdge(selectedEdgeId)
             setSelectedEdgeId(null)
-            return
+          }
+          if (selectedTextIds.length > 0) {
+            for (const id of selectedTextIds) {
+              removeText(id)
+            }
+            setSelectedTextIds([])
+            setEditingTextId(null)
           }
           if (selectedIds.length > 0) {
             for (const id of selectedIds) {
@@ -143,7 +170,17 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
 
       window.addEventListener('keydown', onKey)
       return () => window.removeEventListener('keydown', onKey)
-    }, [active, tool, selectedIds, selectedEdgeId, removeEdge, removeNode, removeTerminalStyle])
+    }, [
+      active,
+      tool,
+      selectedIds,
+      selectedEdgeId,
+      selectedTextIds,
+      removeEdge,
+      removeNode,
+      removeText,
+      removeTerminalStyle,
+    ])
 
     function requestFocus(id: string): void {
       setFocusedId(id)
@@ -172,6 +209,7 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
         return
       }
       setSelectedEdgeId(null)
+      setSelectedTextIds([])
       setSelectedIds((prev) => {
         if (additive) {
           if (prev.includes(id)) return prev.filter((p) => p !== id)
@@ -185,6 +223,15 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
     function selectEdge(id: string | null): void {
       setSelectedEdgeId(id)
       if (id !== null) setSelectedIds([])
+      if (id !== null) setSelectedTextIds([])
+    }
+
+    function selectText(id: string | null): void {
+      setSelectedTextIds(id ? [id] : [])
+      if (id !== null) {
+        setSelectedIds([])
+        setSelectedEdgeId(null)
+      }
     }
 
     // Expose canvas actions to parent so the Sidebar can trigger them.
@@ -221,19 +268,49 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
       >
         <Canvas
           nodes={nodes}
+          texts={texts}
           edges={edges}
           selectedIds={selectedIds}
+          selectedTextIds={selectedTextIds}
           selectedEdgeId={selectedEdgeId}
+          editingTextId={editingTextId}
           focusedId={focusedId}
           focusRequest={focusRequest}
           linkSource={linkSource}
           tool={tool}
           contextMenuNodeId={ctxMenu?.nodeId ?? null}
           onSelect={selectNode}
+          onSelectText={selectText}
           onSelectEdge={selectEdge}
           onSelectMany={(ids) => {
             setSelectedEdgeId(null)
+            setSelectedTextIds([])
             setSelectedIds(ids)
+          }}
+          onSelectManyTexts={(ids) => {
+            setSelectedEdgeId(null)
+            setSelectedIds([])
+            setSelectedTextIds(ids)
+          }}
+          onSelectManyMixed={(nodeIds, textIds) => {
+            setSelectedEdgeId(null)
+            setSelectedIds(nodeIds)
+            setSelectedTextIds(textIds)
+          }}
+          onCreateText={(position) => {
+            const id = createText(position)
+            setSelectedIds([])
+            setSelectedEdgeId(null)
+            setSelectedTextIds([id])
+            setEditingTextId(id)
+          }}
+          onEditText={setEditingTextId}
+          onMoveText={moveText}
+          onUpdateText={updateText}
+          onRemoveText={(id) => {
+            removeText(id)
+            setSelectedTextIds((prev) => prev.filter((p) => p !== id))
+            setEditingTextId((prev) => (prev === id ? null : prev))
           }}
           onFocusConsumed={() => setFocusRequest(null)}
           onMoveNode={moveNode}
@@ -249,6 +326,7 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
             if (t !== 'link') setLinkSource(null)
           }}
           onNodeContextMenu={(nodeId, x, y) => setCtxMenu({ nodeId, x, y })}
+          onTextContextMenu={(textId, x, y) => setTextCtxMenu({ textId, x, y })}
           onCanvasContextMenu={(worldX, worldY, clientX, clientY) =>
             setCanvasMenu({ worldX, worldY, clientX, clientY })
           }
@@ -285,6 +363,21 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
             onStyle={() => {
               setStyleEditorFor(ctxMenu.nodeId)
               setCtxMenu(null)
+            }}
+          />
+        )}
+
+        {textCtxMenu && (
+          <TextContextMenu
+            x={textCtxMenu.x}
+            y={textCtxMenu.y}
+            onClose={() => setTextCtxMenu(null)}
+            onDelete={() => {
+              const id = textCtxMenu.textId
+              removeText(id)
+              setSelectedTextIds((prev) => prev.filter((p) => p !== id))
+              setEditingTextId((prev) => (prev === id ? null : prev))
+              setTextCtxMenu(null)
             }}
           />
         )}
@@ -355,6 +448,51 @@ function CanvasContextMenu({
           onClick={onNewTerminal}
         >
           New terminal here
+        </button>
+      </div>
+    </>
+  )
+}
+
+function TextContextMenu({
+  x,
+  y,
+  onClose,
+  onDelete,
+}: {
+  x: number
+  y: number
+  onClose: () => void
+  onDelete: () => void
+}): JSX.Element {
+  return (
+    <>
+      <div
+        className="fixed inset-0 z-[100]"
+        onMouseDown={onClose}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          onClose()
+        }}
+      />
+      <div
+        className="fixed z-[101] min-w-[180px] py-1 rounded-[10px]"
+        style={{
+          left: x,
+          top: y,
+          background: 'color-mix(in oklch, var(--bg-2) 96%, transparent)',
+          backdropFilter: 'blur(10px)',
+          border: '1px solid var(--line)',
+          boxShadow: '0 12px 32px -8px rgb(var(--shadow-color) / 0.32)',
+          color: 'var(--fg)',
+        }}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <button
+          className="ctx-item flex w-full items-center gap-2.5 px-3 py-2 text-[12.5px]"
+          onClick={onDelete}
+        >
+          Delete text
         </button>
       </div>
     </>

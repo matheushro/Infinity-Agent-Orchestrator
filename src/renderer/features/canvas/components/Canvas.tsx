@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { TerminalNode } from '@renderer/features/terminals/components/TerminalNode'
 import type { TerminalNodeData, TerminalStyle } from '@renderer/features/terminals/types'
+import type { CanvasTextRecord } from '@shared/types/canvas'
 import type { EdgeRecord } from '@shared/types/terminal'
 import {
   ICursor,
@@ -12,26 +13,39 @@ import {
   IMap,
   IMinus,
   IPlus,
+  IText,
   ITrash,
 } from '@renderer/components/ui'
 import { usePanZoom } from '../hooks/usePanZoom'
+import { CanvasText } from './CanvasText'
 import { Minimap } from './Minimap'
 
-export type CanvasTool = 'select' | 'pan' | 'link' | 'delete'
+export type CanvasTool = 'select' | 'pan' | 'link' | 'delete' | 'text'
 
 interface CanvasProps {
   nodes: TerminalNodeData[]
+  texts: CanvasTextRecord[]
   edges: EdgeRecord[]
   selectedIds: string[]
+  selectedTextIds: string[]
   selectedEdgeId: string | null
+  editingTextId: string | null
   focusedId: string | null
   focusRequest: string | null
   linkSource: string | null
   tool: CanvasTool
   contextMenuNodeId: string | null
   onSelect: (id: string | null, additive: boolean) => void
+  onSelectText: (id: string | null) => void
   onSelectEdge: (id: string | null) => void
   onSelectMany: (ids: string[]) => void
+  onSelectManyTexts: (ids: string[]) => void
+  onSelectManyMixed: (nodeIds: string[], textIds: string[]) => void
+  onCreateText: (position: { x: number; y: number }) => void
+  onEditText: (id: string | null) => void
+  onMoveText: (id: string, patch: Partial<CanvasTextRecord>) => void
+  onUpdateText: (id: string, patch: Partial<CanvasTextRecord>) => void
+  onRemoveText: (id: string) => void
   onFocusConsumed: () => void
   onMoveNode: (id: string, patch: Partial<TerminalNodeData>) => void
   onUpdateNode: (id: string, patch: Partial<TerminalNodeData>) => void
@@ -39,23 +53,35 @@ interface CanvasProps {
   onLinkPick: (id: string) => void
   onSetTool: (t: CanvasTool) => void
   onNodeContextMenu: (id: string, x: number, y: number) => void
+  onTextContextMenu: (id: string, x: number, y: number) => void
   onCanvasContextMenu: (worldX: number, worldY: number, clientX: number, clientY: number) => void
   getTerminalStyle: (id: string) => TerminalStyle
 }
 
 export function Canvas({
   nodes,
+  texts,
   edges,
   selectedIds,
+  selectedTextIds,
   selectedEdgeId,
+  editingTextId,
   focusedId,
   focusRequest,
   linkSource,
   tool,
   contextMenuNodeId,
   onSelect,
+  onSelectText,
   onSelectEdge,
   onSelectMany,
+  onSelectManyTexts,
+  onSelectManyMixed,
+  onCreateText,
+  onEditText,
+  onMoveText,
+  onUpdateText,
+  onRemoveText,
   onFocusConsumed,
   onMoveNode,
   onUpdateNode,
@@ -63,6 +89,7 @@ export function Canvas({
   onLinkPick,
   onSetTool,
   onNodeContextMenu,
+  onTextContextMenu,
   onCanvasContextMenu,
   getTerminalStyle,
 }: CanvasProps): JSX.Element {
@@ -149,12 +176,13 @@ export function Canvas({
 
   function fitAll(): void {
     const size = liveSize()
-    if (nodes.length === 0 || size.w === 0 || size.h === 0) return
+    if ((nodes.length === 0 && texts.length === 0) || size.w === 0 || size.h === 0) return
     const pad = 80
-    const minX = Math.min(...nodes.map((n) => n.x)) - pad
-    const minY = Math.min(...nodes.map((n) => n.y)) - pad
-    const maxX = Math.max(...nodes.map((n) => n.x + n.width)) + pad
-    const maxY = Math.max(...nodes.map((n) => n.y + n.height)) + pad
+    const elements = [...nodes, ...texts]
+    const minX = Math.min(...elements.map((n) => n.x)) - pad
+    const minY = Math.min(...elements.map((n) => n.y)) - pad
+    const maxX = Math.max(...elements.map((n) => n.x + n.width)) + pad
+    const maxY = Math.max(...elements.map((n) => n.y + n.height)) + pad
     const bw = Math.max(1, maxX - minX)
     const bh = Math.max(1, maxY - minY)
     const s = Math.min(size.w / bw, size.h / bh, 1)
@@ -179,6 +207,12 @@ export function Canvas({
       if (n.x + n.width + margin > maxX) maxX = n.x + n.width + margin
       if (n.y + n.height + margin > maxY) maxY = n.y + n.height + margin
     }
+    for (const text of texts) {
+      if (text.x - margin < minX) minX = text.x - margin
+      if (text.y - margin < minY) minY = text.y - margin
+      if (text.x + text.width + margin > maxX) maxX = text.x + text.width + margin
+      if (text.y + text.height + margin > maxY) maxY = text.y + text.height + margin
+    }
     const vMinX = -pan.x / zoom
     const vMinY = -pan.y / zoom
     const vMaxX = vMinX + wrapSize.w / zoom
@@ -188,7 +222,7 @@ export function Canvas({
     if (vMaxX + margin > maxX) maxX = vMaxX + margin
     if (vMaxY + margin > maxY) maxY = vMaxY + margin
     return { minX, minY, w: maxX - minX, h: maxY - minY }
-  }, [nodes, pan, zoom, wrapSize])
+  }, [nodes, texts, pan, zoom, wrapSize])
 
   const edgePaths = useMemo(() => {
     const byId = new Map(nodes.map((n) => [n.id, n]))
@@ -227,17 +261,36 @@ export function Canvas({
   // Group-drag bookkeeping: capture starts for all selected nodes when the
   // user begins dragging one of them, then move the others by the same delta.
   const groupDragRef = useRef<{
+    leadType: 'node' | 'text'
     leadId: string
     starts: Record<string, { x: number; y: number }>
   } | null>(null)
 
   function handleNodeDragStart(id: string): void {
-    if (selectedIds.length > 1 && selectedIds.includes(id)) {
+    if (selectedIds.includes(id) && (selectedIds.length > 1 || selectedTextIds.length > 0)) {
       const starts: Record<string, { x: number; y: number }> = {}
       for (const n of nodes) {
         if (selectedIds.includes(n.id)) starts[n.id] = { x: n.x, y: n.y }
       }
-      groupDragRef.current = { leadId: id, starts }
+      for (const text of texts) {
+        if (selectedTextIds.includes(text.id)) starts[text.id] = { x: text.x, y: text.y }
+      }
+      groupDragRef.current = { leadType: 'node', leadId: id, starts }
+    } else {
+      groupDragRef.current = null
+    }
+  }
+
+  function handleTextDragStart(id: string): void {
+    if (selectedTextIds.includes(id) && (selectedTextIds.length > 1 || selectedIds.length > 0)) {
+      const starts: Record<string, { x: number; y: number }> = {}
+      for (const n of nodes) {
+        if (selectedIds.includes(n.id)) starts[n.id] = { x: n.x, y: n.y }
+      }
+      for (const text of texts) {
+        if (selectedTextIds.includes(text.id)) starts[text.id] = { x: text.x, y: text.y }
+      }
+      groupDragRef.current = { leadType: 'text', leadId: id, starts }
     } else {
       groupDragRef.current = null
     }
@@ -245,12 +298,23 @@ export function Canvas({
 
   function handleNodeMove(id: string, patch: Partial<TerminalNodeData>): void {
     const m = groupDragRef.current
-    if (m && id === m.leadId && patch.x !== undefined && patch.y !== undefined) {
+    if (
+      m &&
+      m.leadType === 'node' &&
+      id === m.leadId &&
+      patch.x !== undefined &&
+      patch.y !== undefined
+    ) {
       const dx = patch.x - m.starts[id].x
       const dy = patch.y - m.starts[id].y
       for (const oid of Object.keys(m.starts)) {
         if (oid === id) continue
-        onMoveNode(oid, { x: m.starts[oid].x + dx, y: m.starts[oid].y + dy })
+        if (nodes.some((n) => n.id === oid)) {
+          onMoveNode(oid, { x: m.starts[oid].x + dx, y: m.starts[oid].y + dy })
+        }
+        if (texts.some((t) => t.id === oid)) {
+          onMoveText(oid, { x: m.starts[oid].x + dx, y: m.starts[oid].y + dy })
+        }
       }
     }
     onMoveNode(id, patch)
@@ -258,16 +322,76 @@ export function Canvas({
 
   function handleNodeUpdate(id: string, patch: Partial<TerminalNodeData>): void {
     const m = groupDragRef.current
-    if (m && id === m.leadId && patch.x !== undefined && patch.y !== undefined) {
+    if (
+      m &&
+      m.leadType === 'node' &&
+      id === m.leadId &&
+      patch.x !== undefined &&
+      patch.y !== undefined
+    ) {
       const dx = patch.x - m.starts[id].x
       const dy = patch.y - m.starts[id].y
       for (const oid of Object.keys(m.starts)) {
         if (oid === id) continue
-        onUpdateNode(oid, { x: m.starts[oid].x + dx, y: m.starts[oid].y + dy })
+        if (nodes.some((n) => n.id === oid)) {
+          onUpdateNode(oid, { x: m.starts[oid].x + dx, y: m.starts[oid].y + dy })
+        }
+        if (texts.some((t) => t.id === oid)) {
+          onUpdateText(oid, { x: m.starts[oid].x + dx, y: m.starts[oid].y + dy })
+        }
       }
       groupDragRef.current = null
     }
     onUpdateNode(id, patch)
+  }
+
+  function handleTextMove(id: string, patch: Partial<CanvasTextRecord>): void {
+    const m = groupDragRef.current
+    if (
+      m &&
+      m.leadType === 'text' &&
+      id === m.leadId &&
+      patch.x !== undefined &&
+      patch.y !== undefined
+    ) {
+      const dx = patch.x - m.starts[id].x
+      const dy = patch.y - m.starts[id].y
+      for (const oid of Object.keys(m.starts)) {
+        if (oid === id) continue
+        if (nodes.some((n) => n.id === oid)) {
+          onMoveNode(oid, { x: m.starts[oid].x + dx, y: m.starts[oid].y + dy })
+        }
+        if (texts.some((t) => t.id === oid)) {
+          onMoveText(oid, { x: m.starts[oid].x + dx, y: m.starts[oid].y + dy })
+        }
+      }
+    }
+    onMoveText(id, patch)
+  }
+
+  function handleTextUpdate(id: string, patch: Partial<CanvasTextRecord>): void {
+    const m = groupDragRef.current
+    if (
+      m &&
+      m.leadType === 'text' &&
+      id === m.leadId &&
+      patch.x !== undefined &&
+      patch.y !== undefined
+    ) {
+      const dx = patch.x - m.starts[id].x
+      const dy = patch.y - m.starts[id].y
+      for (const oid of Object.keys(m.starts)) {
+        if (oid === id) continue
+        if (nodes.some((n) => n.id === oid)) {
+          onUpdateNode(oid, { x: m.starts[oid].x + dx, y: m.starts[oid].y + dy })
+        }
+        if (texts.some((t) => t.id === oid)) {
+          onUpdateText(oid, { x: m.starts[oid].x + dx, y: m.starts[oid].y + dy })
+        }
+      }
+      groupDragRef.current = null
+    }
+    onUpdateText(id, patch)
   }
 
   function clientToWorld(clientX: number, clientY: number): { x: number; y: number } {
@@ -301,7 +425,10 @@ export function Canvas({
       const hit = nodes
         .filter((n) => n.x < x1 && n.x + n.width > x0 && n.y < y1 && n.y + n.height > y0)
         .map((n) => n.id)
-      onSelectMany(hit)
+      const hitTexts = texts
+        .filter((t) => t.x < x1 && t.x + t.width > x0 && t.y < y1 && t.y + t.height > y0)
+        .map((t) => t.id)
+      onSelectManyMixed(hit, hitTexts)
       setMarquee(null)
     }
     window.addEventListener('mousemove', onMove)
@@ -312,6 +439,7 @@ export function Canvas({
     // Shift + left click: pan even over terminal nodes
     const isShiftLeftClick = e.shiftKey && e.button === 0
     if (!isShiftLeftClick && (e.target as HTMLElement).closest('.terminal-node')) return
+    if (!isShiftLeftClick && (e.target as HTMLElement).closest('.canvas-text')) return
     if ((e.target as HTMLElement).closest('[data-edge-id]')) return
 
     const DRAG_THRESHOLD = 4
@@ -357,6 +485,10 @@ export function Canvas({
     // Left-click
     if (e.button !== 0) return
 
+    if (tool === 'text') {
+      return
+    }
+
     // Select mode: discriminate between click and drag
     if (tool === 'select') {
       const startX = e.clientX
@@ -381,7 +513,9 @@ export function Canvas({
         window.removeEventListener('mouseup', onTmpUp)
         if (!moved) {
           onSelect(null, false)
+          onSelectText(null)
           onSelectEdge(null)
+          onSelectManyTexts([])
         }
       }
 
@@ -398,11 +532,34 @@ export function Canvas({
 
     // Other tools (link, delete): deselect on background click
     onSelect(null, false)
+    onSelectText(null)
     onSelectEdge(null)
+  }
+
+  function handleCanvasDoubleClick(e: React.MouseEvent): void {
+    if (e.button !== 0 || tool !== 'select') return
+    const target = e.target as HTMLElement
+    if (target.closest('.terminal-node') || target.closest('.canvas-text')) return
+    if (target.closest('[data-edge-id]')) return
+    onCreateText(clientToWorld(e.clientX, e.clientY))
+  }
+
+  function handleCanvasClick(e: React.MouseEvent): void {
+    if (e.button !== 0 || tool !== 'text') return
+    const target = e.target as HTMLElement
+    if (target.closest('.terminal-node') || target.closest('.canvas-text')) return
+    if (target.closest('[data-edge-id]')) return
+
+    onSelect(null, false)
+    onSelectEdge(null)
+    onSelectText(null)
+    onCreateText(clientToWorld(e.clientX, e.clientY))
+    onSetTool('select')
   }
 
   function handleCanvasContextMenu(e: React.MouseEvent): void {
     if ((e.target as HTMLElement).closest('.terminal-node')) return
+    if ((e.target as HTMLElement).closest('.canvas-text')) return
     if ((e.target as HTMLElement).closest('[data-edge-id]')) return
 
     e.preventDefault()
@@ -433,7 +590,9 @@ export function Canvas({
       onMouseUp={handleCanvasMouseUp}
       onMouseLeave={handlers.endPan}
       onWheel={handlers.onWheel}
+      onClick={handleCanvasClick}
       onContextMenu={handleCanvasContextMenu}
+      onDoubleClick={handleCanvasDoubleClick}
       style={{
         cursor:
           tool === 'link'
@@ -466,11 +625,13 @@ export function Canvas({
               <path
                 d={p.d}
                 className="edge-hit"
-                onMouseDown={(e) => {
-                  e.stopPropagation()
-                  onSelectEdge(p.id)
-                  onSelect(null, false)
-                }}
+      onMouseDown={(e) => {
+        e.stopPropagation()
+        onSelectEdge(p.id)
+        onSelect(null, false)
+        onSelectText(null)
+        onSelectManyTexts([])
+      }}
               />
               <path d={p.d} className={p.highlighted ? 'selected' : ''} />
               <circle
@@ -524,6 +685,7 @@ export function Canvas({
                   onLinkPick(id)
                   return
                 }
+                onSelectText(null)
                 onSelect(id, additive)
               }}
               onDragStart={handleNodeDragStart}
@@ -533,10 +695,32 @@ export function Canvas({
               onContextMenu={onNodeContextMenu}
             />
           ))}
+          {texts.map((text) => (
+            <CanvasText
+              key={text.id}
+              text={text}
+              selected={selectedTextIds.includes(text.id)}
+              editing={editingTextId === text.id}
+              scale={zoom}
+              onSelect={(id) => {
+                onSelect(null, false)
+                onSelectEdge(null)
+                onSelectText(id)
+                onSelectManyTexts(id ? [id] : [])
+              }}
+              onEdit={onEditText}
+              onDragStart={handleTextDragStart}
+              onMove={handleTextMove}
+              onUpdate={handleTextUpdate}
+              onRemove={onRemoveText}
+              onEditingComplete={() => onEditText(null)}
+              onContextMenu={onTextContextMenu}
+            />
+          ))}
         </div>
       </div>
 
-      {nodes.length === 0 && (
+      {nodes.length === 0 && texts.length === 0 && (
         <div
           className="pointer-events-none absolute inset-0 flex items-center justify-center text-[12.5px]"
           style={{ color: 'var(--fg-3)' }}
@@ -561,6 +745,14 @@ export function Canvas({
             title="Pan (H)"
           >
             <IHand size={14} />
+          </ToolButton>
+          <span className="sep" />
+          <ToolButton
+            active={tool === 'text'}
+            onClick={() => onSetTool(tool === 'text' ? 'select' : 'text')}
+            title="Text (T)"
+          >
+            <IText size={14} />
           </ToolButton>
           <span className="sep" />
           <ToolButton

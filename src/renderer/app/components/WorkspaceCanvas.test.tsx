@@ -2,18 +2,26 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { createRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { WorkspaceRecord } from '@shared/types/workspace'
+import type { CanvasTextRecord } from '@shared/types/canvas'
 import type { TerminalNodeData } from '@renderer/features/terminals/types'
 import type { WorkspaceCanvasHandle } from './WorkspaceCanvas'
 
 // ── Mocks ─────────────────────────────────────────────────────────────────
 
-const { mockUseTerminals, mockUseEdges } = vi.hoisted(() => ({
+const { mockUseTerminals, mockUseCanvasTexts, mockUseEdges } = vi.hoisted(() => ({
   mockUseTerminals: {
     nodes: [] as TerminalNodeData[],
     createTerminal: vi.fn(),
     moveNode: vi.fn(),
     updateNode: vi.fn(),
     removeNode: vi.fn(),
+  },
+  mockUseCanvasTexts: {
+    texts: [] as CanvasTextRecord[],
+    createText: vi.fn(),
+    moveText: vi.fn(),
+    updateText: vi.fn(),
+    removeText: vi.fn(),
   },
   mockUseEdges: {
     edges: [],
@@ -28,6 +36,10 @@ vi.mock('@renderer/features/terminals/hooks/useTerminals', () => ({
 
 vi.mock('@renderer/features/canvas/hooks/useEdges', () => ({
   useEdges: vi.fn(() => ({ ...mockUseEdges })),
+}))
+
+vi.mock('@renderer/features/canvas/hooks/useCanvasTexts', () => ({
+  useCanvasTexts: vi.fn(() => ({ ...mockUseCanvasTexts })),
 }))
 
 vi.mock('@renderer/features/canvas/components/Canvas', () => ({
@@ -73,6 +85,7 @@ import { WorkspaceCanvas } from './WorkspaceCanvas'
 beforeEach(() => {
   vi.clearAllMocks()
   mockUseTerminals.nodes = []
+  mockUseCanvasTexts.texts = []
   mockUseEdges.edges = []
 })
 
@@ -236,7 +249,44 @@ describe('WorkspaceCanvas', () => {
     })
   })
 
-  it('10.13 keyboard shortcuts are cleaned up when component unmounts', async () => {
+  it('10.13 Delete key removes selected texts and terminals together', async () => {
+    const { Canvas } = await import('@renderer/features/canvas/components/Canvas')
+    const canvasMock = vi.mocked(Canvas)
+    const node: TerminalNodeData = {
+      id: 'node-1', x: 0, y: 0, width: 600, height: 380,
+      shell: 'default', title: 'Node', cwd: '/tmp', command: 'claude', workspace_id: 'ws-1',
+    }
+    const text: CanvasTextRecord = {
+      id: 'text-1',
+      text: 'Note',
+      x: 10,
+      y: 10,
+      width: 120,
+      height: 40,
+      workspace_id: 'ws-1',
+    }
+    const { useTerminals } = await import('@renderer/features/terminals/hooks/useTerminals')
+    vi.mocked(useTerminals).mockReturnValue({ ...mockUseTerminals, nodes: [node] })
+    mockUseCanvasTexts.texts = [text]
+
+    render(<WorkspaceCanvas {...defaultProps} />)
+
+    const lastCall = canvasMock.mock.calls[canvasMock.mock.calls.length - 1]
+    const { onSelectManyMixed } = lastCall[0]
+
+    act(() => {
+      onSelectManyMixed(['node-1'], ['text-1'])
+    })
+
+    fireEvent.keyDown(window, { key: 'Delete' })
+
+    await waitFor(() => {
+      expect(mockUseTerminals.removeNode).toHaveBeenCalledWith('node-1')
+      expect(mockUseCanvasTexts.removeText).toHaveBeenCalledWith('text-1')
+    })
+  })
+
+  it('10.14 keyboard shortcuts are cleaned up when component unmounts', async () => {
     const { unmount } = render(<WorkspaceCanvas {...defaultProps} active={true} />)
     unmount()
     // After unmount, Ctrl+N should not open the modal (no error either)

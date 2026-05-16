@@ -2,6 +2,7 @@
 // Lives in `shared` so both the preload implementation and the renderer's
 // global typings reference the same contract.
 import type { EdgeRecord, TerminalRecord } from './terminal'
+import type { CanvasTextRecord } from './canvas'
 import type { PtyCreateArgs, PtyCreateResult } from './ipc'
 import type { WorkspaceRecord } from './workspace'
 
@@ -21,6 +22,9 @@ export interface DbApi {
   listEdges(): Promise<EdgeRecord[]>
   upsertEdge(record: EdgeRecord): Promise<void>
   removeEdge(id: string): Promise<void>
+  listCanvasTexts(workspaceId: string): Promise<CanvasTextRecord[]>
+  upsertCanvasText(record: CanvasTextRecord): Promise<void>
+  removeCanvasText(id: string): Promise<void>
 }
 
 export interface WorkspaceApi {
