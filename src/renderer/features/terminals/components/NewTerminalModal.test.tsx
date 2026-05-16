@@ -75,6 +75,7 @@ describe('NewTerminalModal', () => {
     expect(screen.getByRole('button', { name: /Select/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Codex/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Claude Code/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /GitHub Copilot/ })).toBeInTheDocument()
   })
 
   it('calls selectFolder and populates the folder input', async () => {
@@ -139,13 +140,16 @@ describe('NewTerminalModal', () => {
 
     const claudeButton = screen.getByRole('button', { name: /Claude Code/ })
     const codexButton = screen.getByRole('button', { name: /Codex/ })
+    const copilotButton = screen.getByRole('button', { name: /GitHub Copilot/ })
 
     expect(claudeButton.style.border).toBe('1px solid var(--accent)')
     expect(codexButton.style.border).toBe('1px solid var(--line-2)')
+    expect(copilotButton.style.border).toBe('1px solid var(--line-2)')
 
-    fireEvent.click(codexButton)
+    fireEvent.click(copilotButton)
 
-    expect(codexButton.style.border).toBe('1px solid var(--accent)')
+    expect(copilotButton.style.border).toBe('1px solid var(--accent)')
     expect(claudeButton.style.border).toBe('1px solid var(--line-2)')
+    expect(codexButton.style.border).toBe('1px solid var(--line-2)')
   })
 })

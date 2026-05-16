@@ -111,6 +111,20 @@ describe('useTerminals — createTerminal', () => {
     expect(result.current.nodes[0].title).toBe('Claude Code · project')
   })
 
+  it('uses the Copilot label and command when copilot is selected', async () => {
+    const { result } = renderHook(() => useTerminals('ws-1'))
+    await waitFor(() => expect(mockTerminalRepository.listActive).toHaveBeenCalled())
+
+    act(() => {
+      result.current.createTerminal('/home/user/project', 'copilot', '', 'bash')
+    })
+
+    expect(result.current.nodes[0].title).toBe('GitHub Copilot · project')
+    expect(mockTerminalRepository.persist).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'copilot' })
+    )
+  })
+
   it('uses the provided name when non-empty', async () => {
     const { result } = renderHook(() => useTerminals('ws-1'))
     await waitFor(() => expect(mockTerminalRepository.listActive).toHaveBeenCalled())

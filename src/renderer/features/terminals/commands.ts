@@ -1,7 +1,5 @@
-// Registry of launchable agents. Add a new agent by adding an entry here.
-import type { CommandDef, CommandKey } from './types'
-
-export const COMMANDS: Record<CommandKey, CommandDef> = {
-  codex: { key: 'codex', label: 'Codex', cmd: 'codex', icon: '🧠' },
-  claude: { key: 'claude', label: 'Claude Code', cmd: 'claude', icon: '✳️' }
-}
+// The agent registry lives in @shared/agents — a single place for both the
+// renderer (modal, types) and the main process (skill installer) to read from.
+// This file re-exports under the names the terminals feature has always used.
+export { AGENTS as COMMANDS } from '@shared/agents'
+export type { AgentKey as CommandKey, AgentDef as CommandDef } from '@shared/agents'

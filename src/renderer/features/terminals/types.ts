@@ -3,15 +3,9 @@ import type { ShellType } from '@shared/types/terminal'
 
 export type { ShellType }
 
-/** Commands supported when opening a terminal. `cmd` is what runs in the pty. */
-export type CommandKey = 'codex' | 'claude'
-
-export interface CommandDef {
-  key: CommandKey
-  label: string
-  cmd: string
-  icon: string
-}
+// CommandKey is derived from the AGENTS registry — adding a new agent there
+// automatically expands this type without any manual edit here.
+export type { AgentKey as CommandKey, AgentDef as CommandDef } from '@shared/agents'
 
 /**
  * In-memory representation of a terminal node in the renderer.
