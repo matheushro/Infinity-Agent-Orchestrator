@@ -20,11 +20,14 @@ The CLI is only available **inside IAO terminals**. It does not exist on the hos
 ## Commands
 
 ```bash
-iao agents                          # List the agents this terminal is linked to
-iao send "Agent Name" "prompt"      # Send a prompt to a linked agent
-iao inspect "Agent Name"            # Read the current terminal output of a linked agent
-iao help                            # Show built-in help
-iao debug                           # Show diagnostic info (bridge port, env, linked agents)
+iao agents                                  # List the agents this terminal is linked to
+iao send "Agent Name" "prompt"              # Send a prompt and wait for the reply (default)
+iao send --no-wait "Agent" "prompt"         # Fire-and-forget delivery (legacy behaviour)
+iao send --timeout 300 "Agent" "prompt"     # Cap the wait at 300s (default 120s)
+iao send --quiet "Agent" "prompt"           # Hide progress lines on stderr
+iao inspect "Agent Name"                    # Read the current terminal output (manual / debug)
+iao help                                    # Show built-in help
+iao debug                                   # Show diagnostic info (bridge port, env, linked agents)
 ```
 
 If `iao` is not on `PATH` (some custom shells strip it), use the absolute path exported
@@ -37,9 +40,6 @@ in the environment instead:
 ```
 
 ## How to talk to another agent
-
-Always follow this sequence. Do not skip steps — `send` blindly without knowing who is
-linked will fail, and `inspect` immediately after `send` will only show pre-prompt state.
 
 ### 1. Discover who you can talk to
 
@@ -54,53 +54,55 @@ If the list is empty, you have no linked agents. Tell the user that you cannot r
 anyone else from this terminal and ask them to connect this terminal to the target on the
 canvas.
 
-### 2. Send a prompt
+### 2. Send a prompt and get the reply in one step
 
 ```bash
 iao send "Backend Agent" "Check the current API implementation and tell me whether the /users route is already wired up."
 ```
 
-The prompt is delivered to the target terminal exactly as if the user typed it there. You
-do **not** receive the agent's reply from this command — `send` only confirms delivery.
+**`iao send` is synchronous by default.** The command blocks until the target agent has
+finished replying, then prints the captured reply on stdout. Progress lines (elapsed
+time, bytes received, idle time) stream to stderr while you wait.
+
+The wait happens entirely inside the IAO bridge — **do not** wrap `iao send` in your own
+`sleep` / `iao inspect` loop. That used to be necessary; it no longer is, and doing it
+now just burns tokens.
 
 Write self-contained prompts. The other agent does not see your conversation; it only
 sees what you put inside the quotes.
 
-### 3. Wait, then inspect
+#### Tuning the wait
 
-Give the other agent time to actually do the work before checking. A small task may take
-a few seconds; a real coding task can take minutes. Then read its terminal:
+- Default timeout is 120 seconds. For longer tasks: `iao send --timeout 600 "Agent" "..."`.
+- For purely advisory pings where you don't need a reply: `iao send --no-wait "Agent" "..."`.
+- To hide the progress lines on stderr: `iao send --quiet "Agent" "..."`.
+- If the wait times out, `iao send` prints whatever output was captured so far and exits
+  with status 124. You can keep checking with `iao inspect` afterwards.
+
+### 3. `iao inspect` is for manual debug only
 
 ```bash
 iao inspect "Backend Agent"
 ```
 
-This returns the captured output of that terminal — the same thing the user would see on
-its screen, with ANSI escapes stripped for readability.
-
-### 4. Decide what to do next
-
-- **Still working?** (incomplete output, tool calls in progress, cursor mid-line) →
-  wait longer and run `iao inspect` again. **Do not resend the same prompt** — the agent
-  is still on it; sending again will queue duplicate work and confuse it.
-- **Done and you have what you need?** → continue with your own task.
-- **Done but the answer is incomplete or wrong?** → send a follow-up prompt that
-  references what was missing. Treat it as a new message; don't repeat the original.
+Returns the current captured output buffer of that terminal. Use it when you want a
+sanity check on what another agent is doing right now (e.g. the user asks "what is
+Backend doing?") — **not** as part of a polling loop, since `iao send` already waits for
+you.
 
 ## Rules
 
-- **Always `iao agents` first.** Never guess agent names. If a name is not in `iao agents`
-  output, the agent is not linked and you cannot reach it.
-- **Wait between `send` and `inspect`.** Polling instantly returns the state before the
-  agent reacted. Sleep a few seconds, inspect, and re-inspect on a loop if needed.
-- **Never resend the same prompt** while the previous one is still being worked on. Use
-  `iao inspect` to verify completion first.
-- **Do not edit files another agent is actively modifying.** Coordinate through `iao send`
-  — ask the other agent to pause, or wait until `iao inspect` shows it is idle.
+- **Always `iao agents` first.** Never guess agent names.
+- **Never wrap `iao send` in a sleep/inspect loop.** The bridge already waits. Adding
+  your own polling just wastes prompts.
+- **Never resend the same prompt** while the previous `iao send` is still running — they
+  are mutually exclusive per (caller, target) pair anyway and the bridge will reject the
+  second one with HTTP 429.
+- **Do not edit files another agent is actively modifying.** Coordinate through
+  `iao send` — ask the other agent to pause, or check `iao inspect` to confirm it is idle.
 - **Prompts are not chat history.** Each `iao send` is standalone for the receiver. Give
   enough context in every message.
-- **Use `iao help` / `iao debug`** when something looks off — `debug` reports which agents
-  this terminal sees as linked, the bridge port, and the resolved CLI paths.
+- **Use `iao help` / `iao debug`** when something looks off.
 
 ## Example end-to-end flow
 
@@ -110,11 +112,9 @@ Backend Agent    · claude
 Test Agent       · codex
 
 $ iao send "Backend Agent" "Read src/server/routes.ts and reply with the list of registered routes."
-Delivered to "Backend Agent". Wait a few seconds, then run: iao inspect "Backend Agent"
-
-# ...wait ~10s...
-
-$ iao inspect "Backend Agent"
+iao: delivered to "Backend Agent", waiting for reply (timeout 120s)...
+iao: waiting... 2s elapsed, 184 bytes received, idle 1s
+iao: waiting... 4s elapsed, 612 bytes received, idle 0s
 Reading src/server/routes.ts
 Found 4 routes:
   GET  /health

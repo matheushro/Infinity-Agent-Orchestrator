@@ -6,11 +6,19 @@
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'http'
 import { randomBytes } from 'crypto'
 import { join } from 'path'
+import { EventEmitter } from 'events'
 import { app } from 'electron'
 import { mkdirSync, writeFileSync, chmodSync } from 'fs'
 import type { TerminalRecord } from '@shared/types/terminal'
 import * as dbService from './db.service'
 import * as ptyService from './pty.service'
+
+// Activity bus: fires whenever a node's output buffer grows. The /send (wait)
+// handler subscribes to this instead of having the in-terminal CLI poll —
+// keeping the wait loop entirely on the bridge side so agents do not burn
+// tokens running sleep+inspect cycles.
+const outputEvents = new EventEmitter()
+outputEvents.setMaxListeners(200)
 
 interface SessionEntry {
   ptyId: string
@@ -46,6 +54,7 @@ export function appendOutput(nodeId: string, chunk: string): void {
     nodeId,
     next.length > MAX_BUFFER ? next.slice(next.length - MAX_BUFFER) : next
   )
+  outputEvents.emit('change', nodeId)
 }
 
 export function clearOutput(nodeId: string): void {
@@ -146,7 +155,10 @@ function handleRequest(req: IncomingMessage, res: ServerResponse): void {
     if (route === 'GET /debug') return handleDebug(session, res)
     if (route === 'POST /send') {
       readBody(req)
-        .then((body) => handleSend(session, body, res))
+        .then((body) => {
+          if (body && body.wait === true) return handleSendWait(session, body, req, res)
+          return handleSend(session, body, res)
+        })
         .catch((err) => send(res, 500, { error: (err as Error).message }))
       return
     }
@@ -187,6 +199,174 @@ function handleSend(
   ptyService.writeToPty(targetPty, prompt)
   setTimeout(() => ptyService.writeToPty(targetPty, '\r'), 50)
   send(res, 200, { delivered: true, target: { id: target.id, title: target.title } })
+}
+
+// In-flight wait sessions keyed by (caller nodeId → target nodeId). Prevents a
+// caller from queuing multiple overlapping waits against the same target.
+const inflightWaits = new Map<string, Set<string>>()
+
+function inflightKey(callerId: string): Set<string> {
+  let set = inflightWaits.get(callerId)
+  if (!set) {
+    set = new Set()
+    inflightWaits.set(callerId, set)
+  }
+  return set
+}
+
+interface SendWaitBody {
+  target?: unknown
+  prompt?: unknown
+  wait?: unknown
+  timeoutMs?: unknown
+  idleMs?: unknown
+  heartbeatMs?: unknown
+}
+
+function handleSendWait(
+  session: SessionEntry,
+  body: SendWaitBody,
+  req: IncomingMessage,
+  res: ServerResponse
+): void {
+  const targetName = String(body.target ?? '').trim()
+  const prompt = String(body.prompt ?? '')
+  if (!targetName) return send(res, 400, { error: 'target required' })
+  if (!prompt) return send(res, 400, { error: 'prompt required' })
+
+  const target = resolveLinkedAgent(session.nodeId, targetName)
+  if (!target) return send(res, 404, { error: `no linked agent matches "${targetName}"` })
+
+  const targetPty = findPtyForNode(target.id)
+  if (!targetPty) return send(res, 409, { error: `agent "${target.title}" has no live terminal` })
+
+  const callerWaits = inflightKey(session.nodeId)
+  if (callerWaits.has(target.id)) {
+    return send(res, 429, {
+      error: `already waiting on "${target.title}" from this terminal`
+    })
+  }
+
+  // Clamp configuration to defensive bounds. Defaults chosen so a typical
+  // coding-agent reply (which streams over seconds with brief pauses for tool
+  // calls) is detected as "done" once it has been idle for ~3s.
+  const timeoutMs = clampNum(body.timeoutMs, 120_000, 1_000, 30 * 60_000)
+  const idleMs = clampNum(body.idleMs, 3_000, 500, 60_000)
+  const heartbeatMs = clampNum(body.heartbeatMs, 2_000, 500, 30_000)
+
+  callerWaits.add(target.id)
+
+  // NDJSON stream: one JSON object per line. The CLI parses each line so it
+  // can surface progress to the user without buffering the whole reply.
+  res.writeHead(200, {
+    'content-type': 'application/x-ndjson; charset=utf-8',
+    'cache-control': 'no-store',
+    'x-accel-buffering': 'no'
+  })
+
+  const startedAt = Date.now()
+  const initialLen = (outputByNode.get(target.id) ?? '').length
+  let lastActivityAt = startedAt
+  let seenActivity = false
+  let finished = false
+
+  const writeLine = (obj: Record<string, unknown>): void => {
+    if (res.writableEnded) return
+    try { res.write(JSON.stringify(obj) + '\n') } catch { /* socket closed */ }
+  }
+
+  writeLine({
+    type: 'sent',
+    target: { id: target.id, title: target.title },
+    initialBytes: initialLen,
+    timeoutMs,
+    idleMs
+  })
+
+  // Deliver the prompt. Same two-step pattern as handleSend so TUI agents
+  // (claude/codex) treat the trailing \r as Enter rather than a literal
+  // newline inside their bracketed-paste input box.
+  ptyService.writeToPty(targetPty, prompt)
+  const enterTimer = setTimeout(() => ptyService.writeToPty(targetPty, '\r'), 50)
+
+  let idleTimer: NodeJS.Timeout | null = null
+  let heartbeatTimer: NodeJS.Timeout | null = null
+  let masterTimer: NodeJS.Timeout | null = null
+
+  const onChange = (changedNodeId: string): void => {
+    if (changedNodeId !== target.id) return
+    seenActivity = true
+    lastActivityAt = Date.now()
+    scheduleIdle()
+  }
+
+  const scheduleIdle = (): void => {
+    if (idleTimer) clearTimeout(idleTimer)
+    idleTimer = setTimeout(() => {
+      if (finished || !seenActivity) return
+      finish(false)
+    }, idleMs)
+  }
+
+  const cleanup = (): void => {
+    outputEvents.off('change', onChange)
+    if (idleTimer) clearTimeout(idleTimer)
+    if (heartbeatTimer) clearInterval(heartbeatTimer)
+    if (masterTimer) clearTimeout(masterTimer)
+    clearTimeout(enterTimer)
+    callerWaits.delete(target.id)
+    if (callerWaits.size === 0) inflightWaits.delete(session.nodeId)
+  }
+
+  const finish = (timedOut: boolean): void => {
+    if (finished) return
+    finished = true
+    cleanup()
+
+    const raw = outputByNode.get(target.id) ?? ''
+    const delta = raw.length >= initialLen ? raw.slice(initialLen) : raw
+    writeLine({
+      type: 'result',
+      target: { id: target.id, title: target.title },
+      output: stripAnsi(delta),
+      bytes: delta.length,
+      timedOut,
+      elapsedMs: Date.now() - startedAt
+    })
+    if (!res.writableEnded) res.end()
+  }
+
+  outputEvents.on('change', onChange)
+
+  heartbeatTimer = setInterval(() => {
+    if (finished) return
+    const raw = outputByNode.get(target.id) ?? ''
+    const bytes = Math.max(0, raw.length - initialLen)
+    writeLine({
+      type: 'status',
+      elapsedMs: Date.now() - startedAt,
+      bytes,
+      idleFor: Date.now() - lastActivityAt,
+      seenActivity
+    })
+  }, heartbeatMs)
+
+  masterTimer = setTimeout(() => finish(true), timeoutMs)
+
+  // If the client (CLI) goes away, drop the wait so we do not leak listeners.
+  const onClose = (): void => {
+    if (finished) return
+    finished = true
+    cleanup()
+  }
+  req.on('close', onClose)
+  res.on('close', onClose)
+}
+
+function clampNum(input: unknown, fallback: number, min: number, max: number): number {
+  const n = typeof input === 'number' ? input : Number(input)
+  if (!Number.isFinite(n)) return fallback
+  return Math.max(min, Math.min(max, Math.floor(n)))
 }
 
 function handleInspect(session: SessionEntry, url: URL, res: ServerResponse): void {
@@ -380,6 +560,61 @@ function request(method, path, body) {
   })
 }
 
+// Stream NDJSON from POST /send (wait mode). \`onEvent\` is invoked once per
+// line; resolves with the final HTTP status when the response ends.
+function streamSendWait(body, onEvent) {
+  return new Promise((resolve, reject) => {
+    const data = Buffer.from(JSON.stringify(body), 'utf8')
+    const req = http.request(
+      {
+        host: '127.0.0.1',
+        port: Number(PORT),
+        method: 'POST',
+        path: '/send',
+        headers: {
+          authorization: 'Bearer ' + TOKEN,
+          'content-type': 'application/json',
+          'content-length': data.length,
+          accept: 'application/x-ndjson'
+        }
+      },
+      (res) => {
+        let buf = ''
+        res.setEncoding('utf8')
+        res.on('data', (chunk) => {
+          buf += chunk
+          let idx
+          while ((idx = buf.indexOf('\\n')) >= 0) {
+            const line = buf.slice(0, idx).trim()
+            buf = buf.slice(idx + 1)
+            if (!line) continue
+            let parsed
+            try { parsed = JSON.parse(line) } catch (_) { continue }
+            try { onEvent(parsed) } catch (_) { /* keep streaming */ }
+          }
+        })
+        res.on('end', () => {
+          const tail = buf.trim()
+          if (tail) {
+            try { onEvent(JSON.parse(tail)) } catch (_) { /* ignore */ }
+          }
+          resolve({ status: res.statusCode || 0 })
+        })
+        res.on('error', reject)
+      }
+    )
+    req.on('error', reject)
+    req.write(data)
+    req.end()
+  })
+}
+
+// Single-shot non-streaming request to /send for the --no-wait path. Reuses
+// the same socket pattern but waits for a buffered JSON body.
+function postSend(body) {
+  return request('POST', '/send', body)
+}
+
 function printAgents(list) {
   if (!list || list.length === 0) {
     console.log('(no linked agents — connect this terminal to another on the canvas first)')
@@ -396,15 +631,20 @@ function helpText() {
     'iao — Infinity Agent Orchestrator in-terminal CLI',
     '',
     'Usage:',
-    '  iao agents                          List terminals linked to this one',
-    '  iao send "Agent Name" "prompt"      Send a prompt to a linked agent',
-    '  iao inspect "Agent Name"            Read the current output of a linked agent',
-    '  iao help                            Show this help',
-    '  iao debug                           Show diagnostic info about the bridge',
+    '  iao agents                                 List terminals linked to this one',
+    '  iao send "Agent Name" "prompt"             Send a prompt and wait (default) for the reply',
+    '  iao send --no-wait "Agent" "prompt"        Fire-and-forget — return immediately after delivery',
+    '  iao send --timeout 300 "Agent" "prompt"    Cap the wait at 300s (default 120s)',
+    '  iao send --quiet "Agent" "prompt"          Suppress progress lines on stderr',
+    '  iao inspect "Agent Name"                   Read the current output buffer of a linked agent',
+    '  iao help                                   Show this help',
+    '  iao debug                                  Show diagnostic info about the bridge',
     '',
     'Notes:',
+    '  - \`iao send\` blocks until the target agent has been idle for a few seconds.',
+    '    The wait happens entirely on the bridge — no sleep/inspect loop needed in your own session.',
+    '  - \`iao inspect\` is still available for manual debug checks while another agent is working.',
     '  - Only agents connected to this terminal by an edge on the canvas are reachable.',
-    '  - After \`iao send\`, wait a few seconds before \`iao inspect\` to give the agent time to react.',
     '  - If \`iao\` is not on PATH, run "$IAO_CLI" with the same arguments.',
     ''
   ].join('\\n')
@@ -430,12 +670,82 @@ async function main() {
 
     case 'send': {
       ensureSession()
-      if (rest.length < 2) die('usage: iao send "Agent Name" "prompt"')
-      const [target, ...promptParts] = rest
+      // Flag parsing: --no-wait disables sync mode (legacy behaviour),
+      // --timeout <seconds> overrides the bridge-side cap, --quiet hides the
+      // periodic progress lines. Positional args after flags are
+      // "<target>" "<prompt...>".
+      let noWait = false
+      let quiet = false
+      let timeoutSec = null
+      const positional = []
+      for (let i = 0; i < rest.length; i++) {
+        const a = rest[i]
+        if (a === '--no-wait') noWait = true
+        else if (a === '--quiet') quiet = true
+        else if (a === '--timeout' && rest[i + 1] != null) {
+          const n = parseInt(rest[++i], 10)
+          if (!isNaN(n) && n > 0) timeoutSec = n
+        } else if (a === '--') {
+          for (let j = i + 1; j < rest.length; j++) positional.push(rest[j])
+          break
+        } else {
+          positional.push(a)
+        }
+      }
+      if (positional.length < 2) die('usage: iao send [--no-wait] [--timeout <s>] [--quiet] "Agent Name" "prompt"')
+      const [target, ...promptParts] = positional
       const prompt = promptParts.join(' ')
-      const { status, body } = await request('POST', '/send', { target, prompt })
-      if (status !== 200) die((body && body.error) || ('http ' + status))
-      console.log('Delivered to "' + body.target.title + '". Wait a few seconds, then run: iao inspect "' + body.target.title + '"')
+
+      if (noWait) {
+        const { status, body } = await postSend({ target, prompt })
+        if (status !== 200) die((body && body.error) || ('http ' + status))
+        console.log('Delivered to "' + body.target.title + '". Run: iao inspect "' + body.target.title + '" to read the reply.')
+        return
+      }
+
+      const envTimeout = parseInt(process.env.IAO_SEND_TIMEOUT_MS || '', 10)
+      const timeoutMs = timeoutSec != null
+        ? timeoutSec * 1000
+        : (!isNaN(envTimeout) && envTimeout > 0 ? envTimeout : 120000)
+
+      let finalEvent = null
+      let sawSent = false
+      const { status } = await streamSendWait(
+        { target, prompt, wait: true, timeoutMs },
+        (event) => {
+          if (event.type === 'sent') {
+            sawSent = true
+            if (!quiet) {
+              process.stderr.write('iao: delivered to "' + event.target.title + '", waiting for reply (timeout ' + Math.round((event.timeoutMs || timeoutMs) / 1000) + 's)...\\n')
+            }
+          } else if (event.type === 'status') {
+            if (!quiet) {
+              process.stderr.write('iao: waiting... ' + Math.round(event.elapsedMs / 1000) + 's elapsed, ' + event.bytes + ' bytes received, idle ' + Math.round(event.idleFor / 1000) + 's\\n')
+            }
+          } else if (event.type === 'result') {
+            finalEvent = event
+          }
+        }
+      )
+      if (status !== 200) {
+        // Bridge returned an error before streaming started — body is JSON
+        if (!sawSent) {
+          const { body } = await postSend({ target, prompt: '' })
+          die((body && body.error) || ('http ' + status))
+        }
+        die('http ' + status)
+      }
+      if (!finalEvent) die('wait stream ended without a result')
+      if (finalEvent.timedOut) {
+        process.stderr.write('iao: timed out after ' + Math.round(finalEvent.elapsedMs / 1000) + 's waiting for "' + finalEvent.target.title + '". Partial output below; rerun \`iao inspect\` later for more.\\n')
+      }
+      if (!finalEvent.output) {
+        console.log('(no output captured from "' + finalEvent.target.title + '")')
+      } else {
+        process.stdout.write(finalEvent.output)
+        if (!finalEvent.output.endsWith('\\n')) process.stdout.write('\\n')
+      }
+      if (finalEvent.timedOut) process.exit(124)
       return
     }
 

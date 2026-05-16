@@ -593,6 +593,231 @@ describe('POST /send', () => {
 })
 
 // ---------------------------------------------------------------------------
+// POST /send with wait:true  (synchronous reply mode — NDJSON stream)
+// ---------------------------------------------------------------------------
+
+/**
+ * Streams an NDJSON response from POST /send (wait mode) and returns the
+ * parsed events plus the final HTTP status. The bridge keeps the connection
+ * open while it watches the target's buffer; callers should drive activity
+ * via `appendOutput` after the request starts.
+ */
+function streamSend(
+  port: number,
+  token: string,
+  body: Record<string, unknown>
+): { events: any[]; statusPromise: Promise<number> } {
+  const events: any[] = []
+  const payload = JSON.stringify(body)
+  const statusPromise = new Promise<number>((resolve, reject) => {
+    const req = http.request(
+      {
+        host: '127.0.0.1',
+        port,
+        method: 'POST',
+        path: '/send',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json',
+          'content-length': String(Buffer.byteLength(payload))
+        }
+      },
+      (res) => {
+        let buf = ''
+        res.setEncoding('utf8')
+        res.on('data', (chunk: string) => {
+          buf += chunk
+          let idx: number
+          while ((idx = buf.indexOf('\n')) >= 0) {
+            const line = buf.slice(0, idx).trim()
+            buf = buf.slice(idx + 1)
+            if (!line) continue
+            try { events.push(JSON.parse(line)) } catch { /* skip */ }
+          }
+        })
+        res.on('end', () => {
+          const tail = buf.trim()
+          if (tail) { try { events.push(JSON.parse(tail)) } catch { /* skip */ } }
+          resolve(res.statusCode ?? 0)
+        })
+        res.on('error', reject)
+      }
+    )
+    req.on('error', reject)
+    req.write(payload)
+    req.end()
+  })
+  return { events, statusPromise }
+}
+
+describe('POST /send (wait mode)', () => {
+  async function setupLinked() {
+    const { port } = await startIaoServer()
+    const envA = registerPtySession('pty-A', 'node-A')
+    registerPtySession('pty-B', 'node-B')
+    mockListEdges.mockReturnValue([makeEdge('node-A', 'node-B')])
+    mockListActive.mockReturnValue([
+      makeTerminal({ id: 'node-A', title: 'Alpha' }),
+      makeTerminal({ id: 'node-B', title: 'Beta' })
+    ])
+    return { port, envA }
+  }
+
+  it('streams NDJSON: a "sent" event, then a "result" with the captured delta', async () => {
+    const { port, envA } = await setupLinked()
+
+    const { events, statusPromise } = streamSend(port, envA.IAO_TOKEN, {
+      target: 'Beta',
+      prompt: 'hello',
+      wait: true,
+      idleMs: 500,
+      heartbeatMs: 10_000,
+      timeoutMs: 5_000
+    })
+
+    // Wait for the "sent" event so we know the bridge subscribed before we
+    // start producing output. Without this, the appendOutput below could
+    // race the listener registration.
+    await new Promise<void>((resolve) => {
+      const tick = setInterval(() => {
+        if (events.some((e) => e.type === 'sent')) { clearInterval(tick); resolve() }
+      }, 10)
+    })
+
+    appendOutput('node-B', 'reply chunk 1')
+    await new Promise((r) => setTimeout(r, 50))
+    appendOutput('node-B', ' more')
+
+    const status = await statusPromise
+    expect(status).toBe(200)
+    const sent = events.find((e) => e.type === 'sent')
+    const result = events.find((e) => e.type === 'result')
+    expect(sent?.target.title).toBe('Beta')
+    expect(result?.timedOut).toBe(false)
+    expect(result?.output).toBe('reply chunk 1 more')
+    expect(result?.bytes).toBe('reply chunk 1 more'.length)
+  })
+
+  it('returns timedOut:true when the target produces no output before timeoutMs', async () => {
+    const { port, envA } = await setupLinked()
+    const { events, statusPromise } = streamSend(port, envA.IAO_TOKEN, {
+      target: 'Beta',
+      prompt: 'go',
+      wait: true,
+      idleMs: 5_000,
+      heartbeatMs: 10_000,
+      // Bridge clamps timeoutMs to a minimum of 1000ms (see clampNum)
+      timeoutMs: 1_000
+    })
+    const status = await statusPromise
+    expect(status).toBe(200)
+    const result = events.find((e) => e.type === 'result')
+    expect(result?.timedOut).toBe(true)
+    expect(result?.output).toBe('')
+  })
+
+  it('only returns output written after the prompt was sent (delta from initialLen)', async () => {
+    const { port, envA } = await setupLinked()
+    appendOutput('node-B', 'PRE-EXISTING OUTPUT')
+
+    const { events, statusPromise } = streamSend(port, envA.IAO_TOKEN, {
+      target: 'Beta',
+      prompt: 'go',
+      wait: true,
+      idleMs: 500,
+      heartbeatMs: 10_000,
+      timeoutMs: 5_000
+    })
+
+    await new Promise<void>((resolve) => {
+      const tick = setInterval(() => {
+        if (events.some((e) => e.type === 'sent')) { clearInterval(tick); resolve() }
+      }, 10)
+    })
+
+    appendOutput('node-B', 'NEW REPLY')
+    await statusPromise
+    const result = events.find((e) => e.type === 'result')
+    expect(result?.output).toBe('NEW REPLY')
+  })
+
+  it('rejects overlapping waits against the same target with HTTP 429', async () => {
+    const { port, envA } = await setupLinked()
+
+    const first = streamSend(port, envA.IAO_TOKEN, {
+      target: 'Beta',
+      prompt: 'first',
+      wait: true,
+      idleMs: 5_000,
+      heartbeatMs: 10_000,
+      timeoutMs: 3_000
+    })
+
+    // Give the first request time to reach the bridge and register inflight.
+    await new Promise<void>((resolve) => {
+      const tick = setInterval(() => {
+        if (first.events.some((e) => e.type === 'sent')) { clearInterval(tick); resolve() }
+      }, 10)
+    })
+
+    const { status, body } = await request(port, 'POST', '/send', {
+      token: envA.IAO_TOKEN,
+      body: { target: 'Beta', prompt: 'second', wait: true }
+    })
+    expect(status).toBe(429)
+    expect((body as any).error).toMatch(/already waiting/i)
+
+    // Drain the first request so afterEach can shut down cleanly.
+    await first.statusPromise
+  })
+
+  it('writes the prompt and a delayed \\r to the target pty', async () => {
+    const { port, envA } = await setupLinked()
+    const { events, statusPromise } = streamSend(port, envA.IAO_TOKEN, {
+      target: 'Beta',
+      prompt: 'run tests',
+      wait: true,
+      idleMs: 500,
+      heartbeatMs: 10_000,
+      timeoutMs: 2_000
+    })
+    await new Promise<void>((resolve) => {
+      const tick = setInterval(() => {
+        if (events.some((e) => e.type === 'sent')) { clearInterval(tick); resolve() }
+      }, 10)
+    })
+    expect(mockWriteToPty).toHaveBeenNthCalledWith(1, 'pty-B', 'run tests')
+    await new Promise((r) => setTimeout(r, 100))
+    expect(mockWriteToPty).toHaveBeenNthCalledWith(2, 'pty-B', '\r')
+    await statusPromise
+  })
+
+  it('returns 400 when target is missing in wait mode', async () => {
+    const { port, envA } = await setupLinked()
+    const { status } = await request(port, 'POST', '/send', {
+      token: envA.IAO_TOKEN,
+      body: { prompt: 'hi', wait: true }
+    })
+    expect(status).toBe(400)
+  })
+
+  it('returns 409 when target has no live pty in wait mode', async () => {
+    const { port } = await startIaoServer()
+    const envA = registerPtySession('pty-A', 'node-A')
+    mockListEdges.mockReturnValue([makeEdge('node-A', 'node-B')])
+    mockListActive.mockReturnValue([
+      makeTerminal({ id: 'node-A', title: 'Alpha' }),
+      makeTerminal({ id: 'node-B', title: 'Beta' })
+    ])
+    const { status } = await request(port, 'POST', '/send', {
+      token: envA.IAO_TOKEN,
+      body: { target: 'Beta', prompt: 'hi', wait: true }
+    })
+    expect(status).toBe(409)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // GET /inspect
 // ---------------------------------------------------------------------------
 
