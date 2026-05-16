@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { existsSync as realExistsSync, readFileSync as realReadFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { AGENTS } from '@shared/agents'
 
 // ---- boundary mocks (hoisted before module imports) ----
 
@@ -34,6 +35,10 @@ const CODEX_DIR = '/home/testuser/.codex/skills/iao'
 const CODEX_DEST = `${CODEX_DIR}/SKILL.md`
 const CLAUDE_DIR = '/home/testuser/.claude/skills/iao'
 const CLAUDE_DEST = `${CLAUDE_DIR}/SKILL.md`
+const COPILOT_DIR = '/home/testuser/.copilot/skills/iao'
+const COPILOT_DEST = `${COPILOT_DIR}/SKILL.md`
+const GEMINI_DIR = '/home/testuser/.gemini/skills/iao'
+const GEMINI_DEST = `${GEMINI_DIR}/SKILL.md`
 const REAL_SRC = join(process.cwd(), 'resources', 'skills', 'iao', 'SKILL.md')
 
 describe('skill.service', () => {
@@ -78,11 +83,41 @@ describe('skill.service', () => {
         .mockReturnValueOnce(true)  // source exists
         .mockReturnValueOnce(false) // codex dest absent
         .mockReturnValueOnce(false) // claude dest absent
+        .mockReturnValueOnce(false) // copilot dest absent
+        .mockReturnValueOnce(false) // gemini dest absent
 
       ensureIAOSkill()
 
       expect(mockMkdirSync).toHaveBeenCalledWith(CLAUDE_DIR, { recursive: true })
       expect(mockCopyFileSync).toHaveBeenCalledWith(SRC, CLAUDE_DEST)
+    })
+
+    it('creates SKILL.md in ~/.copilot/skills/iao/ when destination is absent', () => {
+      mockExistsSync
+        .mockReturnValueOnce(true)  // source exists
+        .mockReturnValueOnce(false) // codex dest absent
+        .mockReturnValueOnce(false) // claude dest absent
+        .mockReturnValueOnce(false) // copilot dest absent
+        .mockReturnValueOnce(false) // gemini dest absent
+
+      ensureIAOSkill()
+
+      expect(mockMkdirSync).toHaveBeenCalledWith(COPILOT_DIR, { recursive: true })
+      expect(mockCopyFileSync).toHaveBeenCalledWith(SRC, COPILOT_DEST)
+    })
+
+    it('creates SKILL.md in ~/.gemini/skills/iao/ when destination is absent', () => {
+      mockExistsSync
+        .mockReturnValueOnce(true)  // source exists
+        .mockReturnValueOnce(false) // codex dest absent
+        .mockReturnValueOnce(false) // claude dest absent
+        .mockReturnValueOnce(false) // copilot dest absent
+        .mockReturnValueOnce(false) // gemini dest absent
+
+      ensureIAOSkill()
+
+      expect(mockMkdirSync).toHaveBeenCalledWith(GEMINI_DIR, { recursive: true })
+      expect(mockCopyFileSync).toHaveBeenCalledWith(SRC, GEMINI_DEST)
     })
 
     it('does NOT overwrite existing files (preserves customizations)', () => {
@@ -101,7 +136,9 @@ describe('skill.service', () => {
 
       expect(mockCopyFileSync.mock.calls).toEqual([
         [SRC, CODEX_DEST],
-        [SRC, CLAUDE_DEST]
+        [SRC, CLAUDE_DEST],
+        [SRC, GEMINI_DEST],
+        [SRC, COPILOT_DEST]
       ])
     })
 
@@ -110,11 +147,15 @@ describe('skill.service', () => {
         .mockReturnValueOnce(true)  // source exists
         .mockReturnValueOnce(true)  // codex dest already exists
         .mockReturnValueOnce(false) // claude dest absent
+        .mockReturnValueOnce(false) // copilot dest absent
+        .mockReturnValueOnce(false) // gemini dest absent
 
       ensureIAOSkill()
 
-      expect(mockCopyFileSync).toHaveBeenCalledTimes(1)
+      expect(mockCopyFileSync).toHaveBeenCalledTimes(3)
       expect(mockCopyFileSync).toHaveBeenCalledWith(SRC, CLAUDE_DEST)
+      expect(mockCopyFileSync).toHaveBeenCalledWith(SRC, COPILOT_DEST)
+      expect(mockCopyFileSync).toHaveBeenCalledWith(SRC, GEMINI_DEST)
     })
 
     it('returns the primary (Codex) path', () => {
@@ -146,6 +187,12 @@ describe('skill.service', () => {
       expect(commandsSection).toContain('iao send "Agent Name" "prompt"')
       expect(commandsSection).toContain('iao inspect "Agent Name"')
       expect(commandsSection).toContain('iao debug')
+    })
+  })
+
+  describe('AGENTS registry skillDirs', () => {
+    it('declares a Copilot skillDir for IAO skill installation', () => {
+      expect(AGENTS.copilot.skillDir).toBe('.copilot/skills/iao')
     })
   })
 })

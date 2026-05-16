@@ -29,12 +29,14 @@ export const AGENTS = {
     label: 'Gemini',
     cmd: 'gemini',
     icon: '✦',
+    skillDir: '.gemini/skills/iao',
   },
   copilot: {
     key: 'copilot',
     label: 'GitHub Copilot',
     cmd: 'copilot',
     icon: '🐙',
+    skillDir: '.copilot/skills/iao',
   },
 } satisfies Record<string, AgentDef>
 

@@ -20,9 +20,11 @@ describe('AGENTS registry', () => {
     }
   })
 
-  it('codex and claude declare a skillDir for IAO skill installation', () => {
+  it('codex, claude, copilot, and gemini declare a skillDir for IAO skill installation', () => {
     expect(AGENTS.codex.skillDir).toBe('.codex/skills/iao')
     expect(AGENTS.claude.skillDir).toBe('.claude/skills/iao')
+    expect(AGENTS.copilot.skillDir).toBe('.copilot/skills/iao')
+    expect(AGENTS.gemini.skillDir).toBe('.gemini/skills/iao')
   })
 
   it('gemini is available as a launchable command', () => {
