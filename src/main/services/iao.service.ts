@@ -144,7 +144,12 @@ function handleRequest(req: IncomingMessage, res: ServerResponse): void {
     if (route === 'GET /agents') return handleAgents(session, res)
     if (route === 'GET /inspect') return handleInspect(session, url, res)
     if (route === 'GET /debug') return handleDebug(session, res)
-    if (route === 'POST /send') return readBody(req).then((body) => handleSend(session, body, res))
+    if (route === 'POST /send') {
+      readBody(req)
+        .then((body) => handleSend(session, body, res))
+        .catch((err) => send(res, 500, { error: (err as Error).message }))
+      return
+    }
     return send(res, 404, { error: 'not found' })
   } catch (err) {
     return send(res, 500, { error: (err as Error).message })
