@@ -191,88 +191,88 @@
 
 ## 11. Renderer — `hooks/useLocalStorage.ts`
 
-- [ ] Lê valor inicial do `localStorage` quando existe
-- [ ] Usa fallback quando chave ausente
-- [ ] Persiste no `localStorage` ao atualizar
-- [ ] Funciona com tipos primitivos (string, boolean, number)
-- [ ] Funciona com objetos / Records
-- [ ] Lida com JSON inválido sem quebrar (retorna fallback)
-- [ ] Múltiplas instâncias da mesma chave sincronizam após update
+- [x] Lê valor inicial do `localStorage` quando existe
+- [x] Usa fallback quando chave ausente
+- [x] Persiste no `localStorage` ao atualizar
+- [x] Funciona com tipos primitivos (string, boolean, number)
+- [x] Funciona com objetos / Records
+- [x] Lida com JSON inválido sem quebrar (retorna fallback)
+- [x] Múltiplas instâncias da mesma chave sincronizam após update
 
 ## 12. Renderer — `features/terminals/services/terminalRepository.ts`
 
-- [ ] `listActive` chama `window.dbApi.listActive` e mapeia `TerminalRecord` → `TerminalNodeData`
-- [ ] `persist` mapeia `TerminalNodeData` → `TerminalRecord` e chama `window.dbApi.upsert`
-- [ ] `remove(id)` chama `window.dbApi.remove(id)`
+- [x] `listActive` chama `window.dbApi.listActive` e mapeia `TerminalRecord` → `TerminalNodeData`
+- [x] `persist` mapeia `TerminalNodeData` → `TerminalRecord` e chama `window.dbApi.upsert`
+- [x] `remove(id)` chama `window.dbApi.remove(id)`
 
 ## 13. Renderer — `features/canvas/services/edgeRepository.ts`
 
-- [ ] `list` chama `window.dbApi.edgesList`
-- [ ] `persist` chama `window.dbApi.edgesUpsert`
-- [ ] `remove(id)` chama `window.dbApi.edgesRemove`
+- [x] `list` chama `window.dbApi.edgesList`
+- [x] `persist` chama `window.dbApi.edgesUpsert`
+- [x] `remove(id)` chama `window.dbApi.edgesRemove`
 
 ## 14. Renderer — `features/terminals/hooks/useTerminals.ts`
 
-- [ ] Estado inicial é `[]`
-- [ ] `listActive` rehidrata nodes no mount
-- [ ] `createTerminal` gera id único e adiciona node ao estado
-- [ ] `createTerminal` persiste via `terminalRepository.persist`
-- [ ] `createTerminal` define `title` automático quando `name` está vazio
-- [ ] `createTerminal` usa `position` quando fornecido, senão posicionamento em cascata
-- [ ] `createTerminal` deriva `folderName` corretamente (último segmento)
-- [ ] **StrictMode safety:** double-invoke não gera 2 ids nem 2 persistências
-- [ ] `moveNode` atualiza estado em memória SEM persistir
-- [ ] `updateNode` atualiza estado E persiste no DB
-- [ ] `removeNode` mata o pty, remove do DB e remove do estado
+- [x] Estado inicial é `[]`
+- [x] `listActive` rehidrata nodes no mount
+- [x] `createTerminal` gera id único e adiciona node ao estado
+- [x] `createTerminal` persiste via `terminalRepository.persist`
+- [x] `createTerminal` define `title` automático quando `name` está vazio
+- [x] `createTerminal` usa `position` quando fornecido, senão posicionamento em cascata
+- [x] `createTerminal` deriva `folderName` corretamente (último segmento)
+- [x] **StrictMode safety:** double-invoke não gera 2 ids nem 2 persistências
+- [x] `moveNode` atualiza estado em memória SEM persistir
+- [x] `updateNode` atualiza estado E persiste no DB
+- [x] `removeNode` mata o pty, remove do DB e remove do estado
 
 ## 15. Renderer — `features/terminals/hooks/useTerminalSession.ts`
 
-- [ ] Cria instância `Terminal` com fontSize/fontFamily/theme do `style`
-- [ ] Carrega `FitAddon` e chama `fit()`
-- [ ] Gera `ptyId` único por mount via `crypto.randomUUID()` (NÃO reusa `node.id`)
-- [ ] Chama `window.ptyApi.create` com cols/rows do xterm e cwd/command do node
-- [ ] Em shell `'default'`, envia `shell: undefined` (não a string `'default'`)
-- [ ] Foca terminal após pty criado (a menos que disposed)
-- [ ] `term.onData` repassa input via `window.ptyApi.input(ptyId, …)`
-- [ ] `onData` do pty filtra por `ptyId` (não escreve dados de outros ptys)
-- [ ] `onExit` escreve `[process exited]` em vermelho
-- [ ] `ResizeObserver` chama `fit.fit()` e `window.ptyApi.resize` ao redimensionar
-- [ ] **StrictMode safety:** cleanup do primeiro mount não polui o segundo (sem `[process exited]` no remount)
-- [ ] Cleanup chama `kill(ptyId)`, dispose do terminal e disconnect do observer
-- [ ] Mudança de `style.theme/fontFamily/fontSize` atualiza `term.options` SEM recriar pty
+- [x] Cria instância `Terminal` com fontSize/fontFamily/theme do `style`
+- [x] Carrega `FitAddon` e chama `fit()`
+- [x] Gera `ptyId` único por mount via `crypto.randomUUID()` (NÃO reusa `node.id`)
+- [x] Chama `window.ptyApi.create` com cols/rows do xterm e cwd/command do node
+- [x] Em shell `'default'`, envia `shell: undefined` (não a string `'default'`)
+- [x] Foca terminal após pty criado (a menos que disposed)
+- [x] `term.onData` repassa input via `window.ptyApi.input(ptyId, …)`
+- [x] `onData` do pty filtra por `ptyId` (não escreve dados de outros ptys)
+- [x] `onExit` escreve `[process exited]` em vermelho
+- [x] `ResizeObserver` chama `fit.fit()` e `window.ptyApi.resize` ao redimensionar
+- [x] **StrictMode safety:** cleanup do primeiro mount não polui o segundo (sem `[process exited]` no remount)
+- [x] Cleanup chama `kill(ptyId)`, dispose do terminal e disconnect do observer
+- [x] Mudança de `style.theme/fontFamily/fontSize` atualiza `term.options` SEM recriar pty
 
 ## 16. Renderer — `features/terminals/hooks/useTerminalStyles.ts`
 
-- [ ] `getStyle` retorna `DEFAULT_TERMINAL_STYLE` quando id ausente
-- [ ] `getStyle` merge profundo de patch parcial sobre defaults
-- [ ] `setStyle` aplica patch parcial preservando outras propriedades
-- [ ] `removeStyle` deleta entrada e persiste em localStorage
-- [ ] `removeStyle` em id ausente é no-op
-- [ ] Estilos persistem entre re-renders (via `useLocalStorage`)
+- [x] `getStyle` retorna `DEFAULT_TERMINAL_STYLE` quando id ausente
+- [x] `getStyle` merge profundo de patch parcial sobre defaults
+- [x] `setStyle` aplica patch parcial preservando outras propriedades
+- [x] `removeStyle` deleta entrada e persiste em localStorage
+- [x] `removeStyle` em id ausente é no-op
+- [x] Estilos persistem entre re-renders (via `useLocalStorage`)
 
 ## 17. Renderer — `features/canvas/hooks/useEdges.ts`
 
-- [ ] `edges` inicial é `[]`
-- [ ] `list` rehidrata edges no mount
-- [ ] `addEdge` ignora self-loops (source === target)
-- [ ] `addEdge` dedupe na mesma direção
-- [ ] `addEdge` dedupe na direção inversa (source/target trocados)
-- [ ] `addEdge` persiste via `edgeRepository.persist`
-- [ ] `removeEdge` persiste deleção e remove do estado
+- [x] `edges` inicial é `[]`
+- [x] `list` rehidrata edges no mount
+- [x] `addEdge` ignora self-loops (source === target)
+- [x] `addEdge` dedupe na mesma direção
+- [x] `addEdge` dedupe na direção inversa (source/target trocados)
+- [x] `addEdge` persiste via `edgeRepository.persist`
+- [x] `removeEdge` persiste deleção e remove do estado
 
 ## 18. Renderer — `features/canvas/hooks/usePanZoom.ts`
 
-- [ ] Estado inicial: `pan = {0,0}`, `zoom = 1`
-- [ ] `startPan` registra estado de drag
-- [ ] `onMouseMove` durante drag atualiza pan pelo delta
-- [ ] `endPan` limpa drag state
-- [ ] `onBackgroundMouseDown` ignora clique sobre `.terminal-node` (exceto Shift+Left)
-- [ ] `onBackgroundMouseDown` com Shift+Left inicia pan mesmo sobre node
-- [ ] `onWheel` sobre `.terminal-node` é no-op (deixa xterm scrollar)
-- [ ] `onWheel` sem Shift faz pan com deltaX/deltaY
-- [ ] `onWheel` com Shift faz zoom de ±3% por notch ancorado no cursor
-- [ ] Zoom clamp em `[0.25, 2.5]`
-- [ ] `deltaY === 0` em wheel zoom é no-op
+- [x] Estado inicial: `pan = {0,0}`, `zoom = 1`
+- [x] `startPan` registra estado de drag
+- [x] `onMouseMove` durante drag atualiza pan pelo delta
+- [x] `endPan` limpa drag state
+- [x] `onBackgroundMouseDown` ignora clique sobre `.terminal-node` (exceto Shift+Left)
+- [x] `onBackgroundMouseDown` com Shift+Left inicia pan mesmo sobre node
+- [x] `onWheel` sobre `.terminal-node` é no-op (deixa xterm scrollar)
+- [x] `onWheel` sem Shift faz pan com deltaX/deltaY
+- [x] `onWheel` com Shift faz zoom de ±3% por notch ancorado no cursor
+- [x] Zoom clamp em `[0.25, 2.5]`
+- [x] `deltaY === 0` em wheel zoom é no-op
 
 ## 19. Renderer — `features/canvas/components/Canvas.tsx`
 
