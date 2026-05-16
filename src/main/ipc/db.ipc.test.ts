@@ -1,0 +1,70 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+const ipcHandlers = vi.hoisted(() => new Map<string, (...args: any[]) => any>())
+
+vi.mock('electron', () => ({
+  ipcMain: {
+    handle: vi.fn((channel: string, fn: (...args: any[]) => any) => {
+      ipcHandlers.set(channel, fn)
+    }),
+  },
+}))
+
+vi.mock('../services/db.service', () => ({
+  listActiveTerminals: vi.fn(() => []),
+  upsertTerminal: vi.fn(),
+  removeTerminal: vi.fn(),
+  listEdges: vi.fn(() => []),
+  upsertEdge: vi.fn(),
+  removeEdge: vi.fn(),
+}))
+
+import { registerDbIpc } from './db.ipc'
+import * as dbService from '../services/db.service'
+import { IpcChannels } from '@shared/types/ipc'
+
+describe('db.ipc', () => {
+  beforeEach(() => {
+    ipcHandlers.clear()
+    vi.clearAllMocks()
+    registerDbIpc()
+  })
+
+  it('db:list-active calls listActiveTerminals and returns its result', async () => {
+    const rows = [{ id: 't1', title: 'A', cwd: '/tmp', command: '', shell: 'default', x: 0, y: 0, width: 400, height: 300 }]
+    vi.mocked(dbService.listActiveTerminals).mockReturnValue(rows as any)
+    const result = await ipcHandlers.get(IpcChannels.dbListActive)!()
+    expect(dbService.listActiveTerminals).toHaveBeenCalled()
+    expect(result).toBe(rows)
+  })
+
+  it('db:upsert calls upsertTerminal with the record payload', async () => {
+    const record = { id: 't1', title: 'Test', cwd: '/tmp', command: '', shell: 'default', x: 0, y: 0, width: 400, height: 300 }
+    await ipcHandlers.get(IpcChannels.dbUpsert)!({}, record)
+    expect(dbService.upsertTerminal).toHaveBeenCalledWith(record)
+  })
+
+  it('db:remove calls removeTerminal(id)', async () => {
+    await ipcHandlers.get(IpcChannels.dbRemove)!({}, 't1')
+    expect(dbService.removeTerminal).toHaveBeenCalledWith('t1')
+  })
+
+  it('edges:list calls listEdges and returns its result', async () => {
+    const edges = [{ id: 'e1', source: 't1', target: 't2' }]
+    vi.mocked(dbService.listEdges).mockReturnValue(edges as any)
+    const result = await ipcHandlers.get(IpcChannels.edgesList)!()
+    expect(dbService.listEdges).toHaveBeenCalled()
+    expect(result).toBe(edges)
+  })
+
+  it('edges:upsert calls upsertEdge with the edge record', async () => {
+    const edge = { id: 'e1', source: 't1', target: 't2' }
+    await ipcHandlers.get(IpcChannels.edgesUpsert)!({}, edge)
+    expect(dbService.upsertEdge).toHaveBeenCalledWith(edge)
+  })
+
+  it('edges:remove calls removeEdge(id)', async () => {
+    await ipcHandlers.get(IpcChannels.edgesRemove)!({}, 'e1')
+    expect(dbService.removeEdge).toHaveBeenCalledWith('e1')
+  })
+})
