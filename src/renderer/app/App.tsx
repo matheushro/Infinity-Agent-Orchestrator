@@ -12,7 +12,7 @@ import type { ShellType } from '@renderer/features/terminals/types'
 import type { CanvasTheme } from '@renderer/features/canvas/types'
 
 export default function App(): JSX.Element {
-  const { workspaces, activeId, setActiveId, createWorkspace } = useWorkspaces()
+  const { workspaces, activeId, setActiveId, createWorkspace, renameWorkspace, deleteWorkspace, duplicateWorkspace } = useWorkspaces()
   const { getStyle, setStyle, removeStyle } = useTerminalStyles()
   const [shell, setShell] = useState<ShellType>('default')
   const [theme, setTheme] = useLocalStorage<CanvasTheme>('canvasTheme', 'dark')
@@ -68,9 +68,23 @@ export default function App(): JSX.Element {
             canvasRefs.current.get(activeId)?.openNewTerminalModal()
           }}
           onCreateWorkspace={createWorkspace}
+          onRenameWorkspace={renameWorkspace}
+          onDeleteWorkspace={deleteWorkspace}
+          onDuplicateWorkspace={duplicateWorkspace}
           onSwitchWorkspace={setActiveId}
           onSelectTerminal={handleSelectTerminal}
           onToggleTheme={setTheme}
+          onTerminalDelete={(workspaceId, terminalId) => {
+            canvasRefs.current.get(workspaceId)?.deleteTerminal(terminalId)
+          }}
+          onTerminalLink={(workspaceId, terminalId) => {
+            setActiveId(workspaceId)
+            canvasRefs.current.get(workspaceId)?.startLinkFrom(terminalId)
+          }}
+          onTerminalStyle={(workspaceId, terminalId) => {
+            setActiveId(workspaceId)
+            canvasRefs.current.get(workspaceId)?.openStyleEditor(terminalId)
+          }}
         />
 
         <main className="flex min-w-0 flex-1 flex-col">

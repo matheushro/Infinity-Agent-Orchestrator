@@ -44,9 +44,15 @@ function renderSidebar(overrides: Partial<ComponentProps<typeof Sidebar>> = {}) 
     onCollapsedChange: vi.fn(),
     onNewTerminal: vi.fn(),
     onCreateWorkspace: vi.fn(),
+    onRenameWorkspace: vi.fn(),
+    onDeleteWorkspace: vi.fn(),
+    onDuplicateWorkspace: vi.fn(),
     onSwitchWorkspace: vi.fn(),
     onSelectTerminal: vi.fn(),
     onToggleTheme: vi.fn(),
+    onTerminalDelete: vi.fn(),
+    onTerminalLink: vi.fn(),
+    onTerminalStyle: vi.fn(),
     ...overrides,
   }
 
@@ -74,9 +80,15 @@ function renderSidebarWithStatus(
     onCollapsedChange: vi.fn(),
     onNewTerminal: vi.fn(),
     onCreateWorkspace: vi.fn(),
+    onRenameWorkspace: vi.fn(),
+    onDeleteWorkspace: vi.fn(),
+    onDuplicateWorkspace: vi.fn(),
     onSwitchWorkspace: vi.fn(),
     onSelectTerminal: vi.fn(),
     onToggleTheme: vi.fn(),
+    onTerminalDelete: vi.fn(),
+    onTerminalLink: vi.fn(),
+    onTerminalStyle: vi.fn(),
     ...overrides,
   }
 
@@ -203,12 +215,109 @@ describe('Sidebar', () => {
     expect(props.onCreateWorkspace).not.toHaveBeenCalled()
   })
 
+  describe('inline workspace rename', () => {
+    it('clicking workspace name shows a rename input pre-filled with current name', () => {
+      renderSidebar()
+      fireEvent.click(screen.getByText('Main'))
+      expect(screen.getByDisplayValue('Main')).toBeTruthy()
+    })
+
+    it('pressing Enter in rename input calls onRenameWorkspace with the new name', () => {
+      const { props } = renderSidebar()
+      fireEvent.click(screen.getByText('Main'))
+      const input = screen.getByDisplayValue('Main')
+      fireEvent.change(input, { target: { value: 'Renamed' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      expect(props.onRenameWorkspace).toHaveBeenCalledWith('ws-1', 'Renamed')
+    })
+
+    it('pressing Escape cancels the rename without calling onRenameWorkspace', () => {
+      const { props } = renderSidebar()
+      fireEvent.click(screen.getByText('Main'))
+      const input = screen.getByDisplayValue('Main')
+      fireEvent.change(input, { target: { value: 'Nope' } })
+      fireEvent.keyDown(input, { key: 'Escape' })
+      expect(props.onRenameWorkspace).not.toHaveBeenCalled()
+      expect(screen.queryByDisplayValue('Nope')).toBeNull()
+    })
+  })
+
+  describe('terminal right-click context menu', () => {
+    it('right-clicking a terminal shows the context menu', () => {
+      renderSidebar()
+      const termItem = screen.getByText('Alpha Shell').closest('.term-item')!
+      fireEvent.contextMenu(termItem)
+      expect(screen.getByText('Delete terminal')).toBeTruthy()
+      expect(screen.getByText('Link to another terminal')).toBeTruthy()
+      expect(screen.getByText('Customize style…')).toBeTruthy()
+    })
+
+    it('clicking Delete terminal calls onTerminalDelete', () => {
+      const { props } = renderSidebar()
+      const termItem = screen.getByText('Alpha Shell').closest('.term-item')!
+      fireEvent.contextMenu(termItem)
+      fireEvent.click(screen.getByText('Delete terminal'))
+      expect(props.onTerminalDelete).toHaveBeenCalledWith('ws-1', 'alpha')
+    })
+
+    it('clicking Link to another terminal calls onTerminalLink', () => {
+      const { props } = renderSidebar()
+      const termItem = screen.getByText('Alpha Shell').closest('.term-item')!
+      fireEvent.contextMenu(termItem)
+      fireEvent.click(screen.getByText('Link to another terminal'))
+      expect(props.onTerminalLink).toHaveBeenCalledWith('ws-1', 'alpha')
+    })
+
+    it('clicking Customize style calls onTerminalStyle', () => {
+      const { props } = renderSidebar()
+      const termItem = screen.getByText('Alpha Shell').closest('.term-item')!
+      fireEvent.contextMenu(termItem)
+      fireEvent.click(screen.getByText('Customize style…'))
+      expect(props.onTerminalStyle).toHaveBeenCalledWith('ws-1', 'alpha')
+    })
+  })
+
+  describe('workspace right-click context menu', () => {
+    it('right-clicking a workspace header shows the workspace context menu', () => {
+      renderSidebar()
+      const wsHeader = screen.getByText('Main').closest('[oncontextmenu]') ??
+        document.querySelector('.mb-1 > div')!
+      fireEvent.contextMenu(wsHeader)
+      expect(screen.getByText('Rename')).toBeTruthy()
+      expect(screen.getByText('Duplicate')).toBeTruthy()
+      expect(screen.getByText('Delete workspace')).toBeTruthy()
+    })
+
+    it('clicking Rename in workspace context menu activates inline rename', () => {
+      renderSidebar()
+      const wsHeader = document.querySelector('.mb-1 > div')!
+      fireEvent.contextMenu(wsHeader)
+      fireEvent.click(screen.getByText('Rename'))
+      expect(screen.getByDisplayValue('Main')).toBeTruthy()
+    })
+
+    it('clicking Delete workspace calls onDeleteWorkspace', () => {
+      const { props } = renderSidebar()
+      const wsHeader = document.querySelector('.mb-1 > div')!
+      fireEvent.contextMenu(wsHeader)
+      fireEvent.click(screen.getByText('Delete workspace'))
+      expect(props.onDeleteWorkspace).toHaveBeenCalledWith('ws-1')
+    })
+
+    it('clicking Duplicate calls onDuplicateWorkspace', () => {
+      const { props } = renderSidebar()
+      const wsHeader = document.querySelector('.mb-1 > div')!
+      fireEvent.contextMenu(wsHeader)
+      fireEvent.click(screen.getByText('Duplicate'))
+      expect(props.onDuplicateWorkspace).toHaveBeenCalledWith('ws-1')
+    })
+  })
+
   describe('PTY status dots', () => {
     it('11.14 shows a status dot next to a terminal whose node id is active in PtyActivityContext', () => {
       renderSidebarWithStatus('idle')
       const dot = document.querySelector('.term-item span[title="Available"]') as HTMLElement
       expect(dot).toBeTruthy()
-      // jsdom converts hex to rgb; just verify a background colour is set
       expect(dot.style.background).toBeTruthy()
     })
 
@@ -225,10 +334,9 @@ describe('Sidebar', () => {
       expect(dot).toBeTruthy()
     })
 
-    it('11.15 workspace dot renders when at least one terminal is active (idle/busy)', () => {
+    it('11.15 workspace dot renders when at least one terminal is busy', () => {
       renderSidebarWithStatus('busy')
-      // The workspace header button should contain a status span with "Working" title
-      const wsDot = document.querySelector('button[title="Active workspace"] span[title="Working"]')
+      const wsDot = document.querySelector('span[title="Working"]')
       expect(wsDot).toBeTruthy()
     })
 
@@ -240,7 +348,8 @@ describe('Sidebar', () => {
 
     it('workspace dot is absent when all terminals are offline', () => {
       renderSidebarWithStatus('offline')
-      const wsDot = document.querySelector('button[title="Active workspace"] span[title="Offline"]')
+      // workspace header should not show an idle/busy dot
+      const wsDot = document.querySelector('.mb-1 > div span[title="Working"]')
       expect(wsDot).toBeNull()
     })
   })

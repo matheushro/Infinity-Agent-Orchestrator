@@ -27,6 +27,8 @@ export interface WorkspaceApi {
   list(): Promise<WorkspaceRecord[]>
   create(record: WorkspaceRecord): Promise<void>
   delete(id: string): Promise<void>
+  rename(id: string, name: string): Promise<void>
+  duplicate(id: string): Promise<WorkspaceRecord>
 }
 
 export interface DialogApi {

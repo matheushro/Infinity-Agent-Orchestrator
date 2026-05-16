@@ -38,6 +38,8 @@ const mockWorkspaceApi = vi.hoisted(() => ({
   list: vi.fn(),
   create: vi.fn(),
   delete: vi.fn(),
+  rename: vi.fn(),
+  duplicate: vi.fn(),
 }))
 
 import { useWorkspaces } from './useWorkspaces'
@@ -51,6 +53,8 @@ beforeEach(() => {
   mockWorkspaceApi.list.mockResolvedValue([WS1])
   mockWorkspaceApi.create.mockResolvedValue(undefined)
   mockWorkspaceApi.delete.mockResolvedValue(undefined)
+  mockWorkspaceApi.rename.mockResolvedValue(undefined)
+  mockWorkspaceApi.duplicate.mockResolvedValue(undefined)
   Object.assign(window, { workspaceApi: mockWorkspaceApi })
   vi.spyOn(crypto, 'randomUUID').mockReturnValue('uuid-new' as ReturnType<typeof crypto.randomUUID>)
 })
@@ -168,5 +172,76 @@ describe('useWorkspaces', () => {
 
     const stored = JSON.parse(mockLocalStorage.getItem('activeWorkspaceId') ?? 'null')
     expect(stored).toBe(WS2.id)
+  })
+
+  it('5.11 renameWorkspace calls window.workspaceApi.rename and updates local state', async () => {
+    const { result } = renderHook(() => useWorkspaces())
+    await waitFor(() => expect(result.current.workspaces).toHaveLength(1))
+
+    await act(async () => {
+      await result.current.renameWorkspace(WS1.id, 'Renamed')
+    })
+
+    expect(mockWorkspaceApi.rename).toHaveBeenCalledWith(WS1.id, 'Renamed')
+    expect(result.current.workspaces[0].name).toBe('Renamed')
+  })
+
+  it('5.12 renameWorkspace is a no-op when the trimmed name is empty', async () => {
+    const { result } = renderHook(() => useWorkspaces())
+    await waitFor(() => expect(result.current.workspaces).toHaveLength(1))
+
+    await act(async () => {
+      await result.current.renameWorkspace(WS1.id, '   ')
+    })
+
+    expect(mockWorkspaceApi.rename).not.toHaveBeenCalled()
+  })
+
+  it('5.13 deleteWorkspace removes the workspace from state and switches active to first remaining', async () => {
+    mockWorkspaceApi.list.mockResolvedValue([WS1, WS2])
+    const { result } = renderHook(() => useWorkspaces())
+    await waitFor(() => expect(result.current.workspaces).toHaveLength(2))
+
+    await act(async () => {
+      await result.current.deleteWorkspace(WS1.id)
+    })
+
+    expect(mockWorkspaceApi.delete).toHaveBeenCalledWith(WS1.id)
+    expect(result.current.workspaces).toHaveLength(1)
+    expect(result.current.workspaces[0].id).toBe(WS2.id)
+    expect(result.current.activeId).toBe(WS2.id)
+  })
+
+  it('5.14 duplicateWorkspace calls window.workspaceApi.duplicate, adds record to state, and sets active', async () => {
+    const duplicated: WorkspaceRecord = { id: 'ws-dup', name: 'Main Copy', created_at: 9999 }
+    mockWorkspaceApi.duplicate.mockResolvedValue(duplicated)
+
+    const { result } = renderHook(() => useWorkspaces())
+    await waitFor(() => expect(result.current.workspaces).toHaveLength(1))
+
+    await act(async () => {
+      await result.current.duplicateWorkspace(WS1.id)
+    })
+
+    expect(mockWorkspaceApi.duplicate).toHaveBeenCalledWith(WS1.id)
+    expect(result.current.workspaces).toHaveLength(2)
+    expect(result.current.workspaces[1]).toEqual(duplicated)
+    expect(result.current.activeId).toBe('ws-dup')
+  })
+
+  it('5.15 duplicateWorkspace is a no-op when workspaces.length >= 5', async () => {
+    const fiveWs: WorkspaceRecord[] = Array.from({ length: 5 }, (_, i) => ({
+      id: `ws-${i}`, name: `WS ${i}`, created_at: i,
+    }))
+    mockWorkspaceApi.list.mockResolvedValue(fiveWs)
+
+    const { result } = renderHook(() => useWorkspaces())
+    await waitFor(() => expect(result.current.workspaces).toHaveLength(5))
+
+    await act(async () => {
+      await result.current.duplicateWorkspace('ws-0')
+    })
+
+    expect(mockWorkspaceApi.duplicate).not.toHaveBeenCalled()
   })
 })

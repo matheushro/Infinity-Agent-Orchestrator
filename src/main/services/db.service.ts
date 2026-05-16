@@ -87,6 +87,41 @@ export function deleteWorkspace(id: string): void {
   db.prepare('DELETE FROM workspaces WHERE id = ?').run(id)
 }
 
+export function renameWorkspace(id: string, name: string): void {
+  db.prepare('UPDATE workspaces SET name = ? WHERE id = ?').run(name, id)
+}
+
+export function duplicateWorkspace(sourceId: string): WorkspaceRecord {
+  const source = db
+    .prepare('SELECT * FROM workspaces WHERE id = ?')
+    .get(sourceId) as WorkspaceRecord | undefined
+  if (!source) throw new Error(`Workspace ${sourceId} not found`)
+
+  const newId = crypto.randomUUID()
+  const newRecord: WorkspaceRecord = {
+    id: newId,
+    name: `${source.name} Copy`,
+    created_at: Date.now(),
+  }
+  db.prepare(
+    'INSERT INTO workspaces (id, name, created_at) VALUES (@id, @name, @created_at)',
+  ).run(newRecord)
+
+  const terminals = db
+    .prepare('SELECT * FROM terminals WHERE active = 1 AND workspace_id = ?')
+    .all(sourceId) as Array<TerminalRecord & { active: number; created_at: number }>
+  const insert = db.prepare(
+    `INSERT INTO terminals (id, title, cwd, command, shell, x, y, width, height, active, created_at, workspace_id)
+     VALUES (@id, @title, @cwd, @command, @shell, @x, @y, @width, @height, 1, @created_at, @workspace_id)`,
+  )
+  const now = Date.now()
+  for (const t of terminals) {
+    insert.run({ ...t, id: crypto.randomUUID(), workspace_id: newId, created_at: now })
+  }
+
+  return newRecord
+}
+
 // ── Terminals ────────────────────────────────────────────────────────────────
 
 export function listActiveTerminals(workspaceId?: string): TerminalRecord[] {

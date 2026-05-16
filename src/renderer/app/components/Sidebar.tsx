@@ -1,10 +1,12 @@
 // Left rail: workspace list (accordion), terminal list per workspace with PTY
 // activity indicators, new workspace button, theme toggle.
-import { useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import type { TerminalNodeData } from '@renderer/features/terminals/types'
 import type { CanvasTheme } from '@renderer/features/canvas/types'
 import type { WorkspaceRecord } from '@shared/types/workspace'
 import { usePtyActivity, type PtyStatus } from '@renderer/features/workspaces/context/PtyActivityContext'
+import { TerminalContextMenu } from '@renderer/features/terminals/components/TerminalContextMenu'
 import {
   IChevDown,
   IChevRight,
@@ -27,9 +29,15 @@ interface SidebarProps {
   onCollapsedChange: (next: boolean) => void
   onNewTerminal: () => void
   onCreateWorkspace: (name: string) => void
+  onRenameWorkspace: (id: string, name: string) => void
+  onDeleteWorkspace: (id: string) => void
+  onDuplicateWorkspace: (id: string) => void
   onSwitchWorkspace: (workspaceId: string) => void
   onSelectTerminal: (workspaceId: string, terminalId: string) => void
   onToggleTheme: (t: CanvasTheme) => void
+  onTerminalDelete: (workspaceId: string, terminalId: string) => void
+  onTerminalLink: (workspaceId: string, terminalId: string) => void
+  onTerminalStyle: (workspaceId: string, terminalId: string) => void
 }
 
 const STATUS_COLOR: Record<PtyStatus, string> = {
@@ -159,6 +167,18 @@ function CollapsedRail({
 
 // ── Expanded sidebar ────────────────────────────────────────────────────────
 
+interface TerminalCtxMenu {
+  terminal: TerminalNodeData
+  x: number
+  y: number
+}
+
+interface WorkspaceCtxMenu {
+  workspaceId: string
+  x: number
+  y: number
+}
+
 function ExpandedSidebar({
   workspaces,
   activeWorkspaceId,
@@ -168,17 +188,26 @@ function ExpandedSidebar({
   onCollapsedChange,
   onNewTerminal,
   onCreateWorkspace,
+  onRenameWorkspace,
+  onDeleteWorkspace,
+  onDuplicateWorkspace,
   onSwitchWorkspace,
   onSelectTerminal,
   onToggleTheme,
+  onTerminalDelete,
+  onTerminalLink,
+  onTerminalStyle,
 }: SidebarProps): JSX.Element {
   const { getStatus } = usePtyActivity()
   const [newWsMode, setNewWsMode] = useState(false)
   const [newWsName, setNewWsName] = useState('')
-  // Track which workspace sections are open (default: all open).
   const [openWorkspaces, setOpenWorkspaces] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(workspaces.map((w) => [w.id, true])),
   )
+  const [termCtxMenu, setTermCtxMenu] = useState<TerminalCtxMenu | null>(null)
+  const [wsCtxMenu, setWsCtxMenu] = useState<WorkspaceCtxMenu | null>(null)
+  // id of the workspace whose name is being inline-edited
+  const [renamingWsId, setRenamingWsId] = useState<string | null>(null)
 
   function toggleWorkspace(id: string): void {
     setOpenWorkspaces((prev) => ({ ...prev, [id]: !prev[id] }))
@@ -190,8 +219,6 @@ function ExpandedSidebar({
     onCreateWorkspace(name)
     setNewWsName('')
     setNewWsMode(false)
-    // Open the new workspace section (it will be added to workspaces list).
-    // We can't know its id here, but useWorkspaces will set it active.
   }
 
   const totalTerminals = workspaces.reduce(
@@ -274,9 +301,18 @@ function ExpandedSidebar({
               isActiveWs={isActiveWs}
               isOpen={isOpen}
               selectedTerminalId={selectedTerminalId}
+              isRenaming={renamingWsId === ws.id}
               onToggle={() => toggleWorkspace(ws.id)}
               onSwitchWorkspace={onSwitchWorkspace}
               onSelectTerminal={onSelectTerminal}
+              onRename={(name) => {
+                onRenameWorkspace(ws.id, name)
+                setRenamingWsId(null)
+              }}
+              onStartRename={() => setRenamingWsId(ws.id)}
+              onCancelRename={() => setRenamingWsId(null)}
+              onWorkspaceContextMenu={(x, y) => setWsCtxMenu({ workspaceId: ws.id, x, y })}
+              onTerminalContextMenu={(terminal, x, y) => setTermCtxMenu({ terminal, x, y })}
               getStatus={getStatus}
             />
           )
@@ -364,6 +400,49 @@ function ExpandedSidebar({
           />
         </div>
       </div>
+
+      {/* Terminal right-click menu */}
+      {termCtxMenu && (
+        <TerminalContextMenu
+          x={termCtxMenu.x}
+          y={termCtxMenu.y}
+          onClose={() => setTermCtxMenu(null)}
+          onLink={() => {
+            onTerminalLink(termCtxMenu.terminal.workspace_id, termCtxMenu.terminal.id)
+            setTermCtxMenu(null)
+          }}
+          onDelete={() => {
+            onTerminalDelete(termCtxMenu.terminal.workspace_id, termCtxMenu.terminal.id)
+            setTermCtxMenu(null)
+          }}
+          onStyle={() => {
+            onTerminalStyle(termCtxMenu.terminal.workspace_id, termCtxMenu.terminal.id)
+            setTermCtxMenu(null)
+          }}
+        />
+      )}
+
+      {/* Workspace right-click menu */}
+      {wsCtxMenu && (
+        <WorkspaceContextMenu
+          x={wsCtxMenu.x}
+          y={wsCtxMenu.y}
+          canDuplicate={workspaces.length < 5}
+          onClose={() => setWsCtxMenu(null)}
+          onRename={() => {
+            setRenamingWsId(wsCtxMenu.workspaceId)
+            setWsCtxMenu(null)
+          }}
+          onDelete={() => {
+            onDeleteWorkspace(wsCtxMenu.workspaceId)
+            setWsCtxMenu(null)
+          }}
+          onDuplicate={() => {
+            onDuplicateWorkspace(wsCtxMenu.workspaceId)
+            setWsCtxMenu(null)
+          }}
+        />
+      )}
     </aside>
   )
 }
@@ -375,57 +454,122 @@ function WorkspaceSection({
   nodes,
   isActiveWs,
   isOpen,
+  isRenaming,
   selectedTerminalId,
   onToggle,
   onSwitchWorkspace,
   onSelectTerminal,
+  onRename,
+  onStartRename,
+  onCancelRename,
+  onWorkspaceContextMenu,
+  onTerminalContextMenu,
   getStatus,
 }: {
   workspace: WorkspaceRecord
   nodes: TerminalNodeData[]
   isActiveWs: boolean
   isOpen: boolean
+  isRenaming: boolean
   selectedTerminalId: string | null
   onToggle: () => void
   onSwitchWorkspace: (id: string) => void
   onSelectTerminal: (wsId: string, terminalId: string) => void
+  onRename: (name: string) => void
+  onStartRename: () => void
+  onCancelRename: () => void
+  onWorkspaceContextMenu: (x: number, y: number) => void
+  onTerminalContextMenu: (terminal: TerminalNodeData, x: number, y: number) => void
   getStatus: (nodeId: string) => PtyStatus
 }): JSX.Element {
   const anyBusy = nodes.some((n) => getStatus(n.id) === 'busy')
   const anyIdle = nodes.some((n) => getStatus(n.id) === 'idle')
   const wsDotStatus: PtyStatus | null = anyBusy ? 'busy' : anyIdle ? 'idle' : null
+  const [renameValue, setRenameValue] = useState(workspace.name)
+  const renameInputRef = useRef<HTMLInputElement>(null)
+
+  // Keep the rename input value in sync if isRenaming activates
+  useEffect(() => {
+    if (isRenaming) {
+      setRenameValue(workspace.name)
+      // Focus on next tick so the input is mounted
+      setTimeout(() => renameInputRef.current?.select(), 0)
+    }
+  }, [isRenaming, workspace.name])
+
+  function commitRename(): void {
+    const trimmed = renameValue.trim()
+    if (trimmed) onRename(trimmed)
+    else onCancelRename()
+  }
 
   return (
     <div className="mb-1">
       {/* Workspace header */}
-      <button
+      <div
         className="flex items-center gap-2 w-full px-2 py-1.5 rounded-[7px] text-left transition-colors"
         style={{
           background: isActiveWs
             ? 'color-mix(in oklch, var(--accent) 10%, transparent)'
             : 'transparent',
-          border: isActiveWs ? '1px solid color-mix(in oklch, var(--accent) 25%, transparent)' : '1px solid transparent',
+          border: isActiveWs
+            ? '1px solid color-mix(in oklch, var(--accent) 25%, transparent)'
+            : '1px solid transparent',
         }}
-        onClick={() => {
-          onSwitchWorkspace(workspace.id)
-          onToggle()
+        onContextMenu={(e) => {
+          e.preventDefault()
+          onWorkspaceContextMenu(e.clientX, e.clientY)
         }}
-        title={isActiveWs ? 'Active workspace' : `Switch to ${workspace.name}`}
       >
-        <span style={{ color: 'var(--fg-3)', flexShrink: 0 }}>
-          {isOpen ? <IChevDown size={11} /> : <IChevRight size={11} />}
-        </span>
-        <span
-          className="flex-1 text-[12.5px] font-medium truncate"
-          style={{ color: isActiveWs ? 'var(--fg)' : 'var(--fg-2)' }}
+        {/* Chevron + toggle */}
+        <button
+          className="flex-shrink-0 flex items-center"
+          style={{ color: 'var(--fg-3)' }}
+          onClick={() => {
+            onSwitchWorkspace(workspace.id)
+            onToggle()
+          }}
+          title={isActiveWs ? 'Active workspace' : `Switch to ${workspace.name}`}
         >
-          {workspace.name}
-        </span>
-        {/* Active-workspace indicator + PTY dot */}
+          {isOpen ? <IChevDown size={11} /> : <IChevRight size={11} />}
+        </button>
+
+        {/* Workspace name — click to rename */}
+        {isRenaming ? (
+          <input
+            ref={renameInputRef}
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitRename()
+              if (e.key === 'Escape') onCancelRename()
+            }}
+            onBlur={commitRename}
+            className="flex-1 min-w-0 bg-transparent outline-none text-[12.5px] font-medium px-1 rounded-[4px]"
+            style={{
+              color: 'var(--fg)',
+              border: '1px solid var(--accent)',
+              background: 'color-mix(in oklch, var(--accent) 8%, transparent)',
+            }}
+          />
+        ) : (
+          <span
+            className="flex-1 text-[12.5px] font-medium truncate cursor-text"
+            style={{ color: isActiveWs ? 'var(--fg)' : 'var(--fg-2)' }}
+            onClick={(e) => {
+              e.stopPropagation()
+              onSwitchWorkspace(workspace.id)
+              onStartRename()
+            }}
+            title="Click to rename"
+          >
+            {workspace.name}
+          </span>
+        )}
+
+        {/* Chip + dot */}
         <div className="flex items-center gap-1.5 flex-shrink-0">
-          {nodes.length > 0 && (
-            <span className="chip">{nodes.length}</span>
-          )}
+          {nodes.length > 0 && <span className="chip">{nodes.length}</span>}
           {wsDotStatus && (
             <span
               title={STATUS_LABEL[wsDotStatus]}
@@ -442,7 +586,7 @@ function WorkspaceSection({
             />
           )}
         </div>
-      </button>
+      </div>
 
       {/* Terminal list */}
       {isOpen && (
@@ -461,6 +605,7 @@ function WorkspaceSection({
                 onSwitchWorkspace(t.workspace_id)
                 onSelectTerminal(t.workspace_id, t.id)
               }}
+              onContextMenu={(x, y) => onTerminalContextMenu(t, x, y)}
             />
           ))}
           {nodes.length === 0 && (
@@ -485,17 +630,23 @@ function TerminalItem({
   ptyStatus,
   onSelect,
   onFocus,
+  onContextMenu,
 }: {
   terminal: TerminalNodeData
   selected: boolean
   ptyStatus: PtyStatus
   onSelect: () => void
   onFocus: () => void
+  onContextMenu: (x: number, y: number) => void
 }): JSX.Element {
   return (
     <div
       className={'term-item ' + (selected ? 'active' : '')}
       onClick={onSelect}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        onContextMenu(e.clientX, e.clientY)
+      }}
     >
       <span
         style={{
@@ -531,6 +682,108 @@ function TerminalItem({
         <ITarget size={12} />
       </button>
     </div>
+  )
+}
+
+// ── Workspace context menu ──────────────────────────────────────────────────
+
+function WorkspaceContextMenu({
+  x,
+  y,
+  canDuplicate,
+  onClose,
+  onRename,
+  onDelete,
+  onDuplicate,
+}: {
+  x: number
+  y: number
+  canDuplicate: boolean
+  onClose: () => void
+  onRename: () => void
+  onDelete: () => void
+  onDuplicate: () => void
+}): JSX.Element {
+  useEffect(() => {
+    function onKey(e: KeyboardEvent): void {
+      if (e.key === 'Escape') onClose()
+    }
+    function onScroll(): void {
+      onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('wheel', onScroll, { passive: true })
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('wheel', onScroll)
+    }
+  }, [onClose])
+
+  return createPortal(
+    <>
+      <div
+        className="fixed inset-0 z-[100]"
+        onMouseDown={onClose}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          onClose()
+        }}
+      />
+      <div
+        className="fixed z-[101] min-w-[200px] py-1 rounded-[10px]"
+        style={{
+          left: x,
+          top: y,
+          background: 'color-mix(in oklch, var(--bg-2) 96%, transparent)',
+          backdropFilter: 'blur(10px)',
+          border: '1px solid var(--line)',
+          boxShadow: '0 12px 32px -8px rgb(var(--shadow-color) / 0.32)',
+        }}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <button
+          className="ctx-item flex w-full items-center gap-2.5 px-3 py-2 text-[12.5px]"
+          style={{ color: 'var(--fg)' }}
+          onClick={() => { onRename(); onClose() }}
+        >
+          <WsIcon d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+          Rename
+        </button>
+        <button
+          className="ctx-item flex w-full items-center gap-2.5 px-3 py-2 text-[12.5px]"
+          style={{ color: canDuplicate ? 'var(--fg)' : 'var(--fg-3)', cursor: canDuplicate ? 'pointer' : 'not-allowed' }}
+          onClick={() => { if (canDuplicate) { onDuplicate(); onClose() } }}
+          disabled={!canDuplicate}
+          title={canDuplicate ? undefined : 'Workspace limit reached (5)'}
+        >
+          <WsIcon d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+          Duplicate
+        </button>
+        <div style={{ height: 1, margin: '2px 8px', background: 'var(--line)' }} />
+        <button
+          className="ctx-item flex w-full items-center gap-2.5 px-3 py-2 text-[12.5px]"
+          style={{ color: 'oklch(0.68 0.18 25)' }}
+          onClick={() => { onDelete(); onClose() }}
+        >
+          <WsIcon d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" danger />
+          Delete workspace
+        </button>
+      </div>
+    </>,
+    document.body,
+  )
+}
+
+function WsIcon({ d, danger }: { d: string; danger?: boolean }): JSX.Element {
+  return (
+    <span
+      className="inline-flex items-center justify-center"
+      style={{ width: 18, height: 18, color: danger ? 'oklch(0.68 0.18 25)' : 'var(--fg-2)' }}
+    >
+      <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+        <path d={d} />
+      </svg>
+    </span>
   )
 }
 

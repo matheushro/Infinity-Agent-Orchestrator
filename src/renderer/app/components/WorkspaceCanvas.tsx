@@ -51,6 +51,9 @@ interface WorkspaceCanvasProps {
 
 export interface WorkspaceCanvasHandle {
   openNewTerminalModal: () => void
+  deleteTerminal: (id: string) => void
+  startLinkFrom: (id: string) => void
+  openStyleEditor: (id: string) => void
 }
 
 export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvasProps>(
@@ -184,11 +187,23 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
       if (id !== null) setSelectedIds([])
     }
 
-    // Expose "open modal" to parent via ref so the Sidebar button works.
+    // Expose canvas actions to parent so the Sidebar can trigger them.
     useImperativeHandle(ref, () => ({
       openNewTerminalModal() {
         setPendingCreatePos(null)
         setModalOpen(true)
+      },
+      deleteTerminal(id: string) {
+        setSelectedIds((prev) => prev.filter((p) => p !== id))
+        removeNode(id)
+        removeTerminalStyle(id)
+      },
+      startLinkFrom(id: string) {
+        setTool('link')
+        setLinkSource(id)
+      },
+      openStyleEditor(id: string) {
+        setStyleEditorFor(id)
       },
     }))
 

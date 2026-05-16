@@ -7,4 +7,6 @@ export const workspaceApi: WorkspaceApi = {
   list: () => ipcRenderer.invoke(IpcChannels.workspacesList),
   create: (record) => ipcRenderer.invoke(IpcChannels.workspacesCreate, record),
   delete: (id) => ipcRenderer.invoke(IpcChannels.workspacesDelete, id),
+  rename: (id, name) => ipcRenderer.invoke(IpcChannels.workspacesRename, id, name),
+  duplicate: (id) => ipcRenderer.invoke(IpcChannels.workspacesDuplicate, id),
 }

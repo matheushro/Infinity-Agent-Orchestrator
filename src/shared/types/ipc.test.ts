@@ -54,13 +54,14 @@ describe('IpcChannels — completude e consistência', () => {
     expect(IpcChannels.dialogSelectFolder).toBe('dialog:select-folder')
   })
 
-  it('IpcChannels contém exatamente os 16 canais conhecidos (sem canais fantasma)', () => {
+  it('IpcChannels contém exatamente os 18 canais conhecidos (sem canais fantasma)', () => {
     const expected = [
       'pty:create', 'pty:input', 'pty:resize', 'pty:kill', 'pty:data', 'pty:exit',
       'db:list-active', 'db:upsert', 'db:remove',
       'edges:list', 'edges:upsert', 'edges:remove',
       'dialog:select-folder',
       'workspaces:list', 'workspaces:create', 'workspaces:delete',
+      'workspaces:rename', 'workspaces:duplicate',
     ]
     const actual = Object.values(IpcChannels) as string[]
     expect(actual.sort()).toEqual(expected.sort())

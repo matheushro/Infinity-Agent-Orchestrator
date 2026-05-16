@@ -12,4 +12,10 @@ export function registerWorkspaceIpc(): void {
   ipcMain.handle(IpcChannels.workspacesDelete, (_event, id: string) =>
     dbService.deleteWorkspace(id),
   )
+  ipcMain.handle(IpcChannels.workspacesRename, (_event, id: string, name: string) =>
+    dbService.renameWorkspace(id, name),
+  )
+  ipcMain.handle(IpcChannels.workspacesDuplicate, (_event, id: string) =>
+    dbService.duplicateWorkspace(id),
+  )
 }

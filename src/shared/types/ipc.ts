@@ -18,6 +18,8 @@ export const IpcChannels = {
   workspacesList: 'workspaces:list',
   workspacesCreate: 'workspaces:create',
   workspacesDelete: 'workspaces:delete',
+  workspacesRename: 'workspaces:rename',
+  workspacesDuplicate: 'workspaces:duplicate',
 } as const
 
 export interface PtyCreateArgs {
