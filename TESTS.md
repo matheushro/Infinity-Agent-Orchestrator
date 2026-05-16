@@ -277,53 +277,53 @@
 ## 19. Renderer — `features/canvas/components/Canvas.tsx`
 
 ### Cálculos puros
-- [ ] `edgePaths` produz path Bezier corretamente para nodes lado a lado
-- [ ] `edgePaths` espelha origem/destino quando target está à esquerda da source
-- [ ] `edgePaths` filtra edges onde source ou target não existem mais
-- [ ] `edgePaths` marca `highlighted` quando endpoint selecionado
-- [ ] `edgePaths` marca `edgeSelected` quando edge selecionada
-- [ ] `surface` cresce com nodes e viewport (mínimo 4000px margem)
-- [ ] `fitAll` é no-op com 0 nodes
-- [ ] `fitAll` calcula bounds + padding + scale corretos
+- [x] `edgePaths` produz path Bezier corretamente para nodes lado a lado
+- [x] `edgePaths` espelha origem/destino quando target está à esquerda da source
+- [x] `edgePaths` filtra edges onde source ou target não existem mais
+- [x] `edgePaths` marca `highlighted` quando endpoint selecionado
+- [x] `edgePaths` marca `edgeSelected` quando edge selecionada
+- [x] `surface` cresce com nodes e viewport (mínimo 4000px margem)
+- [x] `fitAll` é no-op com 0 nodes
+- [x] `fitAll` calcula bounds + padding + scale corretos
 
 ### Marquee
-- [ ] Marquee inicia após threshold de 4px arrastando background com tool='select'
-- [ ] Marquee converte client → world coords corretamente
-- [ ] Marquee finaliza com `onSelectMany` contendo nodes interceptados
-- [ ] Clique simples (sem mover) deseleciona tudo
+- [x] Marquee inicia após threshold de 4px arrastando background com tool='select'
+- [x] Marquee converte client → world coords corretamente
+- [x] Marquee finaliza com `onSelectMany` contendo nodes interceptados
+- [x] Clique simples (sem mover) deseleciona tudo
 
 ### Tool modes
-- [ ] Tool `pan` inicia pan imediato no mousedown
-- [ ] Tool `link` mostra overlay correto e captura cliques em nodes
-- [ ] Tool `delete` mostra overlay e remove node ao clicar
-- [ ] Shift+Left click no background inicia pan independente da tool
+- [x] Tool `pan` inicia pan imediato no mousedown
+- [x] Tool `link` mostra overlay correto e captura cliques em nodes
+- [x] Tool `delete` mostra overlay e remove node ao clicar
+- [x] Shift+Left click no background inicia pan independente da tool
 
 ### Right-click
-- [ ] Right-click sem drag abre context menu com world coords
-- [ ] Right-click com drag (>4px) faz pan e SUPRIME context menu
-- [ ] Right-click sobre `.terminal-node` é ignorado
+- [x] Right-click sem drag abre context menu com world coords
+- [x] Right-click com drag (>4px) faz pan e SUPRIME context menu
+- [x] Right-click sobre `.terminal-node` é ignorado
 
 ### Group drag
-- [ ] `handleNodeDragStart` captura starts de todos os selecionados quando lead está no set
-- [ ] `handleNodeMove` aplica delta do lead aos demais selecionados
-- [ ] `handleNodeUpdate` persiste posição final de todos os arrastados
-- [ ] Drag de node não selecionado NÃO afeta outros
+- [x] `handleNodeDragStart` captura starts de todos os selecionados quando lead está no set
+- [x] `handleNodeMove` aplica delta do lead aos demais selecionados
+- [x] `handleNodeUpdate` persiste posição final de todos os arrastados
+- [x] Drag de node não selecionado NÃO afeta outros
 
 ### Focus / zoom controls
-- [ ] `focusRequest` centraliza node e clamp zoom a `[0.7, 1.1]`
-- [ ] `focusRequest` chama `onFocusConsumed`
-- [ ] `zoomBy` é ancorado no centro da viewport
-- [ ] `zoomTo(1)` reseta para 100%
-- [ ] Zoom respeita clamp `[0.25, 2]` nos botões
+- [x] `focusRequest` centraliza node e clamp zoom a `[0.7, 1.1]`
+- [x] `focusRequest` chama `onFocusConsumed`
+- [x] `zoomBy` é ancorado no centro da viewport
+- [x] `zoomTo(1)` reseta para 100%
+- [x] Zoom respeita clamp `[0.25, 2]` nos botões
 
 ## 20. Renderer — `features/canvas/components/Minimap.tsx`
 
-- [ ] Renderiza retângulos proporcionais aos nodes
-- [ ] Destaca nodes selecionados visualmente
-- [ ] Mostra retângulo da viewport
-- [ ] Clique/drag no minimap atualiza pan
-- [ ] Botão close esconde o minimap
-- [ ] Botão `IMap` re-exibe o minimap
+- [x] Renderiza retângulos proporcionais aos nodes
+- [x] Destaca nodes selecionados visualmente
+- [x] Mostra retângulo da viewport
+- [x] Clique/drag no minimap atualiza pan
+- [x] Botão close esconde o minimap
+- [x] Botão `IMap` re-exibe o minimap
 
 ## 21. Renderer — `features/terminals/components/TerminalNode.tsx`
 
