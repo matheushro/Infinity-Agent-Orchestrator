@@ -11,6 +11,7 @@ import type { ShellType } from '@renderer/features/terminals/types'
 import type { CanvasTheme } from '@renderer/features/canvas/types'
 
 interface TopbarProps {
+  workspaceName: string
   terminalCount: number
   theme: CanvasTheme
   shell: ShellType
@@ -19,6 +20,7 @@ interface TopbarProps {
 }
 
 export function Topbar({
+  workspaceName,
   terminalCount,
   theme,
   shell,
@@ -36,7 +38,7 @@ export function Topbar({
       >
         <span>Workspace</span>
         <IChevRight size={11} />
-        <span style={{ color: 'var(--fg)', fontWeight: 500 }}>IAO-app</span>
+        <span style={{ color: 'var(--fg)', fontWeight: 500 }}>{workspaceName}</span>
         <span className="chip ml-1">
           {terminalCount} {terminalCount === 1 ? 'terminal' : 'terminals'}
         </span>

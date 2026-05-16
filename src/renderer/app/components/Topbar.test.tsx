@@ -7,6 +7,7 @@ import { Topbar } from './Topbar'
 
 function renderTopbar(overrides: Partial<ComponentProps<typeof Topbar>> = {}) {
   const props: ComponentProps<typeof Topbar> = {
+    workspaceName: 'My Workspace',
     terminalCount: 2,
     theme: 'dark',
     shell: 'default',
@@ -26,12 +27,17 @@ beforeEach(() => {
 })
 
 describe('Topbar', () => {
+  it('shows the active workspace name in the breadcrumb', () => {
+    renderTopbar({ workspaceName: 'Dev Workspace' })
+    expect(screen.getByText('Dev Workspace')).toBeInTheDocument()
+  })
+
   it('shows the terminal count with the correct singular and plural forms', () => {
     const { rerender } = renderTopbar({ terminalCount: 1 })
 
     expect(screen.getByText('1 terminal')).toBeInTheDocument()
 
-    rerender(<Topbar terminalCount={2} theme="dark" shell="default" onToggleTheme={vi.fn()} onShellChange={vi.fn()} />)
+    rerender(<Topbar workspaceName="My Workspace" terminalCount={2} theme="dark" shell="default" onToggleTheme={vi.fn()} onShellChange={vi.fn()} />)
 
     expect(screen.getByText('2 terminals')).toBeInTheDocument()
   })

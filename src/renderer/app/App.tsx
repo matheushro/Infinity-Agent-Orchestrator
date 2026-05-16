@@ -49,10 +49,9 @@ export default function App(): JSX.Element {
     setPendingFocus({ workspaceId, terminalId })
   }
 
-  const totalTerminals = Object.values(nodesByWorkspace).reduce(
-    (sum, nodes) => sum + nodes.length,
-    0,
-  )
+  const activeWorkspace = workspaces.find((ws) => ws.id === activeId)
+  const activeWorkspaceName = activeWorkspace?.name ?? ''
+  const activeTerminalCount = nodesByWorkspace[activeId]?.length ?? 0
 
   return (
     <PtyActivityProvider>
@@ -76,7 +75,8 @@ export default function App(): JSX.Element {
 
         <main className="flex min-w-0 flex-1 flex-col">
           <Topbar
-            terminalCount={totalTerminals}
+            workspaceName={activeWorkspaceName}
+            terminalCount={activeTerminalCount}
             theme={theme}
             shell={shell}
             onToggleTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
