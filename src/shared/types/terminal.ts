@@ -17,6 +17,7 @@ export interface TerminalRecord {
   y: number
   width: number
   height: number
+  workspace_id: string
 }
 
 /** Persisted edge connecting two terminal nodes. */

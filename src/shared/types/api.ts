@@ -3,6 +3,7 @@
 // global typings reference the same contract.
 import type { EdgeRecord, TerminalRecord } from './terminal'
 import type { PtyCreateArgs, PtyCreateResult } from './ipc'
+import type { WorkspaceRecord } from './workspace'
 
 export interface PtyApi {
   create(args: PtyCreateArgs): Promise<PtyCreateResult>
@@ -14,12 +15,18 @@ export interface PtyApi {
 }
 
 export interface DbApi {
-  listActive(): Promise<TerminalRecord[]>
+  listActive(workspaceId?: string): Promise<TerminalRecord[]>
   upsert(record: TerminalRecord): Promise<void>
   remove(id: string): Promise<void>
   listEdges(): Promise<EdgeRecord[]>
   upsertEdge(record: EdgeRecord): Promise<void>
   removeEdge(id: string): Promise<void>
+}
+
+export interface WorkspaceApi {
+  list(): Promise<WorkspaceRecord[]>
+  create(record: WorkspaceRecord): Promise<void>
+  delete(id: string): Promise<void>
 }
 
 export interface DialogApi {

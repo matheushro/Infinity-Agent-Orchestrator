@@ -1,6 +1,6 @@
 // Owns the persisted set of canvas edges (user-created connections between
-// terminal nodes). Mirrors the shape of useTerminals.
-import { useCallback, useEffect, useState } from 'react'
+// terminal nodes). Filtered to the node IDs of the current workspace.
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { EdgeRecord } from '@shared/types/terminal'
 import { edgeRepository } from '../services/edgeRepository'
 
@@ -10,17 +10,22 @@ export interface UseEdgesResult {
   removeEdge: (id: string) => void
 }
 
-export function useEdges(): UseEdgesResult {
-  const [edges, setEdges] = useState<EdgeRecord[]>([])
+export function useEdges(nodeIds: string[]): UseEdgesResult {
+  const [allEdges, setAllEdges] = useState<EdgeRecord[]>([])
 
   useEffect(() => {
-    edgeRepository.list().then(setEdges)
+    edgeRepository.list().then(setAllEdges)
   }, [])
+
+  // Only expose edges whose both endpoints belong to this workspace's nodes.
+  const edges = useMemo(() => {
+    const idSet = new Set(nodeIds)
+    return allEdges.filter((e) => idSet.has(e.source) && idSet.has(e.target))
+  }, [allEdges, nodeIds])
 
   const addEdge = useCallback((source: string, target: string) => {
     if (source === target) return
-    setEdges((prev) => {
-      // No duplicates regardless of direction.
+    setAllEdges((prev) => {
       const exists = prev.some(
         (e) =>
           (e.source === source && e.target === target) ||
@@ -39,7 +44,7 @@ export function useEdges(): UseEdgesResult {
 
   const removeEdge = useCallback((id: string) => {
     edgeRepository.remove(id)
-    setEdges((prev) => prev.filter((e) => e.id !== id))
+    setAllEdges((prev) => prev.filter((e) => e.id !== id))
   }, [])
 
   return { edges, addEdge, removeEdge }

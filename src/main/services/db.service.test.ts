@@ -4,7 +4,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const store = vi.hoisted(() => ({
   terminals: new Map<string, Record<string, unknown>>(),
-  edges: new Map<string, Record<string, unknown>>()
+  edges: new Map<string, Record<string, unknown>>(),
+  workspaces: new Map<string, Record<string, unknown>>(),
 }))
 
 const executedSql: string[] = []
@@ -29,18 +30,32 @@ vi.mock('better-sqlite3', () => {
 
       prepare(sql: string) {
         return {
-          all(): Record<string, unknown>[] {
+          all(...args: unknown[]): Record<string, unknown>[] {
             if (sql.includes('FROM terminals')) {
-              return Array.from(store.terminals.values())
-                .filter(t => t.active === 1)
-                .sort((a, b) => (a.created_at as number) - (b.created_at as number))
+              let rows = Array.from(store.terminals.values()).filter(t => t.active === 1)
+              // workspace_id filter support
+              if (sql.includes('workspace_id = ?') && args[0]) {
+                rows = rows.filter(t => t.workspace_id === args[0])
+              }
+              return rows.sort((a, b) => (a.created_at as number) - (b.created_at as number))
             }
             if (sql.includes('FROM edges')) {
               return Array.from(store.edges.values())
                 .sort((a, b) => (a.created_at as number) - (b.created_at as number))
                 .map(({ id, source, target }) => ({ id, source, target }))
             }
+            if (sql.includes('FROM workspaces')) {
+              return Array.from(store.workspaces.values())
+                .sort((a, b) => (a.created_at as number) - (b.created_at as number))
+            }
             return []
+          },
+
+          get(): Record<string, unknown> | null {
+            if (sql.includes('COUNT(*) as n FROM workspaces')) {
+              return { n: store.workspaces.size }
+            }
+            return null
           },
 
           run(...args: unknown[]) {
@@ -53,6 +68,16 @@ vi.mock('better-sqlite3', () => {
                   ? { ...existing, ...rec, active: 1 }
                   : { ...rec, active: 1 }
               )
+            } else if (sql.startsWith('INSERT INTO workspaces')) {
+              if (typeof args[0] === 'object' && args[0] !== null) {
+                // named params: createWorkspace uses @id/@name/@created_at
+                const rec = args[0] as Record<string, unknown>
+                store.workspaces.set(rec.id as string, { ...rec })
+              } else {
+                // positional params: initDb seed uses (?, ?, ?)
+                const id = args[0] as string
+                store.workspaces.set(id, { id, name: args[1], created_at: args[2] })
+              }
             } else if (sql.startsWith('INSERT INTO edges')) {
               const rec = args[0] as Record<string, unknown>
               const existing = store.edges.get(rec.id as string)
@@ -62,6 +87,13 @@ vi.mock('better-sqlite3', () => {
                   ? { ...existing, source: rec.source, target: rec.target, created_at: rec.created_at }
                   : { ...rec }
               )
+            } else if (sql.includes('UPDATE terminals SET workspace_id')) {
+              // migration: assign orphaned terminals to default workspace
+              for (const [key, t] of store.terminals) {
+                if (!t.workspace_id || t.workspace_id === '') {
+                  store.terminals.set(key, { ...t, workspace_id: args[0] })
+                }
+              }
             } else if (sql.includes('DELETE FROM edges WHERE source = ? OR target = ?')) {
               const id = args[0] as string
               for (const [key, edge] of store.edges) {
@@ -71,6 +103,8 @@ vi.mock('better-sqlite3', () => {
               store.terminals.delete(args[0] as string)
             } else if (sql.includes('DELETE FROM edges WHERE id = ?')) {
               store.edges.delete(args[0] as string)
+            } else if (sql.includes('DELETE FROM workspaces WHERE id = ?')) {
+              store.workspaces.delete(args[0] as string)
             }
           }
         }
@@ -86,9 +120,13 @@ import {
   removeTerminal,
   listEdges,
   upsertEdge,
-  removeEdge
+  removeEdge,
+  listWorkspaces,
+  createWorkspace,
+  deleteWorkspace,
 } from './db.service'
 import type { TerminalRecord, EdgeRecord } from '@shared/types/terminal'
+import type { WorkspaceRecord } from '@shared/types/workspace'
 
 // ---- helpers ----
 
@@ -105,7 +143,17 @@ function makeTerminal(overrides: Partial<TerminalRecord> = {}): TerminalRecord {
     y: 0,
     width: 800,
     height: 600,
+    workspace_id: 'default',
     ...overrides
+  }
+}
+
+function makeWorkspace(overrides: Partial<WorkspaceRecord> = {}): WorkspaceRecord {
+  return {
+    id: `ws-${++seq}`,
+    name: `Workspace ${seq}`,
+    created_at: seq * 1000,
+    ...overrides,
   }
 }
 
@@ -122,6 +170,7 @@ beforeEach(() => {
   seq = 0
   store.terminals.clear()
   store.edges.clear()
+  store.workspaces.clear()
   executedSql.length = 0
   initDb() // initializes the module-level `db` instance (mock: no-op schema ops)
 })
@@ -353,5 +402,133 @@ describe('FK ON DELETE CASCADE', () => {
     upsertEdge({ id: 'fk-e', source: 'fk-src', target: 'fk-tgt' })
     removeTerminal('fk-src')
     expect(listEdges().find(e => e.id === 'fk-e')).toBeUndefined()
+  })
+})
+
+// ===========================================================================
+// initDb — workspace schema & seed (2.1-2.6)
+// ===========================================================================
+
+describe('initDb — workspace schema', () => {
+  it('2.1 creates the workspaces table — createWorkspace succeeds without error', () => {
+    expect(() => createWorkspace(makeWorkspace())).not.toThrow()
+  })
+
+  it('2.2 adds workspace_id column to terminals — upsert with workspace_id succeeds', () => {
+    expect(() => upsertTerminal(makeTerminal({ workspace_id: 'ws-abc' }))).not.toThrow()
+  })
+
+  it('2.4 on first run seeds a default workspace row', () => {
+    // beforeEach clears store and calls initDb fresh each time.
+    const workspaces = listWorkspaces()
+    expect(workspaces.some((w) => w.id === 'default')).toBe(true)
+  })
+
+  it('2.5 on second run does not insert a duplicate default workspace', () => {
+    initDb()
+    const defaults = listWorkspaces().filter((w) => w.id === 'default')
+    expect(defaults.length).toBe(1)
+  })
+
+  it('2.6 orphaned terminals (empty workspace_id) are reassigned to default on init', () => {
+    // Insert a terminal with no workspace_id by setting it blank, then re-init.
+    store.terminals.set('orphan', {
+      id: 'orphan', title: 'T', cwd: '/', command: 'claude',
+      shell: 'bash', x: 0, y: 0, width: 800, height: 600, active: 1,
+      created_at: 1, workspace_id: '',
+    })
+    store.workspaces.clear()
+    initDb()
+    const t = store.terminals.get('orphan')
+    expect(t?.workspace_id).toBe('default')
+  })
+})
+
+// ===========================================================================
+// listWorkspaces (2.7-2.9)
+// ===========================================================================
+
+describe('listWorkspaces', () => {
+  it('2.7 returns empty array when no workspaces exist (after clearing seed)', () => {
+    store.workspaces.clear()
+    expect(listWorkspaces()).toEqual([])
+  })
+
+  it('2.8 returns all inserted workspace records ordered by created_at', () => {
+    store.workspaces.clear()
+    const w1 = makeWorkspace({ id: 'lw-1', created_at: 1000 })
+    const w2 = makeWorkspace({ id: 'lw-2', created_at: 2000 })
+    createWorkspace(w2)
+    createWorkspace(w1)
+    const result = listWorkspaces()
+    expect(result.map((w) => w.id)).toEqual(['lw-1', 'lw-2'])
+  })
+
+  it('2.9 each record contains id, name, created_at', () => {
+    store.workspaces.clear()
+    const w = makeWorkspace({ id: 'lw-fields', name: 'My WS', created_at: 9999 })
+    createWorkspace(w)
+    const [found] = listWorkspaces()
+    expect(found).toMatchObject({ id: 'lw-fields', name: 'My WS', created_at: 9999 })
+  })
+})
+
+// ===========================================================================
+// createWorkspace (2.10-2.11)
+// ===========================================================================
+
+describe('createWorkspace', () => {
+  it('2.10 inserts a workspace row that appears in listWorkspaces', () => {
+    store.workspaces.clear()
+    const w = makeWorkspace({ id: 'cw-1' })
+    createWorkspace(w)
+    expect(listWorkspaces().some((r) => r.id === 'cw-1')).toBe(true)
+  })
+
+  it('2.11 creating two workspaces with the same id does not insert a duplicate', () => {
+    store.workspaces.clear()
+    const w = makeWorkspace({ id: 'cw-dup' })
+    createWorkspace(w)
+    createWorkspace(w)
+    expect(listWorkspaces().filter((r) => r.id === 'cw-dup').length).toBe(1)
+  })
+})
+
+// ===========================================================================
+// deleteWorkspace (2.12-2.13)
+// ===========================================================================
+
+describe('deleteWorkspace', () => {
+  it('2.12 removes the workspace row so it no longer appears in listWorkspaces', () => {
+    store.workspaces.clear()
+    const w = makeWorkspace({ id: 'dw-1' })
+    createWorkspace(w)
+    deleteWorkspace('dw-1')
+    expect(listWorkspaces().some((r) => r.id === 'dw-1')).toBe(false)
+  })
+
+  it('2.13 is a no-op when the id does not exist', () => {
+    expect(() => deleteWorkspace('nonexistent-ws')).not.toThrow()
+  })
+})
+
+// ===========================================================================
+// listActiveTerminals with workspace filter (2.15-2.16)
+// ===========================================================================
+
+describe('listActiveTerminals — workspace filter', () => {
+  it('2.15 with a workspaceId argument returns only terminals belonging to that workspace', () => {
+    upsertTerminal(makeTerminal({ id: 'ws-a-term', workspace_id: 'ws-a' }))
+    upsertTerminal(makeTerminal({ id: 'ws-b-term', workspace_id: 'ws-b' }))
+    const result = listActiveTerminals('ws-a')
+    expect(result.map((r) => r.id)).toContain('ws-a-term')
+    expect(result.map((r) => r.id)).not.toContain('ws-b-term')
+  })
+
+  it('2.16 terminals from other workspaces are excluded from a scoped query', () => {
+    upsertTerminal(makeTerminal({ id: 'scope-1', workspace_id: 'ws-x' }))
+    upsertTerminal(makeTerminal({ id: 'scope-2', workspace_id: 'ws-y' }))
+    const result = listActiveTerminals('ws-x')
+    expect(result.every((r) => r.workspace_id === 'ws-x')).toBe(true)
   })
 })

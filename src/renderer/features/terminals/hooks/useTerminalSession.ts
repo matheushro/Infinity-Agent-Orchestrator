@@ -6,6 +6,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { COMMANDS } from '../commands'
 import { DEFAULT_TERMINAL_STYLE, type TerminalNodeData, type TerminalStyle } from '../types'
+import { usePtyActivity } from '@renderer/features/workspaces/context/PtyActivityContext'
 
 const THEMES = {
   dark: { background: '#0b1120', foreground: '#e2e8f0' },
@@ -18,6 +19,7 @@ export function useTerminalSession(
 ): React.RefObject<HTMLDivElement> {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
+  const { setStatus } = usePtyActivity()
 
   // Initialize xterm and connect it to the pty in the main process once per node.
   useEffect(() => {
@@ -36,6 +38,7 @@ export function useTerminalSession(
     fit.fit()
 
     let disposed = false
+    let idleTimer: ReturnType<typeof setTimeout> | null = null
 
     // Unique id per pty session. Do NOT reuse node.id, which is only for
     // persistence/layout: under StrictMode the effect mounts twice, and the dead
@@ -52,10 +55,11 @@ export function useTerminalSession(
         cols: term.cols,
         rows: term.rows,
         cwd: node.cwd,
-        command: COMMANDS[node.command].cmd
+        command: COMMANDS[node.command].cmd,
       })
       .then(() => {
         if (disposed) return
+        setStatus(node.id, 'idle')
         term.focus()
       })
 
@@ -63,10 +67,19 @@ export function useTerminalSession(
     const inputSub = term.onData((data) => window.ptyApi.input(ptyId, data))
 
     const offData = window.ptyApi.onData((id, data) => {
-      if (id === ptyId) term.write(data)
+      if (id === ptyId) {
+        term.write(data)
+        setStatus(node.id, 'busy')
+        if (idleTimer) clearTimeout(idleTimer)
+        idleTimer = setTimeout(() => setStatus(node.id, 'idle'), 1500)
+      }
     })
     const offExit = window.ptyApi.onExit((id) => {
-      if (id === ptyId) term.write('\r\n\x1b[31m[process exited]\x1b[0m\r\n')
+      if (id === ptyId) {
+        term.write('\r\n\x1b[31m[process exited]\x1b[0m\r\n')
+        if (idleTimer) clearTimeout(idleTimer)
+        setStatus(node.id, 'offline')
+      }
     })
 
     // Keep the pty synced with the container size while dragging/resizing the node.
@@ -82,6 +95,8 @@ export function useTerminalSession(
 
     return () => {
       disposed = true
+      if (idleTimer) clearTimeout(idleTimer)
+      setStatus(node.id, 'offline')
       observer.disconnect()
       inputSub.dispose()
       offData()

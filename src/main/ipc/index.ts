@@ -4,6 +4,7 @@ import { IpcChannels } from '@shared/types/ipc'
 import { registerPtyIpc } from './pty.ipc'
 import { registerDbIpc } from './db.ipc'
 import { registerDialogIpc } from './dialog.ipc'
+import { registerWorkspaceIpc } from './workspace.ipc'
 
 const HANDLED_CHANNELS = [
   IpcChannels.ptyCreate,
@@ -13,7 +14,10 @@ const HANDLED_CHANNELS = [
   IpcChannels.edgesList,
   IpcChannels.edgesUpsert,
   IpcChannels.edgesRemove,
-  IpcChannels.dialogSelectFolder
+  IpcChannels.dialogSelectFolder,
+  IpcChannels.workspacesList,
+  IpcChannels.workspacesCreate,
+  IpcChannels.workspacesDelete,
 ]
 
 const LISTENER_CHANNELS = [
@@ -36,5 +40,6 @@ export function registerIpcHandlers(): void {
   registerPtyIpc()
   registerDbIpc()
   registerDialogIpc()
+  registerWorkspaceIpc()
   app.once('before-quit', unregisterIpcHandlers)
 }

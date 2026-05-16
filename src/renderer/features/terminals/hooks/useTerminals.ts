@@ -22,13 +22,14 @@ export interface UseTerminalsResult {
   removeNode: (id: string) => void
 }
 
-export function useTerminals(): UseTerminalsResult {
+export function useTerminals(workspaceId: string): UseTerminalsResult {
   const [nodes, setNodes] = useState<TerminalNodeData[]>([])
 
-  // Restore the terminals that were active in the previous session.
+  // Restore the terminals that were active in the previous session for this workspace.
   useEffect(() => {
-    terminalRepository.listActive().then(setNodes)
-  }, [])
+    if (!workspaceId) return
+    terminalRepository.listActive(workspaceId).then(setNodes)
+  }, [workspaceId])
 
   const createTerminal = useCallback(
     (
@@ -53,13 +54,14 @@ export function useTerminals(): UseTerminalsResult {
           shell,
           title: name || `${COMMANDS[command].label} · ${folderName}`,
           cwd: folder,
-          command
+          command,
+          workspace_id: workspaceId,
         }
         terminalRepository.persist(node)
         return [...prev, node]
       })
     },
-    []
+    [workspaceId],
   )
 
   const moveNode = useCallback((id: string, patch: Partial<TerminalNodeData>) => {
@@ -73,7 +75,7 @@ export function useTerminals(): UseTerminalsResult {
         const next = { ...n, ...patch }
         terminalRepository.persist(next)
         return next
-      })
+      }),
     )
   }, [])
 

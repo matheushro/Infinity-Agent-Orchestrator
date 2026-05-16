@@ -4,7 +4,7 @@ import { IpcChannels } from '@shared/types/ipc'
 import type { DbApi } from '@shared/types/api'
 
 export const dbApi: DbApi = {
-  listActive: () => ipcRenderer.invoke(IpcChannels.dbListActive),
+  listActive: (workspaceId?: string) => ipcRenderer.invoke(IpcChannels.dbListActive, workspaceId),
   upsert: (record) => ipcRenderer.invoke(IpcChannels.dbUpsert, record),
   remove: (id) => ipcRenderer.invoke(IpcChannels.dbRemove, id),
   listEdges: () => ipcRenderer.invoke(IpcChannels.edgesList),

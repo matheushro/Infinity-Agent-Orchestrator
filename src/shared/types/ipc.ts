@@ -14,7 +14,10 @@ export const IpcChannels = {
   edgesList: 'edges:list',
   edgesUpsert: 'edges:upsert',
   edgesRemove: 'edges:remove',
-  dialogSelectFolder: 'dialog:select-folder'
+  dialogSelectFolder: 'dialog:select-folder',
+  workspacesList: 'workspaces:list',
+  workspacesCreate: 'workspaces:create',
+  workspacesDelete: 'workspaces:delete',
 } as const
 
 export interface PtyCreateArgs {

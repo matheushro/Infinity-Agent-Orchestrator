@@ -16,9 +16,14 @@ describe('db.api', () => {
     vi.clearAllMocks()
   })
 
-  it('listActive invokes db:list-active', () => {
+  it('listActive invokes db:list-active without workspaceId when not provided', () => {
     dbApi.listActive()
-    expect(mockIpc.invoke).toHaveBeenCalledWith(IpcChannels.dbListActive)
+    expect(mockIpc.invoke).toHaveBeenCalledWith(IpcChannels.dbListActive, undefined)
+  })
+
+  it('listActive invokes db:list-active with workspaceId when provided', () => {
+    dbApi.listActive('ws-1')
+    expect(mockIpc.invoke).toHaveBeenCalledWith(IpcChannels.dbListActive, 'ws-1')
   })
 
   it('upsert invokes db:upsert with record', () => {

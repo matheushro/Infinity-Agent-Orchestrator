@@ -1,8 +1,9 @@
-import { cleanup, render, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { StrictMode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTerminalSession } from './useTerminalSession'
 import type { TerminalNodeData, TerminalStyle } from '../types'
+import { PtyActivityProvider, usePtyActivity } from '@renderer/features/workspaces/context/PtyActivityContext'
 
 const mocks = vi.hoisted(() => {
   const terminalInstances: any[] = []
@@ -146,6 +147,27 @@ function SessionHarness({
   return <div ref={ref} data-testid="terminal-container" />
 }
 
+function StatusDisplay({ nodeId }: { nodeId: string }): JSX.Element {
+  const { getStatus } = usePtyActivity()
+  return <span data-testid="pty-status">{getStatus(nodeId)}</span>
+}
+
+function SessionWithStatus({
+  currentNode = node,
+  style = initialStyle,
+}: {
+  currentNode?: TerminalNodeData
+  style?: TerminalStyle
+}): JSX.Element {
+  const ref = useTerminalSession(currentNode, style)
+  return (
+    <>
+      <div ref={ref} data-testid="terminal-container" />
+      <StatusDisplay nodeId={currentNode.id} />
+    </>
+  )
+}
+
 function resolveCreate(index = 0): void {
   const resolve = mocks.createResolvers[index]
   if (!resolve) throw new Error(`missing create resolver at index ${index}`)
@@ -174,6 +196,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 
 describe('useTerminalSession', () => {
@@ -380,5 +403,102 @@ describe('useTerminalSession', () => {
 
     mocks.ptyApi.emitExit('pty-second')
     expect(remountedTerminal.write).toHaveBeenCalledWith('\r\n\x1b[31m[process exited]\x1b[0m\r\n')
+  })
+
+  describe('PTY status transitions', () => {
+    it('status is offline before create resolves', async () => {
+      render(
+        <PtyActivityProvider>
+          <SessionWithStatus />
+        </PtyActivityProvider>,
+      )
+      await waitFor(() => expect(mocks.ptyApi.create).toHaveBeenCalledTimes(1))
+      expect(screen.getByTestId('pty-status').textContent).toBe('offline')
+    })
+
+    it('status becomes idle after create resolves', async () => {
+      render(
+        <PtyActivityProvider>
+          <SessionWithStatus />
+        </PtyActivityProvider>,
+      )
+      await waitFor(() => expect(mocks.ptyApi.create).toHaveBeenCalledTimes(1))
+      resolveCreate()
+      await waitFor(() =>
+        expect(screen.getByTestId('pty-status').textContent).toBe('idle'),
+      )
+    })
+
+    it('status becomes busy when pty data arrives', async () => {
+      vi.mocked(crypto.randomUUID).mockReturnValue('pty-busy')
+      render(
+        <PtyActivityProvider>
+          <SessionWithStatus />
+        </PtyActivityProvider>,
+      )
+      await waitFor(() => expect(mocks.ptyApi.create).toHaveBeenCalledTimes(1))
+      resolveCreate()
+      await waitFor(() => expect(screen.getByTestId('pty-status').textContent).toBe('idle'))
+
+      mocks.ptyApi.emitData('pty-busy', 'some output')
+      await waitFor(() =>
+        expect(screen.getByTestId('pty-status').textContent).toBe('busy'),
+      )
+    })
+
+    it('status returns to idle after data silence (debounce)', async () => {
+      vi.mocked(crypto.randomUUID).mockReturnValue('pty-debounce')
+      render(
+        <PtyActivityProvider>
+          <SessionWithStatus />
+        </PtyActivityProvider>,
+      )
+      await waitFor(() => expect(mocks.ptyApi.create).toHaveBeenCalledTimes(1))
+      resolveCreate()
+      await waitFor(() => expect(screen.getByTestId('pty-status').textContent).toBe('idle'))
+
+      // Switch to fake timers only for the debounce portion to avoid waitFor deadlock.
+      vi.useFakeTimers()
+
+      mocks.ptyApi.emitData('pty-debounce', 'output')
+      await act(async () => {})
+      expect(screen.getByTestId('pty-status').textContent).toBe('busy')
+
+      await act(async () => { vi.advanceTimersByTime(1500) })
+      expect(screen.getByTestId('pty-status').textContent).toBe('idle')
+    })
+
+    it('status becomes offline on pty exit', async () => {
+      vi.mocked(crypto.randomUUID).mockReturnValue('pty-exit-status')
+      render(
+        <PtyActivityProvider>
+          <SessionWithStatus />
+        </PtyActivityProvider>,
+      )
+      await waitFor(() => expect(mocks.ptyApi.create).toHaveBeenCalledTimes(1))
+      resolveCreate()
+      await waitFor(() => expect(screen.getByTestId('pty-status').textContent).toBe('idle'))
+
+      mocks.ptyApi.emitExit('pty-exit-status')
+      await waitFor(() =>
+        expect(screen.getByTestId('pty-status').textContent).toBe('offline'),
+      )
+    })
+
+    it('status becomes offline on unmount', async () => {
+      vi.mocked(crypto.randomUUID).mockReturnValue('pty-unmount-status')
+      const { unmount } = render(
+        <PtyActivityProvider>
+          <SessionWithStatus />
+        </PtyActivityProvider>,
+      )
+      await waitFor(() => expect(mocks.ptyApi.create).toHaveBeenCalledTimes(1))
+      resolveCreate()
+      await waitFor(() => expect(screen.getByTestId('pty-status').textContent).toBe('idle'))
+
+      unmount()
+      // After unmount the DOM is gone; just verify kill was called (offline transition happened).
+      expect(mocks.ptyApi.kill).toHaveBeenCalledWith('pty-unmount-status')
+    })
   })
 })

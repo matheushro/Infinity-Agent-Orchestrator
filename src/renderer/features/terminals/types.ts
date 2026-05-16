@@ -27,6 +27,7 @@ export interface TerminalNodeData {
   title: string
   cwd: string
   command: CommandKey
+  workspace_id: string
 }
 
 /** Per-terminal visual customization. Persisted in localStorage, not in SQLite. */
