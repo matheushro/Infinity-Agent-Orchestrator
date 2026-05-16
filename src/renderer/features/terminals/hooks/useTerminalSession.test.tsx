@@ -1,4 +1,5 @@
 import { cleanup, render, waitFor } from '@testing-library/react'
+import { StrictMode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTerminalSession } from './useTerminalSession'
 import type { TerminalNodeData, TerminalStyle } from '../types'
@@ -357,5 +358,27 @@ describe('useTerminalSession', () => {
     expect(secondTerminal.write).toHaveBeenCalledWith('\r\n\x1b[31m[process exited]\x1b[0m\r\n')
 
     second.unmount()
+  })
+
+  it('StrictMode double-mount does not print [process exited] on the remounted terminal', async () => {
+    vi.mocked(crypto.randomUUID)
+      .mockReturnValueOnce('pty-first')
+      .mockReturnValueOnce('pty-second')
+
+    render(
+      <StrictMode>
+        <SessionHarness />
+      </StrictMode>,
+    )
+
+    await waitFor(() => expect(mocks.ptyApi.create).toHaveBeenCalledTimes(2))
+
+    const remountedTerminal = mocks.terminalInstances[1]
+
+    mocks.ptyApi.emitExit('pty-first')
+    expect(remountedTerminal.write).not.toHaveBeenCalled()
+
+    mocks.ptyApi.emitExit('pty-second')
+    expect(remountedTerminal.write).toHaveBeenCalledWith('\r\n\x1b[31m[process exited]\x1b[0m\r\n')
   })
 })

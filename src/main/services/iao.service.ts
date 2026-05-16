@@ -192,12 +192,17 @@ function handleSend(
   const targetPty = findPtyForNode(target.id)
   if (!targetPty) return send(res, 409, { error: `agent "${target.title}" has no live terminal` })
 
-  // TUI agents (claude, codex) wrap fast-arriving input in bracketed paste,
-  // which turns a trailing \r into a literal newline inside the input box
-  // rather than a submit. Write the prompt first, then send \r on its own
-  // tick so the agent treats it as Enter and actually executes the message.
-  ptyService.writeToPty(targetPty, prompt)
-  setTimeout(() => ptyService.writeToPty(targetPty, '\r'), 50)
+  // Clear any text the target may already have in its input box (Ctrl+U),
+  // then deliver the prompt wrapped in explicit bracketed-paste markers so
+  // the TUI (claude/codex) knows exactly when the paste ends. Without the
+  // markers the TUI auto-detects large input as a paste and the trailing
+  // \r can arrive while bracketed-paste mode is still active, making the
+  // TUI insert a literal newline instead of submitting. Wrapping with
+  // \x1b[200~ ... \x1b[201~ lets the TUI exit paste mode on the closing
+  // marker, so the \r that follows is guaranteed to be treated as Enter.
+  ptyService.writeToPty(targetPty, '\x15')
+  ptyService.writeToPty(targetPty, `\x1b[200~${prompt}\x1b[201~`)
+  setTimeout(() => ptyService.writeToPty(targetPty, '\r'), enterDelay(prompt.length))
   send(res, 200, { delivered: true, target: { id: target.id, title: target.title } })
 }
 
@@ -283,11 +288,11 @@ function handleSendWait(
     idleMs
   })
 
-  // Deliver the prompt. Same two-step pattern as handleSend so TUI agents
-  // (claude/codex) treat the trailing \r as Enter rather than a literal
-  // newline inside their bracketed-paste input box.
-  ptyService.writeToPty(targetPty, prompt)
-  const enterTimer = setTimeout(() => ptyService.writeToPty(targetPty, '\r'), 50)
+  // Clear any pending input (Ctrl+U), then deliver the prompt wrapped in
+  // explicit bracketed-paste markers — same rationale as handleSend.
+  ptyService.writeToPty(targetPty, '\x15')
+  ptyService.writeToPty(targetPty, `\x1b[200~${prompt}\x1b[201~`)
+  const enterTimer = setTimeout(() => ptyService.writeToPty(targetPty, '\r'), enterDelay(prompt.length))
 
   let idleTimer: NodeJS.Timeout | null = null
   let heartbeatTimer: NodeJS.Timeout | null = null
@@ -361,6 +366,12 @@ function handleSendWait(
   }
   req.on('close', onClose)
   res.on('close', onClose)
+}
+
+// Scale the Enter delay to payload size so large bracketed-paste inputs are
+// fully consumed by the TUI before \r arrives. Min 50ms, max 500ms.
+function enterDelay(byteLen: number): number {
+  return Math.min(500, Math.max(50, Math.ceil(byteLen / 50) * 10))
 }
 
 function clampNum(input: unknown, fallback: number, min: number, max: number): number {

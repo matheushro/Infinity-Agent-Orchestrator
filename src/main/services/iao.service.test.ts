@@ -219,7 +219,7 @@ describe('registerPtySession', () => {
       body: { target: 'Beta', prompt: 'hello' }
     })
     expect(status).toBe(200)
-    expect(mockWriteToPty).toHaveBeenCalledWith('pty-B', 'hello')
+    expect(mockWriteToPty).toHaveBeenCalledWith('pty-B', '\x1b[200~hello\x1b[201~')
   })
 
   it('zeroes the output buffer for the node', async () => {
@@ -520,7 +520,7 @@ describe('POST /send', () => {
       body: { target: 'BETA', prompt: 'hello' }
     })
     expect(status).toBe(200)
-    expect(mockWriteToPty).toHaveBeenCalledWith('pty-B', 'hello')
+    expect(mockWriteToPty).toHaveBeenCalledWith('pty-B', '\x1b[200~hello\x1b[201~')
   })
 
   it('resolves by substring when there is a unique candidate', async () => {
@@ -574,10 +574,12 @@ describe('POST /send', () => {
       body: { target: 'Beta', prompt: 'run tests' }
     })
 
-    // Prompt is written synchronously; \r is written after a 50ms setTimeout
-    expect(mockWriteToPty).toHaveBeenNthCalledWith(1, 'pty-B', 'run tests')
+    // Ctrl+U clears existing input; prompt is wrapped in bracketed-paste
+    // markers so the TUI exits paste mode before \r arrives as Enter.
+    expect(mockWriteToPty).toHaveBeenNthCalledWith(1, 'pty-B', '\x15')
+    expect(mockWriteToPty).toHaveBeenNthCalledWith(2, 'pty-B', '\x1b[200~run tests\x1b[201~')
     await new Promise((r) => setTimeout(r, 100))
-    expect(mockWriteToPty).toHaveBeenNthCalledWith(2, 'pty-B', '\r')
+    expect(mockWriteToPty).toHaveBeenNthCalledWith(3, 'pty-B', '\r')
   })
 
   it('returns { delivered: true, target } on success', async () => {
@@ -786,9 +788,10 @@ describe('POST /send (wait mode)', () => {
         if (events.some((e) => e.type === 'sent')) { clearInterval(tick); resolve() }
       }, 10)
     })
-    expect(mockWriteToPty).toHaveBeenNthCalledWith(1, 'pty-B', 'run tests')
+    expect(mockWriteToPty).toHaveBeenNthCalledWith(1, 'pty-B', '\x15')
+    expect(mockWriteToPty).toHaveBeenNthCalledWith(2, 'pty-B', '\x1b[200~run tests\x1b[201~')
     await new Promise((r) => setTimeout(r, 100))
-    expect(mockWriteToPty).toHaveBeenNthCalledWith(2, 'pty-B', '\r')
+    expect(mockWriteToPty).toHaveBeenNthCalledWith(3, 'pty-B', '\r')
     await statusPromise
   })
 
@@ -855,6 +858,33 @@ describe('GET /inspect', () => {
     expect(status).toBe(200)
     expect((body as any).output).toBe('hello\nworld')
     expect((body as any).bytes).toBe(raw.length)
+  })
+})
+
+describe('send / inspect integration flow', () => {
+  it('delivers a prompt to a linked agent and then inspects the live reply buffer', async () => {
+    const { port } = await startIaoServer()
+    const envA = registerPtySession('pty-A', 'node-A')
+    registerPtySession('pty-B', 'node-B')
+
+    mockListEdges.mockReturnValue([makeEdge('node-A', 'node-B')])
+    mockListActive.mockReturnValue([
+      makeTerminal({ id: 'node-A', title: 'Alpha' }),
+      makeTerminal({ id: 'node-B', title: 'Beta' })
+    ])
+
+    const send = await request(port, 'POST', '/send', {
+      token: envA.IAO_TOKEN,
+      body: { target: 'Beta', prompt: 'hello' }
+    })
+    expect(send.status).toBe(200)
+    expect(mockWriteToPty).toHaveBeenCalledWith('pty-B', '\x1b[200~hello\x1b[201~')
+
+    appendOutput('node-B', '\x1B[32mreply\x1B[0m')
+
+    const inspect = await request(port, 'GET', '/inspect?target=Beta', { token: envA.IAO_TOKEN })
+    expect(inspect.status).toBe(200)
+    expect((inspect.body as any).output).toBe('reply')
   })
 })
 

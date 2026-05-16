@@ -7,6 +7,8 @@ const store = vi.hoisted(() => ({
   edges: new Map<string, Record<string, unknown>>()
 }))
 
+const executedSql: string[] = []
+
 // ---- boundary mocks ----
 
 vi.mock('electron', () => ({
@@ -21,7 +23,9 @@ vi.mock('better-sqlite3', () => {
   return {
     default: class MockDatabase {
       pragma() { /* WAL mode — no-op in mock */ }
-      exec() { /* CREATE TABLE IF NOT EXISTS — tables are always ready */ }
+      exec(sql: string) {
+        executedSql.push(sql)
+      }
 
       prepare(sql: string) {
         return {
@@ -118,6 +122,7 @@ beforeEach(() => {
   seq = 0
   store.terminals.clear()
   store.edges.clear()
+  executedSql.length = 0
   initDb() // initializes the module-level `db` instance (mock: no-op schema ops)
 })
 
@@ -140,6 +145,15 @@ describe('initDb', () => {
 
   it('is idempotent (IF NOT EXISTS) — second call does not throw', () => {
     expect(() => initDb()).not.toThrow()
+  })
+
+  it('declares ON DELETE CASCADE on the edges foreign keys', () => {
+    expect(executedSql.join('\n')).toContain(
+      'FOREIGN KEY (source) REFERENCES terminals(id) ON DELETE CASCADE',
+    )
+    expect(executedSql.join('\n')).toContain(
+      'FOREIGN KEY (target) REFERENCES terminals(id) ON DELETE CASCADE',
+    )
   })
 })
 

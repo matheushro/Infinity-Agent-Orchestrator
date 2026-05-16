@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { existsSync as realExistsSync, readFileSync as realReadFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 // ---- boundary mocks (hoisted before module imports) ----
 
@@ -32,6 +34,7 @@ const CODEX_DIR = '/home/testuser/.codex/skills/iao'
 const CODEX_DEST = `${CODEX_DIR}/SKILL.md`
 const CLAUDE_DIR = '/home/testuser/.claude/skills/iao'
 const CLAUDE_DEST = `${CLAUDE_DIR}/SKILL.md`
+const REAL_SRC = join(process.cwd(), 'resources', 'skills', 'iao', 'SKILL.md')
 
 describe('skill.service', () => {
   beforeEach(() => {
@@ -91,6 +94,17 @@ describe('skill.service', () => {
       expect(mockCopyFileSync).not.toHaveBeenCalled()
     })
 
+    it('copies the same packaged source into both user-level destinations', () => {
+      mockExistsSync.mockImplementation((path) => path === SRC)
+
+      ensureIAOSkill()
+
+      expect(mockCopyFileSync.mock.calls).toEqual([
+        [SRC, CODEX_DEST],
+        [SRC, CLAUDE_DEST]
+      ])
+    })
+
     it('only creates the missing destination when one already exists', () => {
       mockExistsSync
         .mockReturnValueOnce(true)  // source exists
@@ -115,6 +129,23 @@ describe('skill.service', () => {
       // Should not throw and should return the user-global path regardless of arg
       expect(ensureIAOSkill('/some/project')).toBe(CODEX_DEST)
       expect(ensureIAOSkill('')).toBe(CODEX_DEST)
+    })
+  })
+
+  describe('resources/skills/iao/SKILL.md', () => {
+    it('exists at the expected repository path', () => {
+      expect(realExistsSync(REAL_SRC)).toBe(true)
+      expect(realReadFileSync(REAL_SRC, 'utf8')).toContain('iao agents')
+    })
+
+    it('smoke-documents the four main CLI commands', () => {
+      const text = realReadFileSync(REAL_SRC, 'utf8')
+      const commandsSection = text.split('## Commands')[1]?.split('## How to talk to another agent')[0] ?? ''
+
+      expect(commandsSection).toContain('iao agents')
+      expect(commandsSection).toContain('iao send "Agent Name" "prompt"')
+      expect(commandsSection).toContain('iao inspect "Agent Name"')
+      expect(commandsSection).toContain('iao debug')
     })
   })
 })

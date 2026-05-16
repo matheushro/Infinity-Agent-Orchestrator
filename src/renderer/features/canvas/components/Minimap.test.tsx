@@ -1,3 +1,5 @@
+import '@testing-library/jest-dom/vitest'
+
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { TerminalNodeData } from '@renderer/features/terminals/types'
@@ -189,6 +191,10 @@ describe('Minimap', () => {
     )
 
     fireEvent.click(screen.getByLabelText('Hide minimap'))
+    const hideButton = screen.getByLabelText('Hide minimap')
+
+    expect(hideButton).toHaveAttribute('title', 'Hide minimap')
+    expect(hideButton).toHaveAttribute('aria-label', 'Hide minimap')
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 })
