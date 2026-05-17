@@ -1,7 +1,12 @@
-// Movable, inline-editable free text on the canvas.
+// Movable, inline-editable free text on the canvas. Box hugs the rendered
+// glyphs (no padding) so behaviour matches Excalidraw: the bounding box only
+// grows with the text itself.
 import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Rnd } from 'react-rnd'
 import type { CanvasTextRecord } from '@shared/types/canvas'
+
+const LINE_HEIGHT = 1.2
+const MIN_FONT_SIZE = 14
 
 interface CanvasTextProps {
   text: CanvasTextRecord
@@ -37,7 +42,7 @@ export const CanvasText = memo(function CanvasText({
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const measureRef = useRef<HTMLSpanElement | null>(null)
   const finishingRef = useRef(false)
-  const fontSize = getCanvasTextFontSize(text.width, text.height)
+  const fontSize = getCanvasTextFontSize(text.text, text.height)
 
   useEffect(() => {
     if (!editing) return
@@ -57,8 +62,8 @@ export const CanvasText = memo(function CanvasText({
     const measured = measureRef.current
     if (!measured) return
     setDraftSize({
-      width: Math.max(64, Math.ceil(measured.offsetWidth)),
-      height: Math.max(28, Math.ceil(measured.offsetHeight)),
+      width: Math.ceil(measured.offsetWidth),
+      height: Math.ceil(measured.offsetHeight),
     })
   }, [editing, draft, fontSize])
 
@@ -72,13 +77,10 @@ export const CanvasText = memo(function CanvasText({
       const measured = measureRef.current
       const size = draftSize ?? (measured
         ? {
-            width: Math.max(64, Math.ceil(measured.offsetWidth)),
-            height: Math.max(28, Math.ceil(measured.offsetHeight)),
+            width: Math.ceil(measured.offsetWidth),
+            height: Math.ceil(measured.offsetHeight),
           }
-        : {
-            width: Math.max(64, text.width),
-            height: Math.max(28, text.height),
-          })
+        : { width: text.width, height: text.height })
       onUpdate(text.id, {
         text: next,
         width: size.width,
@@ -93,6 +95,26 @@ export const CanvasText = memo(function CanvasText({
     finishingRef.current = true
     if (!text.text.trim()) onRemove(text.id)
     onEditingComplete()
+  }
+
+  // Snap the box around the text rendered at the font size implied by the
+  // user-dragged height. Keeps the bounds tight to the glyphs so the box can
+  // only grow proportionally to the text itself — diagonal-style growth, with
+  // no padding around the rendered content.
+  function snapToTextAtBox(_width: number, height: number): { width: number; height: number } {
+    if (typeof document === 'undefined') return { width: _width, height }
+    const nextFontSize = getCanvasTextFontSize(text.text, height)
+    const probe = document.createElement('span')
+    probe.textContent = text.text || ' '
+    probe.style.cssText =
+      `position:absolute;left:-9999px;top:-9999px;visibility:hidden;` +
+      `white-space:pre;padding:0;margin:0;line-height:${LINE_HEIGHT};font-size:${nextFontSize}px;`
+    document.body.appendChild(probe)
+    const measuredW = Math.ceil(probe.offsetWidth)
+    const measuredH = Math.ceil(probe.offsetHeight)
+    document.body.removeChild(probe)
+    if (measuredW <= 0 || measuredH <= 0) return { width: _width, height }
+    return { width: measuredW, height: measuredH }
   }
 
   return (
@@ -113,6 +135,9 @@ export const CanvasText = memo(function CanvasText({
       scale={scale}
       disableDragging={editing}
       enableResizing={{ bottomRight: true }}
+      // Resize must always be uniform/diagonal — text grows in both axes
+      // together, never stretched in just one direction like a terminal node.
+      lockAspectRatio
       onDragStart={() => {
         onSelect(text.id)
         onDragStart(text.id)
@@ -120,17 +145,19 @@ export const CanvasText = memo(function CanvasText({
       onDrag={(_event, data) => onMove(text.id, { x: data.x, y: data.y })}
       onDragStop={(_event, data) => onUpdate(text.id, { x: data.x, y: data.y })}
       onResize={(_event, _dir, ref, _delta, position) => {
+        const snapped = snapToTextAtBox(ref.offsetWidth, ref.offsetHeight)
         onMove(text.id, {
-          width: ref.offsetWidth,
-          height: ref.offsetHeight,
+          width: snapped.width,
+          height: snapped.height,
           x: position.x,
           y: position.y,
         })
       }}
       onResizeStop={(_event, _dir, ref, _delta, position) => {
+        const snapped = snapToTextAtBox(ref.offsetWidth, ref.offsetHeight)
         onUpdate(text.id, {
-          width: ref.offsetWidth,
-          height: ref.offsetHeight,
+          width: snapped.width,
+          height: snapped.height,
           x: position.x,
           y: position.y,
         })
@@ -160,12 +187,14 @@ export const CanvasText = memo(function CanvasText({
         <span
           ref={measureRef}
           aria-hidden="true"
-          className="pointer-events-none absolute left-0 top-0 whitespace-pre px-2 py-1.5"
+          className="pointer-events-none absolute left-0 top-0 whitespace-pre"
           style={{
             visibility: 'hidden',
             color: 'var(--fg)',
             fontSize,
-            lineHeight: 1.15,
+            lineHeight: LINE_HEIGHT,
+            padding: 0,
+            margin: 0,
           }}
         >
           {draft || ' '}
@@ -175,7 +204,8 @@ export const CanvasText = memo(function CanvasText({
         <textarea
           ref={inputRef}
           value={draft}
-          placeholder="Type text"
+          placeholder=""
+          wrap="off"
           onChange={(event) => setDraft(event.target.value)}
           onBlur={commit}
           onMouseDown={(event) => event.stopPropagation()}
@@ -190,21 +220,28 @@ export const CanvasText = memo(function CanvasText({
               cancel()
             }
           }}
-          className="h-full w-full resize-none bg-transparent px-2 py-1.5 outline-none"
+          className="h-full w-full resize-none bg-transparent outline-none"
           style={{
             color: 'var(--fg)',
             fontSize,
-            lineHeight: 1.15,
+            lineHeight: LINE_HEIGHT,
+            padding: 0,
+            margin: 0,
+            border: 0,
             overflow: 'hidden',
+            whiteSpace: 'pre',
           }}
         />
       ) : (
         <div
-          className="h-full w-full overflow-hidden whitespace-pre-wrap px-2 py-1.5"
+          className="h-full w-full overflow-hidden"
           style={{
             color: 'var(--fg)',
             fontSize,
-            lineHeight: 1.15,
+            lineHeight: LINE_HEIGHT,
+            padding: 0,
+            margin: 0,
+            whiteSpace: 'pre',
           }}
         >
           {text.text}
@@ -214,6 +251,7 @@ export const CanvasText = memo(function CanvasText({
   )
 })
 
-function getCanvasTextFontSize(width: number, height: number): number {
-  return Math.max(14, Math.round(Math.min(width, height) / 3))
+function getCanvasTextFontSize(text: string, height: number): number {
+  const lines = Math.max(1, text.split('\n').length)
+  return Math.max(MIN_FONT_SIZE, Math.round(height / (LINE_HEIGHT * lines)))
 }

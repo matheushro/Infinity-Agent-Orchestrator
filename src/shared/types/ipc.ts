@@ -23,6 +23,9 @@ export const IpcChannels = {
   workspacesDelete: 'workspaces:delete',
   workspacesRename: 'workspaces:rename',
   workspacesDuplicate: 'workspaces:duplicate',
+  windowIsFullScreen: 'window:is-full-screen',
+  windowSetFullScreen: 'window:set-full-screen',
+  windowFullScreenChanged: 'window:full-screen-changed',
 } as const
 
 export interface PtyCreateArgs {

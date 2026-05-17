@@ -1,6 +1,6 @@
 // Main process bootstrap: wires services, IPC and window lifecycle together.
 // All privileged logic lives in ./services and ./ipc — keep this file thin.
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, Menu } from 'electron'
 import { createWindow } from './window'
 import { registerIpcHandlers } from './ipc'
 import { initDb } from './services/db.service'
@@ -15,6 +15,11 @@ if (process.platform === 'linux') {
 }
 
 app.whenReady().then(async () => {
+  // Hide the default Electron application menu (File / Edit / View / Window /
+  // Help). The canvas owns its own chrome; the native menu bar would just be
+  // dead pixels at the top of the window.
+  Menu.setApplicationMenu(null)
+
   initDb()
   await startIaoServer()
   registerIpcHandlers()

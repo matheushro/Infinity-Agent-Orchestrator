@@ -5,6 +5,7 @@ import { registerPtyIpc } from './pty.ipc'
 import { registerDbIpc } from './db.ipc'
 import { registerDialogIpc } from './dialog.ipc'
 import { registerWorkspaceIpc } from './workspace.ipc'
+import { registerWindowIpc } from './window.ipc'
 
 const HANDLED_CHANNELS = [
   IpcChannels.ptyCreate,
@@ -18,6 +19,8 @@ const HANDLED_CHANNELS = [
   IpcChannels.workspacesList,
   IpcChannels.workspacesCreate,
   IpcChannels.workspacesDelete,
+  IpcChannels.windowIsFullScreen,
+  IpcChannels.windowSetFullScreen,
 ]
 
 const LISTENER_CHANNELS = [
@@ -41,5 +44,6 @@ export function registerIpcHandlers(): void {
   registerDbIpc()
   registerDialogIpc()
   registerWorkspaceIpc()
+  registerWindowIpc()
   app.once('before-quit', unregisterIpcHandlers)
 }

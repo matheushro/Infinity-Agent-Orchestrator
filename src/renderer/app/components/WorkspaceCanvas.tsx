@@ -259,8 +259,14 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
     return (
       <div
         style={{
+          // Absolute-inset stack: every workspace mounts simultaneously to keep
+          // its PTYs alive, but only the active one is visible. Layering them
+          // this way means inactive canvases never participate in flex sizing,
+          // which used to cause the active canvas (and its minimap / topbar) to
+          // appear shifted when several workspaces were open.
+          position: 'absolute',
+          inset: 0,
           display: active ? 'flex' : 'none',
-          flex: 1,
           flexDirection: 'column',
           minWidth: 0,
           overflow: 'hidden',

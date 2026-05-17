@@ -97,7 +97,7 @@ export default function App(): JSX.Element {
             onShellChange={setShell}
           />
 
-          <div className="flex flex-1 min-h-0 relative">
+          <div className="flex-1 min-h-0 min-w-0 relative overflow-hidden">
             {workspaces.map((ws) => (
               <WorkspaceCanvas
                 key={ws.id}

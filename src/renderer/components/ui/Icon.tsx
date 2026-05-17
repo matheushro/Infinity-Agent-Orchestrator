@@ -59,3 +59,5 @@ export const IPalette = make('M12 21a9 9 0 1 1 0-18 9 9 0 0 1 9 9c0 2-1.5 3-3 3h
 export const ISidebarClose = make('M4 6h16M4 12h10M4 18h16M19 9l-3 3 3 3')
 export const ISidebarOpen = make('M4 6h16M4 12h10M4 18h16M16 9l3 3-3 3')
 export const IMap = make('M9 4l-6 2v14l6-2 6 2 6-2V4l-6 2-6-2zM9 4v14M15 6v14')
+export const IFullScreenEnter = make('M4 9V5a1 1 0 0 1 1-1h4M20 9V5a1 1 0 0 0-1-1h-4M4 15v4a1 1 0 0 0 1 1h4M20 15v4a1 1 0 0 1-1 1h-4')
+export const IFullScreenExit = make('M9 4v4a1 1 0 0 1-1 1H4M15 4v4a1 1 0 0 0 1 1h4M9 20v-4a1 1 0 0 0-1-1H4M15 20v-4a1 1 0 0 1 1-1h4')

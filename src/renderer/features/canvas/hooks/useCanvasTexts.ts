@@ -4,8 +4,11 @@ import type { CanvasTextRecord } from '@shared/types/canvas'
 import { createCanvasTextId } from '@renderer/lib/id'
 import { textElementRepository } from '../services/textElementRepository'
 
-const DEFAULT_TEXT_WIDTH = 220
-const DEFAULT_TEXT_HEIGHT = 44
+// Tight defaults — the box snaps to measured glyph size on first keystroke,
+// so we just need a small placeholder rectangle wide enough to host the
+// blinking caret before any text is typed (~1 char at 17px / 1.2 line height).
+const DEFAULT_TEXT_WIDTH = 8
+const DEFAULT_TEXT_HEIGHT = 21
 
 export interface UseCanvasTextsResult {
   texts: CanvasTextRecord[]

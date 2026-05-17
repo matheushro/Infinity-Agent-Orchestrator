@@ -36,8 +36,8 @@ const baseText: CanvasTextRecord = {
   text: 'Note',
   x: 40,
   y: 50,
-  width: 240,
-  height: 90,
+  width: 50,
+  height: 24,
   workspace_id: 'ws-1',
 }
 
@@ -70,7 +70,7 @@ describe('CanvasText', () => {
       boxShadow: 'none',
       cursor: 'grab',
     })
-    expect(screen.getByText('Note')).toHaveStyle({ fontSize: '30px' })
+    expect(screen.getByText('Note')).toHaveStyle({ fontSize: '20px' })
   })
 
   it('grows the text size when the box is resized diagonally', async () => {
@@ -135,7 +135,7 @@ describe('CanvasText', () => {
         y: 50,
       }),
     )
-    expect(screen.getByText('Note')).toHaveStyle({ fontSize: '80px' })
+    expect(screen.getByText('Note')).toHaveStyle({ fontSize: '200px' })
   })
 
   it('commits text using a tight box around the measured content', async () => {

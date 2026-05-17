@@ -6,8 +6,10 @@ import { ptyApi } from './api/pty.api'
 import { dbApi } from './api/db.api'
 import { dialogApi } from './api/dialog.api'
 import { workspaceApi } from './api/workspace.api'
+import { windowApi } from './api/window.api'
 
 contextBridge.exposeInMainWorld('ptyApi', ptyApi)
 contextBridge.exposeInMainWorld('dbApi', dbApi)
 contextBridge.exposeInMainWorld('dialogApi', dialogApi)
 contextBridge.exposeInMainWorld('workspaceApi', workspaceApi)
+contextBridge.exposeInMainWorld('windowApi', windowApi)

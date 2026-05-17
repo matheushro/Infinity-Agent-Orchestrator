@@ -2,7 +2,8 @@
 // teaches the in-terminal agent how to use the `iao` CLI; we ship a template
 // in `resources/skills/iao/` and copy it into the user's agent-specific config
 // roots so the agent picks it up automatically in *any* project, not just the
-// one currently open on the canvas. Customizations are never overwritten.
+// one currently open on the canvas. The bundled template is always written so
+// agents pick up the latest version on every launch.
 import { existsSync, mkdirSync, copyFileSync } from 'fs'
 import { join } from 'path'
 import os from 'os'
@@ -30,9 +31,10 @@ export function skillPathFor(_projectPath?: string): string {
 }
 
 /**
- * Ensure the IAO skill exists under each launchable agent's configured
- * user-level skill directory. Existing files are left alone so user edits are
- * preserved. Returns the primary path.
+ * Ensure the IAO skill is up to date under each launchable agent's configured
+ * user-level skill directory. The bundled template is always copied over the
+ * existing file so agents pick up the newest version on every launch.
+ * Returns the primary path.
  *
  * The `_projectPath` argument is accepted for backwards compatibility with
  * callers that used to scope the skill per-project, but is intentionally
@@ -45,10 +47,8 @@ export function ensureIAOSkill(_projectPath?: string): string {
   }
 
   for (const dir of SKILL_INSTALL_DIRS) {
-    const dest = join(dir, SKILL_FILENAME)
-    if (existsSync(dest)) continue
     mkdirSync(dir, { recursive: true })
-    copyFileSync(src, dest)
+    copyFileSync(src, join(dir, SKILL_FILENAME))
   }
   return skillPathFor()
 }

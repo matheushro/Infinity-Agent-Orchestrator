@@ -1,8 +1,9 @@
-// Workspace topbar: breadcrumb, terminal count chip, link tool, theme toggle.
+// Workspace topbar: breadcrumb, terminal count chip, fullscreen + theme toggles.
+import { useEffect, useState } from 'react'
 import {
   IChevRight,
-  IGrid,
-  IKeyboard,
+  IFullScreenEnter,
+  IFullScreenExit,
   IMoon,
   ISun,
   Select,
@@ -58,17 +59,49 @@ export function Topbar({
       />
 
       <div className="flex items-center gap-1">
-        <button className="icon-btn" title="Toggle grid">
-          <IGrid size={14} />
-        </button>
-        <button className="icon-btn" title="Shortcuts">
-          <IKeyboard size={14} />
-        </button>
+        <FullScreenToggle />
         <div className="w-px h-5 mx-1" style={{ background: 'var(--line)' }} />
         <button className="icon-btn" onClick={onToggleTheme} title="Toggle theme">
           {theme === 'dark' ? <ISun size={14} /> : <IMoon size={14} />}
         </button>
       </div>
     </header>
+  )
+}
+
+function FullScreenToggle(): JSX.Element {
+  const api = typeof window !== 'undefined' ? window.windowApi : undefined
+  const [isFs, setIsFs] = useState(false)
+
+  useEffect(() => {
+    if (!api) return
+    let cancelled = false
+    api.isFullScreen().then((value) => {
+      if (!cancelled) setIsFs(value)
+    })
+    const off = api.onFullScreenChange((value) => setIsFs(value))
+    return () => {
+      cancelled = true
+      off()
+    }
+  }, [api])
+
+  async function toggle(): Promise<void> {
+    if (!api) return
+    const next = await api.setFullScreen(!isFs)
+    setIsFs(next)
+  }
+
+  return (
+    <button
+      className="icon-btn"
+      onClick={toggle}
+      title={isFs ? 'Exit full screen' : 'Enter full screen'}
+      aria-label={isFs ? 'Exit full screen' : 'Enter full screen'}
+      aria-pressed={isFs}
+      disabled={!api}
+    >
+      {isFs ? <IFullScreenExit size={14} /> : <IFullScreenEnter size={14} />}
+    </button>
   )
 }

@@ -16,12 +16,18 @@ vi.mock('electron', () => ({
     removeAllListeners: vi.fn(),
     handle: vi.fn(),
     on: vi.fn()
-  }
+  },
+  BrowserWindow: { getAllWindows: vi.fn(() => []) }
 }))
 
 vi.mock('./pty.ipc', () => ({ registerPtyIpc: vi.fn() }))
 vi.mock('./db.ipc', () => ({ registerDbIpc: vi.fn() }))
 vi.mock('./dialog.ipc', () => ({ registerDialogIpc: vi.fn() }))
+vi.mock('./workspace.ipc', () => ({ registerWorkspaceIpc: vi.fn() }))
+vi.mock('./window.ipc', () => ({
+  registerWindowIpc: vi.fn(),
+  attachFullScreenForwarders: vi.fn(),
+}))
 
 import { registerIpcHandlers } from './index'
 import { unregisterIpcHandlers } from './index'

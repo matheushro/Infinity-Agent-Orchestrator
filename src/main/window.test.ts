@@ -9,6 +9,9 @@ vi.mock('electron', () => ({
   BrowserWindow: class {
     loadURL = state.win.loadURL
     loadFile = state.win.loadFile
+    on = vi.fn()
+    isDestroyed = vi.fn(() => false)
+    webContents = { send: vi.fn() }
     constructor(options: any) {
       state.ctorOptions.push(options)
     }
@@ -40,6 +43,11 @@ describe('createWindow', () => {
   it('creates BrowserWindow with nodeIntegration: false', () => {
     createWindow()
     expect(state.ctorOptions[0].webPreferences.nodeIntegration).toBe(false)
+  })
+
+  it('hides the default Electron menu bar', () => {
+    createWindow()
+    expect(state.ctorOptions[0].autoHideMenuBar).toBe(true)
   })
 
   it('loads the preload script from the correct relative path', () => {

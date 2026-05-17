@@ -38,3 +38,9 @@ export interface WorkspaceApi {
 export interface DialogApi {
   selectFolder(): Promise<string | null>
 }
+
+export interface WindowApi {
+  isFullScreen(): Promise<boolean>
+  setFullScreen(value: boolean): Promise<boolean>
+  onFullScreenChange(cb: (value: boolean) => void): () => void
+}

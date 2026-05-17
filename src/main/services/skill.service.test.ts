@@ -67,10 +67,7 @@ describe('skill.service', () => {
     })
 
     it('creates SKILL.md in ~/.codex/skills/iao/ when destination is absent', () => {
-      mockExistsSync
-        .mockReturnValueOnce(true)  // source exists
-        .mockReturnValueOnce(false) // codex dest absent
-        .mockReturnValueOnce(false) // claude dest absent
+      mockExistsSync.mockReturnValue(true) // source exists; always overwrite dests
 
       ensureIAOSkill()
 
@@ -79,12 +76,7 @@ describe('skill.service', () => {
     })
 
     it('creates SKILL.md in ~/.claude/skills/iao/ when destination is absent', () => {
-      mockExistsSync
-        .mockReturnValueOnce(true)  // source exists
-        .mockReturnValueOnce(false) // codex dest absent
-        .mockReturnValueOnce(false) // claude dest absent
-        .mockReturnValueOnce(false) // copilot dest absent
-        .mockReturnValueOnce(false) // gemini dest absent
+      mockExistsSync.mockReturnValue(true)
 
       ensureIAOSkill()
 
@@ -93,12 +85,7 @@ describe('skill.service', () => {
     })
 
     it('creates SKILL.md in ~/.copilot/skills/iao/ when destination is absent', () => {
-      mockExistsSync
-        .mockReturnValueOnce(true)  // source exists
-        .mockReturnValueOnce(false) // codex dest absent
-        .mockReturnValueOnce(false) // claude dest absent
-        .mockReturnValueOnce(false) // copilot dest absent
-        .mockReturnValueOnce(false) // gemini dest absent
+      mockExistsSync.mockReturnValue(true)
 
       ensureIAOSkill()
 
@@ -107,12 +94,7 @@ describe('skill.service', () => {
     })
 
     it('creates SKILL.md in ~/.gemini/skills/iao/ when destination is absent', () => {
-      mockExistsSync
-        .mockReturnValueOnce(true)  // source exists
-        .mockReturnValueOnce(false) // codex dest absent
-        .mockReturnValueOnce(false) // claude dest absent
-        .mockReturnValueOnce(false) // copilot dest absent
-        .mockReturnValueOnce(false) // gemini dest absent
+      mockExistsSync.mockReturnValue(true)
 
       ensureIAOSkill()
 
@@ -120,42 +102,30 @@ describe('skill.service', () => {
       expect(mockCopyFileSync).toHaveBeenCalledWith(SRC, GEMINI_DEST)
     })
 
-    it('does NOT overwrite existing files (preserves customizations)', () => {
-      mockExistsSync.mockReturnValue(true) // source + both dests exist
+    it('always overwrites existing destinations so agents pick up template updates', () => {
+      mockExistsSync.mockReturnValue(true) // source + all dests exist
 
       ensureIAOSkill()
 
-      expect(mockMkdirSync).not.toHaveBeenCalled()
-      expect(mockCopyFileSync).not.toHaveBeenCalled()
+      const destinations = mockCopyFileSync.mock.calls.map(([, dest]) => dest)
+      expect(destinations).toEqual(
+        expect.arrayContaining([CODEX_DEST, CLAUDE_DEST, COPILOT_DEST, GEMINI_DEST])
+      )
+      expect(mockCopyFileSync).toHaveBeenCalledTimes(4)
     })
 
-    it('copies the same packaged source into both user-level destinations', () => {
+    it('copies the same packaged source into every user-level destination', () => {
       mockExistsSync.mockImplementation((path) => path === SRC)
 
       ensureIAOSkill()
 
-      expect(mockCopyFileSync.mock.calls).toEqual([
-        [SRC, CODEX_DEST],
-        [SRC, CLAUDE_DEST],
-        [SRC, GEMINI_DEST],
-        [SRC, COPILOT_DEST]
-      ])
-    })
-
-    it('only creates the missing destination when one already exists', () => {
-      mockExistsSync
-        .mockReturnValueOnce(true)  // source exists
-        .mockReturnValueOnce(true)  // codex dest already exists
-        .mockReturnValueOnce(false) // claude dest absent
-        .mockReturnValueOnce(false) // copilot dest absent
-        .mockReturnValueOnce(false) // gemini dest absent
-
-      ensureIAOSkill()
-
-      expect(mockCopyFileSync).toHaveBeenCalledTimes(3)
-      expect(mockCopyFileSync).toHaveBeenCalledWith(SRC, CLAUDE_DEST)
-      expect(mockCopyFileSync).toHaveBeenCalledWith(SRC, COPILOT_DEST)
-      expect(mockCopyFileSync).toHaveBeenCalledWith(SRC, GEMINI_DEST)
+      const destinations = mockCopyFileSync.mock.calls.map(([, dest]) => dest)
+      expect(destinations).toEqual(
+        expect.arrayContaining([CODEX_DEST, CLAUDE_DEST, COPILOT_DEST, GEMINI_DEST])
+      )
+      for (const [src] of mockCopyFileSync.mock.calls) {
+        expect(src).toBe(SRC)
+      }
     })
 
     it('returns the primary (Codex) path', () => {

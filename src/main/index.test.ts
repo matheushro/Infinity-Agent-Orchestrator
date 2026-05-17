@@ -22,6 +22,7 @@ vi.mock('electron', () => ({
   BrowserWindow: {
     getAllWindows: vi.fn(() => []),
   },
+  Menu: { setApplicationMenu: vi.fn() },
 }))
 
 vi.mock('./window', () => ({ createWindow: vi.fn() }))
@@ -40,7 +41,7 @@ import { registerIpcHandlers } from './ipc'
 import { initDb } from './services/db.service'
 import { killAllPtys } from './services/pty.service'
 import { startIaoServer, stopIaoServer } from './services/iao.service'
-import { app } from 'electron'
+import { app, Menu } from 'electron'
 
 describe('main/index — app.whenReady callback', () => {
   beforeEach(async () => {
@@ -62,6 +63,10 @@ describe('main/index — app.whenReady callback', () => {
 
   it('creates the main window', () => {
     expect(createWindow).toHaveBeenCalledOnce()
+  })
+
+  it('hides the default Electron application menu', () => {
+    expect(Menu.setApplicationMenu).toHaveBeenCalledWith(null)
   })
 
   it('initializes db before creating the window', () => {
