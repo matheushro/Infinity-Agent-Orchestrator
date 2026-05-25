@@ -11,6 +11,7 @@ export interface UseWorkspacesResult {
   renameWorkspace: (id: string, name: string) => Promise<void>
   deleteWorkspace: (id: string) => Promise<void>
   duplicateWorkspace: (id: string) => Promise<void>
+  reorderWorkspaces: (orderedIds: string[]) => Promise<void>
 }
 
 export function useWorkspaces(): UseWorkspacesResult {
@@ -75,5 +76,32 @@ export function useWorkspaces(): UseWorkspacesResult {
     [workspaces.length],
   )
 
-  return { workspaces, activeId, setActiveId, createWorkspace, renameWorkspace, deleteWorkspace, duplicateWorkspace }
+  const reorderWorkspaces = useCallback(async (orderedIds: string[]) => {
+    setWorkspaces((prev) => {
+      const byId = new Map(prev.map((w) => [w.id, w]))
+      const reordered: WorkspaceRecord[] = []
+      for (const id of orderedIds) {
+        const w = byId.get(id)
+        if (w) {
+          reordered.push(w)
+          byId.delete(id)
+        }
+      }
+      // Any workspace not in orderedIds keeps its prior relative order at the tail.
+      for (const w of prev) if (byId.has(w.id)) reordered.push(w)
+      return reordered
+    })
+    await window.workspaceApi.reorder(orderedIds)
+  }, [])
+
+  return {
+    workspaces,
+    activeId,
+    setActiveId,
+    createWorkspace,
+    renameWorkspace,
+    deleteWorkspace,
+    duplicateWorkspace,
+    reorderWorkspaces,
+  }
 }

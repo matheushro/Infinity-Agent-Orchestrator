@@ -26,13 +26,14 @@ export interface TerminalNodeData {
 
 /** Per-terminal visual customization. Persisted in localStorage, not in SQLite. */
 export interface TerminalStyle {
-  theme: 'dark' | 'light'
+  // 'auto' follows the global app theme; 'dark'/'light' force a fixed look.
+  theme: 'auto' | 'dark' | 'light'
   fontFamily: string
   fontSize: number
 }
 
 export const DEFAULT_TERMINAL_STYLE: TerminalStyle = {
-  theme: 'dark',
+  theme: 'auto',
   fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
   fontSize: 13,
 }

@@ -18,4 +18,7 @@ export function registerWorkspaceIpc(): void {
   ipcMain.handle(IpcChannels.workspacesDuplicate, (_event, id: string) =>
     dbService.duplicateWorkspace(id),
   )
+  ipcMain.handle(IpcChannels.workspacesReorder, (_event, orderedIds: string[]) =>
+    dbService.reorderWorkspaces(orderedIds),
+  )
 }

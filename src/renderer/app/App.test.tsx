@@ -53,7 +53,16 @@ vi.mock('@renderer/features/workspaces/hooks/useWorkspaces', async () => {
         setWorkspaces(sharedState.workspaces)
         setActiveId(ws.id)
       }, [setActiveId])
-      return { workspaces, activeId, setActiveId, createWorkspace }
+      return {
+        workspaces,
+        activeId,
+        setActiveId,
+        createWorkspace,
+        renameWorkspace: vi.fn(),
+        deleteWorkspace: vi.fn(),
+        duplicateWorkspace: vi.fn(),
+        reorderWorkspaces: vi.fn(),
+      }
     },
     // expose for test setup
     __sharedState: sharedState,
@@ -86,12 +95,11 @@ vi.mock('./components/WorkspaceCanvas', async () => {
 // Sidebar stub — exposes action buttons for interaction.
 vi.mock('./components/Sidebar', async () => {
   return {
-    Sidebar: vi.fn(({ collapsed, onCollapsedChange, onNewTerminal, onToggleTheme, theme, activeWorkspaceId, workspaces, onSwitchWorkspace }: {
+    Sidebar: vi.fn(({ collapsed, onCollapsedChange, onNewTerminal, onOpenSettings, activeWorkspaceId, workspaces, onSwitchWorkspace }: {
       collapsed: boolean
       onCollapsedChange: (v: boolean) => void
       onNewTerminal: () => void
-      onToggleTheme: (t: CanvasTheme) => void
-      theme: CanvasTheme
+      onOpenSettings: () => void
       activeWorkspaceId: string
       workspaces: WorkspaceRecord[]
       onSwitchWorkspace: (id: string) => void
@@ -100,7 +108,7 @@ vi.mock('./components/Sidebar', async () => {
       <aside data-testid="sidebar" data-collapsed={String(collapsed)} data-active-ws={activeWorkspaceId}>
         <button onClick={() => onCollapsedChange(!collapsed)}>Toggle collapse</button>
         <button onClick={onNewTerminal}>New terminal</button>
-        <button onClick={() => onToggleTheme(theme === 'dark' ? 'light' : 'dark')}>Toggle theme</button>
+        <button onClick={onOpenSettings}>Open settings</button>
         {workspaces.map((ws) => (
           <button key={ws.id} onClick={() => onSwitchWorkspace(ws.id)}>Switch to {ws.name}</button>
         ))}
@@ -111,8 +119,18 @@ vi.mock('./components/Sidebar', async () => {
 
 // Topbar stub.
 vi.mock('./components/Topbar', () => ({
-  Topbar: vi.fn(({ terminalCount, theme }: { terminalCount: number; theme: CanvasTheme }) => (
-    <header data-testid="topbar" data-count={terminalCount} data-theme={theme} />
+  Topbar: vi.fn(({ terminalCount }: { terminalCount: number }) => (
+    <header data-testid="topbar" data-count={terminalCount} />
+  )),
+}))
+
+// SettingsModal stub — exposes a theme toggle button.
+vi.mock('./components/SettingsModal', () => ({
+  SettingsModal: vi.fn(({ theme, onThemeChange, onClose }: { theme: CanvasTheme; onThemeChange: (t: CanvasTheme) => void; onClose: () => void }) => (
+    <div data-testid="settings-modal" data-theme={theme}>
+      <button onClick={() => onThemeChange(theme === 'dark' ? 'light' : 'dark')}>Toggle theme</button>
+      <button onClick={onClose}>Close</button>
+    </div>
   )),
 }))
 
@@ -148,18 +166,20 @@ describe('App composition', () => {
     )
   })
 
-  it('theme toggle via sidebar changes topbar theme', async () => {
+  it('theme toggle via settings modal updates the global theme', async () => {
     render(<App />)
-    await waitFor(() => expect(screen.getByTestId('topbar').getAttribute('data-theme')).toBe('dark'))
+    fireEvent.click(screen.getByText('Open settings'))
+    await waitFor(() => expect(screen.getByTestId('settings-modal').getAttribute('data-theme')).toBe('dark'))
     fireEvent.click(screen.getByText('Toggle theme'))
     await waitFor(() =>
-      expect(screen.getByTestId('topbar').getAttribute('data-theme')).toBe('light'),
+      expect(screen.getByTestId('settings-modal').getAttribute('data-theme')).toBe('light'),
     )
   })
 
   it('theme toggle applies the dark class to documentElement', async () => {
     render(<App />)
     await waitFor(() => expect(document.documentElement.classList.contains('dark')).toBe(true))
+    fireEvent.click(screen.getByText('Open settings'))
     fireEvent.click(screen.getByText('Toggle theme'))
     await waitFor(() => expect(document.documentElement.classList.contains('dark')).toBe(false))
   })
@@ -198,6 +218,7 @@ describe('App composition', () => {
 
   it('theme persists to localStorage', async () => {
     render(<App />)
+    fireEvent.click(screen.getByText('Open settings'))
     fireEvent.click(screen.getByText('Toggle theme'))
     await waitFor(() => {
       const stored = JSON.parse(localStorage.getItem('canvasTheme') ?? '"dark"')

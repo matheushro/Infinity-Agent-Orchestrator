@@ -1,6 +1,7 @@
 // Application shell: composes the sidebar, topbar, and per-workspace canvases.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Sidebar } from './components/Sidebar'
+import { SettingsModal } from './components/SettingsModal'
 import { Topbar } from './components/Topbar'
 import { WorkspaceCanvas, type WorkspaceCanvasHandle } from './components/WorkspaceCanvas'
 import { useWorkspaces } from '@renderer/features/workspaces/hooks/useWorkspaces'
@@ -12,11 +13,21 @@ import type { ShellType } from '@renderer/features/terminals/types'
 import type { CanvasTheme } from '@renderer/features/canvas/types'
 
 export default function App(): JSX.Element {
-  const { workspaces, activeId, setActiveId, createWorkspace, renameWorkspace, deleteWorkspace, duplicateWorkspace } = useWorkspaces()
+  const {
+    workspaces,
+    activeId,
+    setActiveId,
+    createWorkspace,
+    renameWorkspace,
+    deleteWorkspace,
+    duplicateWorkspace,
+    reorderWorkspaces,
+  } = useWorkspaces()
   const { getStyle, setStyle, removeStyle } = useTerminalStyles()
-  const [shell, setShell] = useState<ShellType>('default')
+  const [defaultShell, setDefaultShell] = useLocalStorage<ShellType>('defaultShell', 'default')
   const [theme, setTheme] = useLocalStorage<CanvasTheme>('canvasTheme', 'dark')
   const [sidebarCollapsed, setSidebarCollapsed] = useLocalStorage('sidebarCollapsed', false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   // Aggregated node list from all workspace canvases — used by the Sidebar.
   const [nodesByWorkspace, setNodesByWorkspace] = useState<Record<string, TerminalNodeData[]>>({})
@@ -61,7 +72,6 @@ export default function App(): JSX.Element {
           activeWorkspaceId={activeId}
           nodesByWorkspace={nodesByWorkspace}
           selectedTerminalId={selectedTerminalId}
-          theme={theme}
           collapsed={sidebarCollapsed}
           onCollapsedChange={setSidebarCollapsed}
           onNewTerminal={() => {
@@ -71,9 +81,10 @@ export default function App(): JSX.Element {
           onRenameWorkspace={renameWorkspace}
           onDeleteWorkspace={deleteWorkspace}
           onDuplicateWorkspace={duplicateWorkspace}
+          onReorderWorkspaces={reorderWorkspaces}
           onSwitchWorkspace={setActiveId}
           onSelectTerminal={handleSelectTerminal}
-          onToggleTheme={setTheme}
+          onOpenSettings={() => setSettingsOpen(true)}
           onTerminalDelete={(workspaceId, terminalId) => {
             canvasRefs.current.get(workspaceId)?.deleteTerminal(terminalId)
           }}
@@ -91,10 +102,6 @@ export default function App(): JSX.Element {
           <Topbar
             workspaceName={activeWorkspaceName}
             terminalCount={activeTerminalCount}
-            theme={theme}
-            shell={shell}
-            onToggleTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-            onShellChange={setShell}
           />
 
           <div className="flex-1 min-h-0 min-w-0 relative overflow-hidden">
@@ -107,7 +114,7 @@ export default function App(): JSX.Element {
                 }}
                 workspace={ws}
                 active={ws.id === activeId}
-                shell={shell}
+                shell={defaultShell}
                 theme={theme}
                 getTerminalStyle={getStyle}
                 setTerminalStyle={setStyle}
@@ -121,6 +128,16 @@ export default function App(): JSX.Element {
             ))}
           </div>
         </main>
+
+        {settingsOpen && (
+          <SettingsModal
+            theme={theme}
+            defaultShell={defaultShell}
+            onThemeChange={setTheme}
+            onDefaultShellChange={setDefaultShell}
+            onClose={() => setSettingsOpen(false)}
+          />
+        )}
       </div>
     </PtyActivityProvider>
   )

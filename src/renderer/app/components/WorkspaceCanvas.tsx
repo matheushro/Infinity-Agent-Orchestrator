@@ -69,6 +69,7 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
       workspace,
       active,
       shell,
+      theme,
       getTerminalStyle,
       setTerminalStyle,
       removeTerminalStyle,
@@ -337,6 +338,7 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
             setCanvasMenu({ worldX, worldY, clientX, clientY })
           }
           getTerminalStyle={getTerminalStyle}
+          theme={theme}
         />
 
         {modalOpen && (

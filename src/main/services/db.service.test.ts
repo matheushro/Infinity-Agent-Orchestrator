@@ -27,6 +27,12 @@ vi.mock('better-sqlite3', () => {
       pragma() { /* WAL mode — no-op in mock */ }
       exec(sql: string) {
         executedSql.push(sql)
+        if (/DELETE\s+FROM\s+terminals\s+WHERE\s+workspace_id\s+NOT\s+IN\s+\(\s*SELECT\s+id\s+FROM\s+workspaces\s*\)/i.test(sql)) {
+          const validIds = new Set(Array.from(store.workspaces.keys()))
+          for (const [key, t] of store.terminals) {
+            if (!validIds.has(t.workspace_id as string)) store.terminals.delete(key)
+          }
+        }
       }
 
       prepare(sql: string) {
@@ -66,9 +72,20 @@ vi.mock('better-sqlite3', () => {
             return []
           },
 
-          get(): Record<string, unknown> | null {
+          get(...args: unknown[]): Record<string, unknown> | null {
             if (sql.includes('COUNT(*) as n FROM workspaces')) {
               return { n: store.workspaces.size }
+            }
+            if (sql.includes('MAX(position)') && sql.includes('FROM workspaces')) {
+              let max = -1
+              for (const w of store.workspaces.values()) {
+                const p = typeof w.position === 'number' ? w.position : -1
+                if (p > max) max = p
+              }
+              return { m: max }
+            }
+            if (sql.startsWith('SELECT * FROM workspaces WHERE id = ?')) {
+              return store.workspaces.get(args[0] as string) ?? null
             }
             return null
           },
@@ -238,6 +255,38 @@ describe('initDb', () => {
 
   it('is idempotent (IF NOT EXISTS) — second call does not throw', () => {
     expect(() => initDb()).not.toThrow()
+  })
+
+  it('sweeps terminals whose workspace no longer exists on startup', () => {
+    // Pre-seed: a valid workspace and a terminal in a workspace that was deleted.
+    store.workspaces.set('valid-ws', { id: 'valid-ws', name: 'Valid', created_at: 1 })
+    store.terminals.set('keep', {
+      id: 'keep',
+      title: 'Keep',
+      cwd: '/x',
+      command: 'claude',
+      shell: 'bash',
+      x: 0, y: 0, width: 100, height: 100,
+      workspace_id: 'valid-ws',
+      active: 1,
+      created_at: 1,
+    })
+    store.terminals.set('orphan', {
+      id: 'orphan',
+      title: 'Orphan',
+      cwd: '/x',
+      command: 'claude',
+      shell: 'bash',
+      x: 0, y: 0, width: 100, height: 100,
+      workspace_id: 'deleted-ws',
+      active: 1,
+      created_at: 1,
+    })
+
+    initDb()
+
+    expect(store.terminals.has('keep')).toBe(true)
+    expect(store.terminals.has('orphan')).toBe(false)
   })
 
   it('declares ON DELETE CASCADE on the edges foreign keys', () => {

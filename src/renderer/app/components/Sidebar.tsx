@@ -1,9 +1,8 @@
 // Left rail: workspace list (accordion), terminal list per workspace with PTY
 // activity indicators, new workspace button, theme toggle.
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { TerminalNodeData } from '@renderer/features/terminals/types'
-import type { CanvasTheme } from '@renderer/features/canvas/types'
 import type { WorkspaceRecord } from '@shared/types/workspace'
 import { usePtyActivity, type PtyStatus } from '@renderer/features/workspaces/context/PtyActivityContext'
 import { TerminalContextMenu } from '@renderer/features/terminals/components/TerminalContextMenu'
@@ -11,11 +10,10 @@ import {
   IChevDown,
   IChevRight,
   IClose,
-  IMoon,
+  IGear,
   IPlus,
   ISidebarClose,
   ISidebarOpen,
-  ISun,
   ITarget,
 } from '@renderer/components/ui'
 
@@ -24,7 +22,6 @@ interface SidebarProps {
   activeWorkspaceId: string
   nodesByWorkspace: Record<string, TerminalNodeData[]>
   selectedTerminalId: string | null
-  theme: CanvasTheme
   collapsed: boolean
   onCollapsedChange: (next: boolean) => void
   onNewTerminal: () => void
@@ -32,9 +29,10 @@ interface SidebarProps {
   onRenameWorkspace: (id: string, name: string) => void
   onDeleteWorkspace: (id: string) => void
   onDuplicateWorkspace: (id: string) => void
+  onReorderWorkspaces: (orderedIds: string[]) => void
   onSwitchWorkspace: (workspaceId: string) => void
   onSelectTerminal: (workspaceId: string, terminalId: string) => void
-  onToggleTheme: (t: CanvasTheme) => void
+  onOpenSettings: () => void
   onTerminalDelete: (workspaceId: string, terminalId: string) => void
   onTerminalLink: (workspaceId: string, terminalId: string) => void
   onTerminalStyle: (workspaceId: string, terminalId: string) => void
@@ -179,21 +177,31 @@ interface WorkspaceCtxMenu {
   y: number
 }
 
+interface DragState {
+  id: string
+  name: string
+  // Pointer position in viewport coords (for the floating preview).
+  pointerX: number
+  pointerY: number
+  // Insert position in the workspace list (0..workspaces.length).
+  dropIndex: number
+}
+
 function ExpandedSidebar({
   workspaces,
   activeWorkspaceId,
   nodesByWorkspace,
   selectedTerminalId,
-  theme,
   onCollapsedChange,
   onNewTerminal,
   onCreateWorkspace,
   onRenameWorkspace,
   onDeleteWorkspace,
   onDuplicateWorkspace,
+  onReorderWorkspaces,
   onSwitchWorkspace,
   onSelectTerminal,
-  onToggleTheme,
+  onOpenSettings,
   onTerminalDelete,
   onTerminalLink,
   onTerminalStyle,
@@ -208,6 +216,69 @@ function ExpandedSidebar({
   const [wsCtxMenu, setWsCtxMenu] = useState<WorkspaceCtxMenu | null>(null)
   // id of the workspace whose name is being inline-edited
   const [renamingWsId, setRenamingWsId] = useState<string | null>(null)
+  const [drag, setDrag] = useState<DragState | null>(null)
+  const wsRowRefs = useRef<Map<string, HTMLDivElement>>(new Map())
+  const wsListRef = useRef<HTMLDivElement>(null)
+
+  // Compute the drop index given the cursor's viewport Y by inspecting each
+  // workspace row's bounding rect. The index is the insertion slot in the
+  // current `workspaces` order (0..len).
+  const computeDropIndex = useCallback(
+    (clientY: number): number => {
+      for (let i = 0; i < workspaces.length; i++) {
+        const el = wsRowRefs.current.get(workspaces[i].id)
+        if (!el) continue
+        const rect = el.getBoundingClientRect()
+        if (clientY < rect.top + rect.height / 2) return i
+      }
+      return workspaces.length
+    },
+    [workspaces],
+  )
+
+  function startWorkspaceDrag(ws: WorkspaceRecord, e: React.PointerEvent): void {
+    // Use only the primary button; ignore right-click etc.
+    if (e.button !== 0) return
+    e.preventDefault()
+    const startX = e.clientX
+    const startY = e.clientY
+    let active = false
+
+    function onMove(ev: PointerEvent): void {
+      if (!active) {
+        // Activate after a small threshold so single clicks still work.
+        if (Math.abs(ev.clientY - startY) < 4 && Math.abs(ev.clientX - startX) < 4) return
+        active = true
+      }
+      setDrag({
+        id: ws.id,
+        name: ws.name,
+        pointerX: ev.clientX,
+        pointerY: ev.clientY,
+        dropIndex: computeDropIndex(ev.clientY),
+      })
+    }
+
+    function onUp(ev: PointerEvent): void {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      if (!active) {
+        setDrag(null)
+        return
+      }
+      const dropIndex = computeDropIndex(ev.clientY)
+      const fromIndex = workspaces.findIndex((w) => w.id === ws.id)
+      setDrag(null)
+      if (fromIndex < 0 || dropIndex === fromIndex || dropIndex === fromIndex + 1) return
+      const next = workspaces.map((w) => w.id)
+      next.splice(fromIndex, 1)
+      next.splice(dropIndex > fromIndex ? dropIndex - 1 : dropIndex, 0, ws.id)
+      onReorderWorkspaces(next)
+    }
+
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
 
   function toggleWorkspace(id: string): void {
     setOpenWorkspaces((prev) => ({ ...prev, [id]: !prev[id] }))
@@ -287,36 +358,52 @@ function ExpandedSidebar({
       </div>
 
       {/* Workspace list */}
-      <div className="flex-1 overflow-y-auto nice-scroll px-2 pb-2">
-        {workspaces.map((ws) => {
+      <div ref={wsListRef} className="flex-1 overflow-y-auto nice-scroll px-2 pb-2">
+        {workspaces.map((ws, idx) => {
           const nodes = nodesByWorkspace[ws.id] ?? []
           const isActiveWs = ws.id === activeWorkspaceId
           const isOpen = openWorkspaces[ws.id] !== false
+          const isDragging = drag?.id === ws.id
 
           return (
-            <WorkspaceSection
-              key={ws.id}
-              workspace={ws}
-              nodes={nodes}
-              isActiveWs={isActiveWs}
-              isOpen={isOpen}
-              selectedTerminalId={selectedTerminalId}
-              isRenaming={renamingWsId === ws.id}
-              onToggle={() => toggleWorkspace(ws.id)}
-              onSwitchWorkspace={onSwitchWorkspace}
-              onSelectTerminal={onSelectTerminal}
-              onRename={(name) => {
-                onRenameWorkspace(ws.id, name)
-                setRenamingWsId(null)
-              }}
-              onStartRename={() => setRenamingWsId(ws.id)}
-              onCancelRename={() => setRenamingWsId(null)}
-              onWorkspaceContextMenu={(x, y) => setWsCtxMenu({ workspaceId: ws.id, x, y })}
-              onTerminalContextMenu={(terminal, x, y) => setTermCtxMenu({ terminal, x, y })}
-              getStatus={getStatus}
-            />
+            <div key={ws.id}>
+              {drag && drag.id !== ws.id && drag.dropIndex === idx && <DropIndicator />}
+              <div
+                ref={(el) => {
+                  if (el) wsRowRefs.current.set(ws.id, el)
+                  else wsRowRefs.current.delete(ws.id)
+                }}
+                style={{
+                  opacity: isDragging ? 0.35 : 1,
+                  transition: 'opacity 120ms ease',
+                }}
+              >
+                <WorkspaceSection
+                  workspace={ws}
+                  nodes={nodes}
+                  isActiveWs={isActiveWs}
+                  isOpen={isOpen}
+                  selectedTerminalId={selectedTerminalId}
+                  isRenaming={renamingWsId === ws.id}
+                  onToggle={() => toggleWorkspace(ws.id)}
+                  onSwitchWorkspace={onSwitchWorkspace}
+                  onSelectTerminal={onSelectTerminal}
+                  onRename={(name) => {
+                    onRenameWorkspace(ws.id, name)
+                    setRenamingWsId(null)
+                  }}
+                  onStartRename={() => setRenamingWsId(ws.id)}
+                  onCancelRename={() => setRenamingWsId(null)}
+                  onWorkspaceContextMenu={(x, y) => setWsCtxMenu({ workspaceId: ws.id, x, y })}
+                  onTerminalContextMenu={(terminal, x, y) => setTermCtxMenu({ terminal, x, y })}
+                  onDragHandlePointerDown={(e) => startWorkspaceDrag(ws, e)}
+                  getStatus={getStatus}
+                />
+              </div>
+            </div>
           )
         })}
+        {drag && drag.dropIndex === workspaces.length && <DropIndicator />}
 
         {/* New workspace button / form */}
         {workspaces.length < 5 && (
@@ -374,31 +461,20 @@ function ExpandedSidebar({
         )}
       </div>
 
-      {/* Theme toggle */}
+      {/* Settings footer */}
       <div
-        className="px-3 py-2.5 flex items-center gap-2"
+        className="px-3 py-2.5 flex items-center"
         style={{ borderTop: '1px solid var(--line)' }}
       >
-        <div
-          className="flex-1 flex items-center rounded-[8px] p-0.5"
-          style={{
-            background: 'color-mix(in oklch, var(--fg) 5%, transparent)',
-            border: '1px solid var(--line-2)',
-          }}
+        <button
+          className="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-[7px] text-[12px] transition-colors"
+          style={{ color: 'var(--fg-2)' }}
+          onClick={onOpenSettings}
+          title="Open settings"
         >
-          <ThemeChip
-            label="Light"
-            icon={<ISun size={12} />}
-            active={theme === 'light'}
-            onClick={() => onToggleTheme('light')}
-          />
-          <ThemeChip
-            label="Dark"
-            icon={<IMoon size={12} />}
-            active={theme === 'dark'}
-            onClick={() => onToggleTheme('dark')}
-          />
-        </div>
+          <IGear size={13} />
+          <span>Settings</span>
+        </button>
       </div>
 
       {/* Terminal right-click menu */}
@@ -421,6 +497,9 @@ function ExpandedSidebar({
           }}
         />
       )}
+
+      {/* Drag preview floating with the cursor */}
+      {drag && <DragPreview name={drag.name} x={drag.pointerX} y={drag.pointerY} />}
 
       {/* Workspace right-click menu */}
       {wsCtxMenu && (
@@ -464,6 +543,7 @@ function WorkspaceSection({
   onCancelRename,
   onWorkspaceContextMenu,
   onTerminalContextMenu,
+  onDragHandlePointerDown,
   getStatus,
 }: {
   workspace: WorkspaceRecord
@@ -480,6 +560,7 @@ function WorkspaceSection({
   onCancelRename: () => void
   onWorkspaceContextMenu: (x: number, y: number) => void
   onTerminalContextMenu: (terminal: TerminalNodeData, x: number, y: number) => void
+  onDragHandlePointerDown: (e: React.PointerEvent) => void
   getStatus: (nodeId: string) => PtyStatus
 }): JSX.Element {
   const anyBusy = nodes.some((n) => getStatus(n.id) === 'busy')
@@ -585,6 +666,29 @@ function WorkspaceSection({
               }}
             />
           )}
+          <button
+            className="ws-drag-handle flex items-center justify-center"
+            style={{
+              width: 14,
+              height: 18,
+              cursor: 'grab',
+              color: 'var(--fg-3)',
+              touchAction: 'none',
+            }}
+            title="Drag to reorder"
+            onPointerDown={onDragHandlePointerDown}
+            onClick={(e) => e.stopPropagation()}
+            aria-label="Drag to reorder workspace"
+          >
+            <svg width={10} height={14} viewBox="0 0 10 14" fill="currentColor">
+              <circle cx={2} cy={3} r={1} />
+              <circle cx={8} cy={3} r={1} />
+              <circle cx={2} cy={7} r={1} />
+              <circle cx={8} cy={7} r={1} />
+              <circle cx={2} cy={11} r={1} />
+              <circle cx={8} cy={11} r={1} />
+            </svg>
+          </button>
         </div>
       </div>
 
@@ -787,31 +891,53 @@ function WsIcon({ d, danger }: { d: string; danger?: boolean }): JSX.Element {
   )
 }
 
-// ── Theme chip ──────────────────────────────────────────────────────────────
+// ── Drag preview + drop indicator ──────────────────────────────────────────
 
-function ThemeChip({
-  label,
-  icon,
-  active,
-  onClick,
-}: {
-  label: string
-  icon: ReactNode
-  active: boolean
-  onClick: () => void
-}): JSX.Element {
+function DropIndicator(): JSX.Element {
   return (
-    <button
-      onClick={onClick}
-      className="flex-1 flex items-center justify-center gap-1.5 h-7 rounded-[6px] text-[11.5px] transition-colors"
+    <div
+      aria-hidden
       style={{
-        background: active ? 'var(--bg)' : 'transparent',
-        color: active ? 'var(--fg)' : 'var(--fg-3)',
-        fontWeight: active ? 500 : 400,
-        boxShadow: active ? '0 1px 2px rgb(0 0 0 / 0.10)' : 'none',
+        height: 2,
+        margin: '2px 6px',
+        borderRadius: 2,
+        background: 'var(--accent)',
+        boxShadow: '0 0 6px color-mix(in oklch, var(--accent) 60%, transparent)',
       }}
-    >
-      {icon} {label}
-    </button>
+    />
   )
 }
+
+function DragPreview({ name, x, y }: { name: string; x: number; y: number }): JSX.Element {
+  // Floating chip "pulled" by the cursor — offset slightly so the cursor sits
+  // on the chip's top-left rather than dead center.
+  return createPortal(
+    <div
+      aria-hidden
+      style={{
+        position: 'fixed',
+        left: x + 12,
+        top: y + 8,
+        zIndex: 200,
+        pointerEvents: 'none',
+        padding: '6px 10px',
+        borderRadius: 8,
+        background: 'color-mix(in oklch, var(--bg-2) 95%, transparent)',
+        border: '1px solid var(--accent)',
+        boxShadow: '0 12px 28px -8px rgb(var(--shadow-color) / 0.4)',
+        color: 'var(--fg)',
+        fontSize: 12.5,
+        fontWeight: 500,
+        maxWidth: 220,
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        backdropFilter: 'blur(8px)',
+      }}
+    >
+      {name}
+    </div>,
+    document.body,
+  )
+}
+

@@ -1,32 +1,20 @@
-// Workspace topbar: breadcrumb, terminal count chip, fullscreen + theme toggles.
+// Workspace topbar: breadcrumb, terminal count chip, fullscreen toggle.
+// Theme and default-shell selectors live in the Settings modal (sidebar footer).
 import { useEffect, useState } from 'react'
 import {
   IChevRight,
   IFullScreenEnter,
   IFullScreenExit,
-  IMoon,
-  ISun,
-  Select,
 } from '@renderer/components/ui'
-import type { ShellType } from '@renderer/features/terminals/types'
-import type { CanvasTheme } from '@renderer/features/canvas/types'
 
 interface TopbarProps {
   workspaceName: string
   terminalCount: number
-  theme: CanvasTheme
-  shell: ShellType
-  onToggleTheme: () => void
-  onShellChange: (s: ShellType) => void
 }
 
 export function Topbar({
   workspaceName,
   terminalCount,
-  theme,
-  shell,
-  onToggleTheme,
-  onShellChange,
 }: TopbarProps): JSX.Element {
   return (
     <header
@@ -47,23 +35,8 @@ export function Topbar({
 
       <div className="flex-1" />
 
-      <Select
-        label="Shell:"
-        value={shell}
-        onChange={(v) => onShellChange(v as ShellType)}
-        options={[
-          { value: 'default', label: 'System default' },
-          { value: 'bash', label: 'bash' },
-          { value: 'zsh', label: 'zsh' },
-        ]}
-      />
-
       <div className="flex items-center gap-1">
         <FullScreenToggle />
-        <div className="w-px h-5 mx-1" style={{ background: 'var(--line)' }} />
-        <button className="icon-btn" onClick={onToggleTheme} title="Toggle theme">
-          {theme === 'dark' ? <ISun size={14} /> : <IMoon size={14} />}
-        </button>
       </div>
     </header>
   )

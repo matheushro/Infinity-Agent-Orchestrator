@@ -40,6 +40,11 @@ export function TerminalStyleModal({
             }}
           >
             <ThemeChip
+              label="Auto"
+              active={value.theme === 'auto'}
+              onClick={() => onChange({ theme: 'auto' })}
+            />
+            <ThemeChip
               label="Dark"
               active={value.theme === 'dark'}
               onClick={() => onChange({ theme: 'dark' })}
@@ -95,7 +100,7 @@ function Field({
   children: React.ReactNode
 }): JSX.Element {
   return (
-    <label className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-1.5">
       <span
         className="text-[10.5px] uppercase tracking-[0.08em]"
         style={{ color: 'var(--fg-3)', fontWeight: 500 }}
@@ -103,7 +108,7 @@ function Field({
         {label}
       </span>
       {children}
-    </label>
+    </div>
   )
 }
 

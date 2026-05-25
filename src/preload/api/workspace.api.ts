@@ -9,4 +9,5 @@ export const workspaceApi: WorkspaceApi = {
   delete: (id) => ipcRenderer.invoke(IpcChannels.workspacesDelete, id),
   rename: (id, name) => ipcRenderer.invoke(IpcChannels.workspacesRename, id, name),
   duplicate: (id) => ipcRenderer.invoke(IpcChannels.workspacesDuplicate, id),
+  reorder: (orderedIds) => ipcRenderer.invoke(IpcChannels.workspacesReorder, orderedIds),
 }

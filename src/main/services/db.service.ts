@@ -16,9 +16,17 @@ export function initDb(): void {
     CREATE TABLE IF NOT EXISTS workspaces (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
-      created_at INTEGER NOT NULL
+      created_at INTEGER NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0
     )
   `)
+
+  // Migration: add position column on dbs created before user-driven ordering.
+  try {
+    db.exec(`ALTER TABLE workspaces ADD COLUMN position INTEGER NOT NULL DEFAULT 0`)
+  } catch {
+    // column already exists — no-op
+  }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS terminals (
@@ -81,20 +89,40 @@ export function initDb(): void {
     )
     db.prepare("UPDATE terminals SET workspace_id = ? WHERE workspace_id = ''").run(defaultId)
   }
+
+  // Sweep terminals whose workspace was deleted (e.g. crash mid-delete or a
+  // race between deleteWorkspace and an in-flight upsert from the renderer).
+  // They never render but accumulate in the DB and keep edges alive whose
+  // endpoints don't belong to any visible workspace.
+  db.exec(
+    `DELETE FROM terminals WHERE workspace_id NOT IN (SELECT id FROM workspaces)`,
+  )
 }
 
 // ── Workspaces ──────────────────────────────────────────────────────────────
 
 export function listWorkspaces(): WorkspaceRecord[] {
   return db
-    .prepare('SELECT * FROM workspaces ORDER BY created_at')
+    .prepare('SELECT id, name, created_at FROM workspaces ORDER BY position, created_at')
     .all() as WorkspaceRecord[]
 }
 
 export function createWorkspace(record: WorkspaceRecord): void {
+  // New workspaces append to the bottom (max(position) + 1).
+  const maxRow = db.prepare('SELECT COALESCE(MAX(position), -1) AS m FROM workspaces').get() as {
+    m: number
+  }
   db.prepare(
-    'INSERT INTO workspaces (id, name, created_at) VALUES (@id, @name, @created_at)',
-  ).run(record)
+    'INSERT INTO workspaces (id, name, created_at, position) VALUES (@id, @name, @created_at, @position)',
+  ).run({ ...record, position: maxRow.m + 1 })
+}
+
+export function reorderWorkspaces(orderedIds: string[]): void {
+  const update = db.prepare('UPDATE workspaces SET position = ? WHERE id = ?')
+  const tx = db.transaction((ids: string[]) => {
+    ids.forEach((id, idx) => update.run(idx, id))
+  })
+  tx(orderedIds)
 }
 
 export function deleteWorkspace(id: string): void {
@@ -117,9 +145,12 @@ export function duplicateWorkspace(sourceId: string): WorkspaceRecord {
     name: `${source.name} Copy`,
     created_at: Date.now(),
   }
+  const maxRow = db.prepare('SELECT COALESCE(MAX(position), -1) AS m FROM workspaces').get() as {
+    m: number
+  }
   db.prepare(
-    'INSERT INTO workspaces (id, name, created_at) VALUES (@id, @name, @created_at)',
-  ).run(newRecord)
+    'INSERT INTO workspaces (id, name, created_at, position) VALUES (@id, @name, @created_at, @position)',
+  ).run({ ...newRecord, position: maxRow.m + 1 })
 
   const terminals = db
     .prepare('SELECT * FROM terminals WHERE active = 1 AND workspace_id = ?')

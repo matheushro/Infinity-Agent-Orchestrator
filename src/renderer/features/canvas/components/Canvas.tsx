@@ -5,6 +5,7 @@ import { TerminalNode } from '@renderer/features/terminals/components/TerminalNo
 import type { TerminalNodeData, TerminalStyle } from '@renderer/features/terminals/types'
 import type { CanvasTextRecord } from '@shared/types/canvas'
 import type { EdgeRecord } from '@shared/types/terminal'
+import type { CanvasTheme } from '../types'
 import {
   ICursor,
   IFit,
@@ -21,6 +22,61 @@ import { CanvasText } from './CanvasText'
 import { Minimap } from './Minimap'
 
 export type CanvasTool = 'select' | 'pan' | 'link' | 'delete' | 'text'
+
+type SideDir = 'left' | 'right' | 'top' | 'bottom'
+
+interface SidePoint {
+  x: number
+  y: number
+  dir: SideDir
+}
+
+// Pick the pair of rectangle-side midpoints (one per node) that minimises the
+// distance between them. Handles overlapping rectangles and any orientation —
+// the previous implementation only handled "a-left / b-right" arrangements and
+// drew tangled curves when the two nodes overlapped.
+function pickEdgeEndpoints(
+  a: { x: number; y: number; width: number; height: number },
+  b: { x: number; y: number; width: number; height: number },
+): { x1: number; y1: number; x2: number; y2: number; sourceDir: SideDir; targetDir: SideDir } {
+  const sidesOf = (r: { x: number; y: number; width: number; height: number }): SidePoint[] => {
+    const cx = r.x + r.width / 2
+    const cy = r.y + r.height / 2
+    return [
+      { x: r.x, y: cy, dir: 'left' },
+      { x: r.x + r.width, y: cy, dir: 'right' },
+      { x: cx, y: r.y, dir: 'top' },
+      { x: cx, y: r.y + r.height, dir: 'bottom' },
+    ]
+  }
+
+  const aSides = sidesOf(a)
+  const bSides = sidesOf(b)
+
+  let best = aSides[0]
+  let bestB = bSides[0]
+  let bestD = Infinity
+  for (const sa of aSides) {
+    for (const sb of bSides) {
+      const dx = sb.x - sa.x
+      const dy = sb.y - sa.y
+      const d = dx * dx + dy * dy
+      if (d < bestD) {
+        bestD = d
+        best = sa
+        bestB = sb
+      }
+    }
+  }
+  return { x1: best.x, y1: best.y, x2: bestB.x, y2: bestB.y, sourceDir: best.dir, targetDir: bestB.dir }
+}
+
+function offsetByDirection(x: number, y: number, dir: SideDir, c: number): [number, number] {
+  if (dir === 'left') return [x - c, y]
+  if (dir === 'right') return [x + c, y]
+  if (dir === 'top') return [x, y - c]
+  return [x, y + c]
+}
 
 interface CanvasProps {
   nodes: TerminalNodeData[]
@@ -56,6 +112,7 @@ interface CanvasProps {
   onTextContextMenu: (id: string, x: number, y: number) => void
   onCanvasContextMenu: (worldX: number, worldY: number, clientX: number, clientY: number) => void
   getTerminalStyle: (id: string) => TerminalStyle
+  theme: CanvasTheme
 }
 
 export function Canvas({
@@ -92,6 +149,7 @@ export function Canvas({
   onTextContextMenu,
   onCanvasContextMenu,
   getTerminalStyle,
+  theme,
 }: CanvasProps): JSX.Element {
   const { pan, zoom, setPan, setZoom, containerRef, handlers, startPan } = usePanZoom()
   const wrapRef = containerRef
@@ -231,22 +289,16 @@ export function Canvas({
         const a = byId.get(edge.source)
         const b = byId.get(edge.target)
         if (!a || !b) return null
-        let x1 = a.x + a.width
-        let y1 = a.y + a.height / 2
-        let x2 = b.x
-        let y2 = b.y + b.height / 2
-        if (b.x + b.width < a.x) {
-          x1 = a.x
-          x2 = b.x + b.width
-        }
-        const dx = Math.abs(x2 - x1)
-        const c = Math.min(180, Math.max(60, dx * 0.5))
-        const sign = x2 > x1 ? 1 : -1
+        const { x1, y1, x2, y2, sourceDir, targetDir } = pickEdgeEndpoints(a, b)
+        const dist = Math.hypot(x2 - x1, y2 - y1)
+        const c = Math.min(180, Math.max(60, dist * 0.4))
+        const [cp1x, cp1y] = offsetByDirection(x1, y1, sourceDir, c)
+        const [cp2x, cp2y] = offsetByDirection(x2, y2, targetDir, c)
         const endpointSelected = selectedIds.includes(a.id) || selectedIds.includes(b.id)
         const edgeSelected = selectedEdgeId === edge.id
         return {
           id: edge.id,
-          d: `M ${x1} ${y1} C ${x1 + c * sign} ${y1}, ${x2 - c * sign} ${y2}, ${x2} ${y2}`,
+          d: `M ${x1} ${y1} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${x2} ${y2}`,
           highlighted: endpointSelected || edgeSelected,
           edgeSelected,
           x1,
@@ -674,6 +726,7 @@ export function Canvas({
               scale={zoom}
               linkSource={linkSource}
               style={getTerminalStyle(node.id)}
+              globalTheme={theme}
               raised={contextMenuNodeId === node.id}
               tool={tool}
               onSelect={(id, additive) => {

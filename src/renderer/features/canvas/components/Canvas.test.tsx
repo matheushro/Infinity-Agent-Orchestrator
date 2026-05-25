@@ -306,6 +306,34 @@ describe('Canvas', () => {
     expect(edgeAc?.querySelectorAll('circle.selected')).toHaveLength(2)
   })
 
+  it('routes the edge between overlapping nodes through their closest sides, not the right-of-A to left-of-B default', async () => {
+    // Regression: with the old algorithm an edge between two overlapping nodes
+    // produced a tangled S-curve floating inside the overlap area. We now pick
+    // the closest side-midpoint pair, so the curve attaches to two adjacent
+    // sides instead of two crossing horizontal sides.
+    const a: TerminalNodeData = { ...nodeA, x: 0, y: 0, width: 200, height: 200 }
+    const overlapping: TerminalNodeData = {
+      ...nodeB,
+      id: 'overlap',
+      x: 50,
+      y: 50,
+      width: 200,
+      height: 200,
+    }
+    const { container } = renderCanvas({
+      nodes: [a, overlapping],
+      edges: [{ id: 'edge-overlap', source: 'a', target: 'overlap' }],
+    })
+
+    await waitFor(() => expect(container.querySelectorAll('[data-edge-id]')).toHaveLength(1))
+    const path = container.querySelector('[data-edge-id="edge-overlap"] path.edge-hit')
+    const d = path?.getAttribute('d') ?? ''
+    // a sides: left=(0,100). overlap sides: left=(50,150). Closest pair is
+    // (a.left, overlap.left) at distance² 5000 — first 5000 in iteration order.
+    // Control points are offset 60 units OUTWARD in the side's direction.
+    expect(d).toBe('M 0 100 C -60 100, -10 150, 50 150')
+  })
+
   it('keeps the surface at a minimum 4000px margin and grows it when nodes and viewport extend', async () => {
     const { surface, rerender, props } = renderCanvas()
 

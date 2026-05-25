@@ -50,10 +50,12 @@ describe('TerminalStyleModal', () => {
     })
 
     expect(screen.getByRole('heading', { name: 'Style · Atlas' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Theme Light' })).toHaveStyle({
+    // Dark chip is inactive when theme=light.
+    expect(screen.getByRole('button', { name: 'Dark' })).toHaveStyle({
       background: 'transparent',
       color: 'var(--fg-3)',
     })
+    // Light chip is active.
     expect(screen.getByRole('button', { name: 'Light' })).toHaveStyle({
       background: 'var(--bg)',
       color: 'var(--fg)',
@@ -68,7 +70,8 @@ describe('TerminalStyleModal', () => {
   })
 
   it.each([
-    ['Theme Light', { theme: 'dark' }],
+    ['Auto', { theme: 'auto' }],
+    ['Dark', { theme: 'dark' }],
     ['Light', { theme: 'light' }],
   ] as const)('clicking %s calls onChange with %o', (label, expectedPatch) => {
     const { onChange } = renderModal({

@@ -6,6 +6,7 @@ import { IClose } from '@renderer/components/ui'
 import { useTerminalSession } from '../hooks/useTerminalSession'
 import type { TerminalNodeData, TerminalStyle } from '../types'
 import type { CanvasTool } from '@renderer/features/canvas/components/Canvas'
+import type { CanvasTheme } from '@renderer/features/canvas/types'
 
 interface TerminalNodeProps {
   node: TerminalNodeData
@@ -14,6 +15,7 @@ interface TerminalNodeProps {
   scale: number
   linkSource: string | null
   style: TerminalStyle
+  globalTheme: CanvasTheme
   tool: CanvasTool
   onSelect: (id: string, additive: boolean) => void
   onDragStart: (id: string) => void
@@ -31,6 +33,7 @@ export function TerminalNode({
   scale,
   linkSource,
   style,
+  globalTheme,
   tool,
   onSelect,
   onDragStart,
@@ -40,7 +43,7 @@ export function TerminalNode({
   onContextMenu,
   raised,
 }: TerminalNodeProps): JSX.Element {
-  const containerRef = useTerminalSession(node, style)
+  const containerRef = useTerminalSession(node, style, globalTheme)
 
   const [editingTitle, setEditingTitle] = useState(false)
   const [draftTitle, setDraftTitle] = useState(node.title)
@@ -55,7 +58,8 @@ export function TerminalNode({
   const isLinking = tool === 'link'
   const isDelete = tool === 'delete'
   const isLinkSource = linkSource === node.id
-  const isDark = style.theme === 'dark'
+  const resolvedTheme = style.theme === 'auto' ? globalTheme : style.theme
+  const isDark = resolvedTheme === 'dark'
 
   return (
     <Rnd

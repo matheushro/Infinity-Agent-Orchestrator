@@ -33,6 +33,7 @@ export interface WorkspaceApi {
   delete(id: string): Promise<void>
   rename(id: string, name: string): Promise<void>
   duplicate(id: string): Promise<WorkspaceRecord>
+  reorder(orderedIds: string[]): Promise<void>
 }
 
 export interface DialogApi {

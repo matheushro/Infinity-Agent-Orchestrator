@@ -23,6 +23,7 @@ export const IpcChannels = {
   workspacesDelete: 'workspaces:delete',
   workspacesRename: 'workspaces:rename',
   workspacesDuplicate: 'workspaces:duplicate',
+  workspacesReorder: 'workspaces:reorder',
   windowIsFullScreen: 'window:is-full-screen',
   windowSetFullScreen: 'window:set-full-screen',
   windowFullScreenChanged: 'window:full-screen-changed',

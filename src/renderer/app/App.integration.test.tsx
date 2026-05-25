@@ -54,7 +54,16 @@ vi.mock('@renderer/features/workspaces/hooks/useWorkspaces', async () => {
         setWorkspaces(sharedState.workspaces)
         setActiveId(ws.id)
       }, [setActiveId])
-      return { workspaces, activeId, setActiveId, createWorkspace }
+      return {
+        workspaces,
+        activeId,
+        setActiveId,
+        createWorkspace,
+        renameWorkspace: vi.fn(),
+        deleteWorkspace: vi.fn(),
+        duplicateWorkspace: vi.fn(),
+        reorderWorkspaces: vi.fn(),
+      }
     },
     __sharedState: sharedState,
   }
@@ -123,8 +132,7 @@ vi.mock('./components/Sidebar', async () => {
       nodesByWorkspace,
       collapsed,
       onCollapsedChange,
-      onToggleTheme,
-      theme,
+      onOpenSettings,
       onSwitchWorkspace,
       onSelectTerminal,
       onNewTerminal,
@@ -134,8 +142,7 @@ vi.mock('./components/Sidebar', async () => {
       nodesByWorkspace: Record<string, TerminalNodeData[]>
       collapsed: boolean
       onCollapsedChange: (v: boolean) => void
-      onToggleTheme: (t: CanvasTheme) => void
-      theme: CanvasTheme
+      onOpenSettings: () => void
       onSwitchWorkspace: (id: string) => void
       onSelectTerminal: (wsId: string, termId: string) => void
       onNewTerminal: () => void
@@ -147,7 +154,7 @@ vi.mock('./components/Sidebar', async () => {
         data-terminal-count={String(Object.values(nodesByWorkspace).flat().length)}
       >
         <button onClick={() => onCollapsedChange(!collapsed)}>Toggle sidebar</button>
-        <button onClick={() => onToggleTheme(theme === 'dark' ? 'light' : 'dark')}>Toggle theme</button>
+        <button onClick={onOpenSettings}>Open settings</button>
         {workspaces.map((ws) => (
           <button key={ws.id} onClick={() => onSwitchWorkspace(ws.id)}>Switch to {ws.name}</button>
         ))}
@@ -163,8 +170,17 @@ vi.mock('./components/Sidebar', async () => {
 })
 
 vi.mock('./components/Topbar', () => ({
-  Topbar: vi.fn(({ terminalCount, theme }: { terminalCount: number; theme: CanvasTheme }) => (
-    <header data-testid="topbar" data-count={String(terminalCount)} data-theme={theme} />
+  Topbar: vi.fn(({ terminalCount }: { terminalCount: number }) => (
+    <header data-testid="topbar" data-count={String(terminalCount)} />
+  )),
+}))
+
+vi.mock('./components/SettingsModal', () => ({
+  SettingsModal: vi.fn(({ theme, onThemeChange, onClose }: { theme: CanvasTheme; onThemeChange: (t: CanvasTheme) => void; onClose: () => void }) => (
+    <div data-testid="settings-modal" data-theme={theme}>
+      <button onClick={() => onThemeChange(theme === 'dark' ? 'light' : 'dark')}>Toggle theme</button>
+      <button onClick={onClose}>Close settings</button>
+    </div>
   )),
 }))
 
@@ -203,10 +219,11 @@ describe('App integration', () => {
 
   it('persists theme across a reload', async () => {
     render(<App />)
-    await waitFor(() => expect(screen.getByTestId('topbar').getAttribute('data-theme')).toBe('dark'))
+    fireEvent.click(screen.getByText('Open settings'))
+    await waitFor(() => expect(screen.getByTestId('settings-modal').getAttribute('data-theme')).toBe('dark'))
     fireEvent.click(screen.getByText('Toggle theme'))
     await waitFor(() =>
-      expect(screen.getByTestId('topbar').getAttribute('data-theme')).toBe('light'),
+      expect(screen.getByTestId('settings-modal').getAttribute('data-theme')).toBe('light'),
     )
     expect(JSON.parse(localStorage.getItem('canvasTheme') ?? '"dark"')).toBe('light')
   })

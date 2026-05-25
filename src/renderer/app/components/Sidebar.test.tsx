@@ -39,7 +39,6 @@ function renderSidebar(overrides: Partial<ComponentProps<typeof Sidebar>> = {}) 
     activeWorkspaceId: 'ws-1',
     nodesByWorkspace: { 'ws-1': [term1], 'ws-2': [term2] },
     selectedTerminalId: 'alpha',
-    theme: 'dark',
     collapsed: false,
     onCollapsedChange: vi.fn(),
     onNewTerminal: vi.fn(),
@@ -47,9 +46,10 @@ function renderSidebar(overrides: Partial<ComponentProps<typeof Sidebar>> = {}) 
     onRenameWorkspace: vi.fn(),
     onDeleteWorkspace: vi.fn(),
     onDuplicateWorkspace: vi.fn(),
+    onReorderWorkspaces: vi.fn(),
     onSwitchWorkspace: vi.fn(),
     onSelectTerminal: vi.fn(),
-    onToggleTheme: vi.fn(),
+    onOpenSettings: vi.fn(),
     onTerminalDelete: vi.fn(),
     onTerminalLink: vi.fn(),
     onTerminalStyle: vi.fn(),
@@ -75,7 +75,6 @@ function renderSidebarWithStatus(
     activeWorkspaceId: 'ws-1',
     nodesByWorkspace: { 'ws-1': [term1] },
     selectedTerminalId: 'alpha',
-    theme: 'dark',
     collapsed: false,
     onCollapsedChange: vi.fn(),
     onNewTerminal: vi.fn(),
@@ -83,9 +82,10 @@ function renderSidebarWithStatus(
     onRenameWorkspace: vi.fn(),
     onDeleteWorkspace: vi.fn(),
     onDuplicateWorkspace: vi.fn(),
+    onReorderWorkspaces: vi.fn(),
     onSwitchWorkspace: vi.fn(),
     onSelectTerminal: vi.fn(),
-    onToggleTheme: vi.fn(),
+    onOpenSettings: vi.fn(),
     onTerminalDelete: vi.fn(),
     onTerminalLink: vi.fn(),
     onTerminalStyle: vi.fn(),
@@ -140,10 +140,10 @@ describe('Sidebar', () => {
     expect(props.onSelectTerminal).toHaveBeenCalledWith('ws-2', 'beta')
   })
 
-  it('calls onToggleTheme with the clicked theme', () => {
+  it('clicking the Settings footer button calls onOpenSettings', () => {
     const { props } = renderSidebar()
-    fireEvent.click(screen.getByText('Light'))
-    expect(props.onToggleTheme).toHaveBeenCalledWith('light')
+    fireEvent.click(screen.getByText('Settings'))
+    expect(props.onOpenSettings).toHaveBeenCalledTimes(1)
   })
 
   it('shows New workspace button when workspaces < 5', () => {
