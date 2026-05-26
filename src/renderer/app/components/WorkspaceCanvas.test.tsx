@@ -47,10 +47,10 @@ vi.mock('@renderer/features/canvas/components/Canvas', () => ({
 }))
 
 vi.mock('@renderer/features/terminals/components/NewTerminalModal', () => ({
-  NewTerminalModal: vi.fn(({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: (folder: string, command: string, name: string) => void }) => (
+  NewTerminalModal: vi.fn(({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: (folder: string, command: string, name: string, theme: string) => void }) => (
     <div data-testid="new-terminal-modal">
       <button onClick={onCancel}>Cancel</button>
-      <button onClick={() => onConfirm('/tmp', 'claude', '')}>Confirm</button>
+      <button onClick={() => onConfirm('/tmp', 'claude', '', 'auto')}>Confirm</button>
     </div>
   )),
 }))
@@ -71,6 +71,7 @@ const defaultProps = {
   workspace: ws,
   active: true,
   shell: 'default' as const,
+  defaultProjectFolder: '',
   theme: 'dark' as const,
   getTerminalStyle: vi.fn(() => ({ theme: 'dark' as const, fontFamily: 'mono', fontSize: 13 })),
   setTerminalStyle: vi.fn(),
@@ -172,6 +173,29 @@ describe('WorkspaceCanvas', () => {
     })
 
     await waitFor(() => expect(screen.getByTestId('new-terminal-modal')).toBeTruthy())
+  })
+
+  it('passes the default project folder to NewTerminalModal', async () => {
+    const ref = createRef<WorkspaceCanvasHandle>()
+    render(
+      <WorkspaceCanvas
+        {...defaultProps}
+        defaultProjectFolder="/home/user/project"
+        ref={ref}
+      />,
+    )
+
+    act(() => {
+      ref.current?.openNewTerminalModal()
+    })
+
+    const { NewTerminalModal } = await import('@renderer/features/terminals/components/NewTerminalModal')
+    await waitFor(() => {
+      expect(vi.mocked(NewTerminalModal)).toHaveBeenLastCalledWith(
+        expect.objectContaining({ defaultFolder: '/home/user/project' }),
+        {},
+      )
+    })
   })
 
   it('10.8 Ctrl+N opens the modal when active=true', async () => {

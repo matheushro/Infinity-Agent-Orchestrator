@@ -45,11 +45,17 @@ vi.mock('@renderer/components/ui', async () => {
 
 import { NewTerminalModal } from './NewTerminalModal'
 
-function renderModal() {
+function renderModal(defaultFolder = '') {
   const onCancel = vi.fn()
   const onConfirm = vi.fn()
 
-  render(<NewTerminalModal onCancel={onCancel} onConfirm={onConfirm} />)
+  render(
+    <NewTerminalModal
+      defaultFolder={defaultFolder}
+      onCancel={onCancel}
+      onConfirm={onConfirm}
+    />,
+  )
 
   return { onCancel, onConfirm }
 }
@@ -99,6 +105,18 @@ describe('NewTerminalModal', () => {
     expect(screen.getByRole('button', { name: 'Open' })).toBeDisabled()
   })
 
+  it('prefills the folder from the default project folder and enables Open', () => {
+    const defaultFolder = '/home/user/projects/default'
+    const { onConfirm } = renderModal(defaultFolder)
+
+    expect(screen.getByDisplayValue(defaultFolder)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open' })).toBeEnabled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open' }))
+
+    expect(onConfirm).toHaveBeenCalledWith(defaultFolder, 'claude', '', 'auto')
+  })
+
   it('calls onConfirm with the current folder, command, and trimmed name', async () => {
     const selectedFolder = '/home/user/projects/iao'
     vi.mocked(window.dialogApi.selectFolder).mockResolvedValueOnce(selectedFolder)
@@ -117,7 +135,24 @@ describe('NewTerminalModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open' }))
 
     expect(onConfirm).toHaveBeenCalledTimes(1)
-    expect(onConfirm).toHaveBeenCalledWith(selectedFolder, 'codex', 'Repo terminal')
+    expect(onConfirm).toHaveBeenCalledWith(selectedFolder, 'codex', 'Repo terminal', 'auto')
+  })
+
+  it('forwards the selected theme to onConfirm', async () => {
+    const selectedFolder = '/home/user/projects/iao'
+    vi.mocked(window.dialogApi.selectFolder).mockResolvedValueOnce(selectedFolder)
+    const { onConfirm } = renderModal()
+
+    fireEvent.click(screen.getByRole('button', { name: /Select/ }))
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue(selectedFolder)).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dark' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open' }))
+
+    expect(onConfirm).toHaveBeenCalledWith(selectedFolder, 'claude', '', 'dark')
   })
 
   it('calls onCancel from the cancel button', () => {

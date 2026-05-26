@@ -99,12 +99,14 @@ vi.mock('./components/WorkspaceCanvas', async () => {
     WorkspaceCanvas: vi.fn(({
       workspace,
       active,
+      defaultProjectFolder,
       onNodesChange,
       pendingFocusId,
       onFocusConsumed,
     }: {
       workspace: WorkspaceRecord
       active: boolean
+      defaultProjectFolder: string
       onNodesChange: (nodes: TerminalNodeData[]) => void
       pendingFocusId: string | null
       onFocusConsumed: () => void
@@ -113,7 +115,11 @@ vi.mock('./components/WorkspaceCanvas', async () => {
       useEffect(() => { onNodesChange(nodes) }, [workspace.id]) // eslint-disable-line react-hooks/exhaustive-deps
       useEffect(() => { if (pendingFocusId) onFocusConsumed() }, [pendingFocusId]) // eslint-disable-line react-hooks/exhaustive-deps
       return (
-        <div data-testid={`canvas-${workspace.id}`} data-active={String(active)}>
+        <div
+          data-testid={`canvas-${workspace.id}`}
+          data-active={String(active)}
+          data-default-project-folder={defaultProjectFolder}
+        >
           {nodes.map((n) => (
             <div key={n.id} data-testid={`node-${n.id}`}>{n.title}</div>
           ))}
@@ -176,9 +182,23 @@ vi.mock('./components/Topbar', () => ({
 }))
 
 vi.mock('./components/SettingsModal', () => ({
-  SettingsModal: vi.fn(({ theme, onThemeChange, onClose }: { theme: CanvasTheme; onThemeChange: (t: CanvasTheme) => void; onClose: () => void }) => (
+  SettingsModal: vi.fn(({
+    theme,
+    defaultProjectFolder,
+    onThemeChange,
+    onDefaultProjectFolderChange,
+    onClose,
+  }: {
+    theme: CanvasTheme
+    defaultProjectFolder: string
+    onThemeChange: (t: CanvasTheme) => void
+    onDefaultProjectFolderChange: (folder: string) => void
+    onClose: () => void
+  }) => (
     <div data-testid="settings-modal" data-theme={theme}>
       <button onClick={() => onThemeChange(theme === 'dark' ? 'light' : 'dark')}>Toggle theme</button>
+      <span data-testid="settings-default-project-folder">{defaultProjectFolder}</span>
+      <button onClick={() => onDefaultProjectFolderChange('/home/user/project')}>Set default folder</button>
       <button onClick={onClose}>Close settings</button>
     </div>
   )),

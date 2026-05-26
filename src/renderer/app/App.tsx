@@ -25,6 +25,10 @@ export default function App(): JSX.Element {
   } = useWorkspaces()
   const { getStyle, setStyle, removeStyle } = useTerminalStyles()
   const [defaultShell, setDefaultShell] = useLocalStorage<ShellType>('defaultShell', 'default')
+  const [defaultProjectFolder, setDefaultProjectFolder] = useLocalStorage<string>(
+    'defaultProjectFolder',
+    '',
+  )
   const [theme, setTheme] = useLocalStorage<CanvasTheme>('canvasTheme', 'dark')
   const [sidebarCollapsed, setSidebarCollapsed] = useLocalStorage('sidebarCollapsed', false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -115,6 +119,7 @@ export default function App(): JSX.Element {
                 workspace={ws}
                 active={ws.id === activeId}
                 shell={defaultShell}
+                defaultProjectFolder={defaultProjectFolder}
                 theme={theme}
                 getTerminalStyle={getStyle}
                 setTerminalStyle={setStyle}
@@ -133,8 +138,10 @@ export default function App(): JSX.Element {
           <SettingsModal
             theme={theme}
             defaultShell={defaultShell}
+            defaultProjectFolder={defaultProjectFolder}
             onThemeChange={setTheme}
             onDefaultShellChange={setDefaultShell}
+            onDefaultProjectFolderChange={setDefaultProjectFolder}
             onClose={() => setSettingsOpen(false)}
           />
         )}

@@ -81,13 +81,20 @@ vi.mock('@renderer/features/terminals/hooks/useTerminalStyles', () => ({
 vi.mock('./components/WorkspaceCanvas', async () => {
   const { useEffect } = await import('react')
   return {
-    WorkspaceCanvas: vi.fn(({ workspace, active, onNodesChange }: {
+    WorkspaceCanvas: vi.fn(({ workspace, active, defaultProjectFolder, onNodesChange }: {
       workspace: WorkspaceRecord
       active: boolean
+      defaultProjectFolder: string
       onNodesChange: (nodes: TerminalNodeData[]) => void
     }) => {
       useEffect(() => { onNodesChange([]) }, []) // eslint-disable-line react-hooks/exhaustive-deps
-      return <div data-testid={`canvas-${workspace.id}`} data-active={active ? 'true' : 'false'} />
+      return (
+        <div
+          data-testid={`canvas-${workspace.id}`}
+          data-active={active ? 'true' : 'false'}
+          data-default-project-folder={defaultProjectFolder}
+        />
+      )
     }),
   }
 })
@@ -126,9 +133,23 @@ vi.mock('./components/Topbar', () => ({
 
 // SettingsModal stub — exposes a theme toggle button.
 vi.mock('./components/SettingsModal', () => ({
-  SettingsModal: vi.fn(({ theme, onThemeChange, onClose }: { theme: CanvasTheme; onThemeChange: (t: CanvasTheme) => void; onClose: () => void }) => (
+  SettingsModal: vi.fn(({
+    theme,
+    defaultProjectFolder,
+    onThemeChange,
+    onDefaultProjectFolderChange,
+    onClose,
+  }: {
+    theme: CanvasTheme
+    defaultProjectFolder: string
+    onThemeChange: (t: CanvasTheme) => void
+    onDefaultProjectFolderChange: (folder: string) => void
+    onClose: () => void
+  }) => (
     <div data-testid="settings-modal" data-theme={theme}>
       <button onClick={() => onThemeChange(theme === 'dark' ? 'light' : 'dark')}>Toggle theme</button>
+      <span data-testid="settings-default-project-folder">{defaultProjectFolder}</span>
+      <button onClick={() => onDefaultProjectFolderChange('/home/user/project')}>Set default folder</button>
       <button onClick={onClose}>Close</button>
     </div>
   )),
@@ -223,6 +244,24 @@ describe('App composition', () => {
     await waitFor(() => {
       const stored = JSON.parse(localStorage.getItem('canvasTheme') ?? '"dark"')
       expect(stored).toBe('light')
+    })
+  })
+
+  it('default project folder persists and is passed to workspace canvases', async () => {
+    render(<App />)
+    fireEvent.click(screen.getByText('Open settings'))
+    fireEvent.click(screen.getByText('Set default folder'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('settings-default-project-folder').textContent).toBe(
+        '/home/user/project',
+      )
+      expect(screen.getByTestId('canvas-ws-default').getAttribute(
+        'data-default-project-folder',
+      )).toBe('/home/user/project')
+      expect(JSON.parse(localStorage.getItem('defaultProjectFolder') ?? '""')).toBe(
+        '/home/user/project',
+      )
     })
   })
 

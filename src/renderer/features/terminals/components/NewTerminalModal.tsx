@@ -4,10 +4,14 @@ import type { ReactNode } from 'react'
 import { Button, Modal } from '@renderer/components/ui'
 import { COMMANDS } from '../commands'
 import type { CommandKey } from '../commands'
+import type { TerminalStyle } from '../types'
+
+type Theme = TerminalStyle['theme']
 
 interface NewTerminalModalProps {
+  defaultFolder?: string
   onCancel: () => void
-  onConfirm: (folder: string, command: CommandKey, name: string) => void
+  onConfirm: (folder: string, command: CommandKey, name: string, theme: Theme) => void
 }
 
 const FIELD_STYLE = {
@@ -17,12 +21,14 @@ const FIELD_STYLE = {
 }
 
 export function NewTerminalModal({
+  defaultFolder = '',
   onCancel,
   onConfirm,
 }: NewTerminalModalProps): JSX.Element {
-  const [folder, setFolder] = useState<string>('')
+  const [folder, setFolder] = useState<string>(defaultFolder)
   const [command, setCommand] = useState<CommandKey>('claude')
   const [name, setName] = useState<string>('')
+  const [theme, setTheme] = useState<Theme>('auto')
 
   async function pickFolder(): Promise<void> {
     const selected = await window.dialogApi.selectFolder()
@@ -78,15 +84,56 @@ export function NewTerminalModal({
         })}
       </div>
 
+      <Label>Theme</Label>
+      <div
+        className="mb-5 flex items-center rounded-[8px] p-0.5"
+        style={{
+          background: 'color-mix(in oklch, var(--fg) 5%, transparent)',
+          border: '1px solid var(--line-2)',
+        }}
+      >
+        <ThemeChip label="Auto" active={theme === 'auto'} onClick={() => setTheme('auto')} />
+        <ThemeChip label="Dark" active={theme === 'dark'} onClick={() => setTheme('dark')} />
+        <ThemeChip label="Light" active={theme === 'light'} onClick={() => setTheme('light')} />
+      </div>
+
       <div className="flex justify-end gap-2">
         <Button variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
-        <Button disabled={!folder} onClick={() => onConfirm(folder, command, name.trim())}>
+        <Button
+          disabled={!folder}
+          onClick={() => onConfirm(folder, command, name.trim(), theme)}
+        >
           Open
         </Button>
       </div>
     </Modal>
+  )
+}
+
+function ThemeChip({
+  label,
+  active,
+  onClick,
+}: {
+  label: string
+  active: boolean
+  onClick: () => void
+}): JSX.Element {
+  return (
+    <button
+      onClick={onClick}
+      className="flex-1 h-7 rounded-[6px] text-[11.5px] transition-colors"
+      style={{
+        background: active ? 'var(--bg)' : 'transparent',
+        color: active ? 'var(--fg)' : 'var(--fg-3)',
+        fontWeight: active ? 500 : 400,
+        boxShadow: active ? '0 1px 2px rgb(0 0 0 / 0.10)' : 'none',
+      }}
+    >
+      {label}
+    </button>
   )
 }
 

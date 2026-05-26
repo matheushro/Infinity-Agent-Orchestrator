@@ -1,24 +1,33 @@
-// App settings modal: global theme and default shell.
+// App settings modal: global theme, terminal defaults, and project folder.
 // Triggered by the gear icon in the sidebar footer.
-import { Modal, Select } from '@renderer/components/ui'
+import { Button, Modal, Select } from '@renderer/components/ui'
 import type { CanvasTheme } from '@renderer/features/canvas/types'
 import type { ShellType } from '@renderer/features/terminals/types'
 
 interface SettingsModalProps {
   theme: CanvasTheme
   defaultShell: ShellType
+  defaultProjectFolder: string
   onThemeChange: (theme: CanvasTheme) => void
   onDefaultShellChange: (shell: ShellType) => void
+  onDefaultProjectFolderChange: (folder: string) => void
   onClose: () => void
 }
 
 export function SettingsModal({
   theme,
   defaultShell,
+  defaultProjectFolder,
   onThemeChange,
   onDefaultShellChange,
+  onDefaultProjectFolderChange,
   onClose,
 }: SettingsModalProps): JSX.Element {
+  async function pickDefaultProjectFolder(): Promise<void> {
+    const selected = await window.dialogApi.selectFolder()
+    if (selected) onDefaultProjectFolderChange(selected)
+  }
+
   return (
     <Modal title="Settings" onClose={onClose} closeOnOverlay className="w-[420px]">
       <div className="flex flex-col gap-5">
@@ -44,6 +53,32 @@ export function SettingsModal({
         </Field>
 
         <Field
+          label="Default project folder"
+          hint="Prefills the folder when creating new terminals"
+        >
+          <div className="flex gap-2">
+            <input
+              readOnly
+              value={defaultProjectFolder}
+              placeholder="No default folder selected"
+              className="min-w-0 flex-1 truncate rounded-[8px] px-2.5 h-8 text-[12.5px] font-mono outline-none"
+              style={FIELD_STYLE}
+            />
+            <Button variant="secondary" onClick={pickDefaultProjectFolder}>
+              Select…
+            </Button>
+            {defaultProjectFolder && (
+              <Button
+                variant="ghost"
+                onClick={() => onDefaultProjectFolderChange('')}
+              >
+                Clear
+              </Button>
+            )}
+          </div>
+        </Field>
+
+        <Field
           label="Default shell"
           hint="Used when creating new terminals"
         >
@@ -60,6 +95,12 @@ export function SettingsModal({
       </div>
     </Modal>
   )
+}
+
+const FIELD_STYLE = {
+  background: 'color-mix(in oklch, var(--fg) 4%, transparent)',
+  color: 'var(--fg)',
+  border: '1px solid var(--line-2)',
 }
 
 function Field({

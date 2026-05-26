@@ -14,7 +14,7 @@ export interface UseTerminalsResult {
     name: string,
     shell: ShellType,
     position?: { x: number; y: number }
-  ) => void
+  ) => string
   /** In-memory transient update used during drag/resize — no DB write. */
   moveNode: (id: string, patch: Partial<TerminalNodeData>) => void
   /** Persisted update — writes the row to SQLite. */
@@ -60,6 +60,7 @@ export function useTerminals(workspaceId: string): UseTerminalsResult {
         terminalRepository.persist(node)
         return [...prev, node]
       })
+      return id
     },
     [workspaceId],
   )

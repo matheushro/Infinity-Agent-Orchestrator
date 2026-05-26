@@ -45,6 +45,7 @@ interface WorkspaceCanvasProps {
   workspace: WorkspaceRecord
   active: boolean
   shell: ShellType
+  defaultProjectFolder: string
   theme: CanvasTheme
   getTerminalStyle: (id: string) => import('@renderer/features/terminals/types').TerminalStyle
   setTerminalStyle: (id: string, patch: Partial<import('@renderer/features/terminals/types').TerminalStyle>) => void
@@ -69,6 +70,7 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
       workspace,
       active,
       shell,
+      defaultProjectFolder,
       theme,
       getTerminalStyle,
       setTerminalStyle,
@@ -343,13 +345,21 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
 
         {modalOpen && (
           <NewTerminalModal
+            defaultFolder={defaultProjectFolder}
             onCancel={() => {
               setModalOpen(false)
               setPendingCreatePos(null)
             }}
-            onConfirm={(folder, command, name) => {
+            onConfirm={(folder, command, name, theme) => {
               setModalOpen(false)
-              createTerminal(folder, command, name, shell, pendingCreatePos ?? undefined)
+              const id = createTerminal(
+                folder,
+                command,
+                name,
+                shell,
+                pendingCreatePos ?? undefined,
+              )
+              if (theme !== 'auto') setTerminalStyle(id, { theme })
               setPendingCreatePos(null)
             }}
           />
