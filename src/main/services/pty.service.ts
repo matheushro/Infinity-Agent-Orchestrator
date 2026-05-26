@@ -68,7 +68,11 @@ export function createPty(args: PtyCreateArgs, callbacks: PtyCallbacks): PtyCrea
   if (skillPath) iaoEnv.IAO_SKILL_PATH = skillPath
 
   const env: { [key: string]: string } = { ...(process.env as { [key: string]: string }), ...iaoEnv }
-  const proc = pty.spawn(shellPath, [], {
+  // On macOS, GUI-launched apps inherit a minimal PATH from launchd. Spawning
+  // as a login shell makes zsh/bash load /etc/zprofile (path_helper) and the
+  // user's ~/.zprofile / ~/.bash_profile, restoring Homebrew, Docker, nvm, etc.
+  const shellArgs = process.platform === 'darwin' ? ['-l'] : []
+  const proc = pty.spawn(shellPath, shellArgs, {
     name: 'xterm-color',
     cols: args.cols || 80,
     rows: args.rows || 24,

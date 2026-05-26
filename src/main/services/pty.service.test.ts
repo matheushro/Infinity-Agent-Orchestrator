@@ -36,6 +36,10 @@ const mockAppend = vi.mocked(iaoService.appendOutput)
 const mockUnregister = vi.mocked(iaoService.unregisterPtySession)
 const mockEnsureSkill = vi.mocked(skillService.ensureIAOSkill)
 
+// On macOS the pty is spawned as a login shell (`-l`) so it inherits the
+// user's full PATH (Homebrew, Docker, nvm, ...). Everywhere else: no args.
+const expectedShellArgs = process.platform === 'darwin' ? ['-l'] : []
+
 // ---- mock pty proc factory ----
 
 type MockProc = {
@@ -115,7 +119,7 @@ describe("resolveShell('bash')", () => {
 
     createPty(makeArgs({ shell: 'bash' }), makeCallbacks())
 
-    expect(mockSpawn).toHaveBeenCalledWith('/usr/bin/bash', [], expect.any(Object))
+    expect(mockSpawn).toHaveBeenCalledWith('/usr/bin/bash', expectedShellArgs, expect.any(Object))
     process.env.PATH = savedPath
   })
 })
@@ -133,7 +137,7 @@ describe("resolveShell('zsh')", () => {
 
     createPty(makeArgs({ shell: 'zsh' }), makeCallbacks())
 
-    expect(mockSpawn).toHaveBeenCalledWith('/bin/fish', [], expect.any(Object))
+    expect(mockSpawn).toHaveBeenCalledWith('/bin/fish', expectedShellArgs, expect.any(Object))
     process.env.PATH = savedPath
     process.env.SHELL = savedShell
   })
@@ -149,7 +153,7 @@ describe("resolveShell('default')", () => {
 
     createPty(makeArgs({ shell: 'default' }), makeCallbacks())
 
-    expect(mockSpawn).toHaveBeenCalledWith('/usr/bin/zsh', [], expect.any(Object))
+    expect(mockSpawn).toHaveBeenCalledWith('/usr/bin/zsh', expectedShellArgs, expect.any(Object))
     process.env.SHELL = savedShell
   })
 })
@@ -166,7 +170,7 @@ describe('resolveShell() — final fallback', () => {
 
     createPty(makeArgs(), makeCallbacks())
 
-    expect(mockSpawn).toHaveBeenCalledWith('/bin/sh', [], expect.any(Object))
+    expect(mockSpawn).toHaveBeenCalledWith('/bin/sh', expectedShellArgs, expect.any(Object))
     process.env.SHELL = savedShell
     process.env.PATH = savedPath
   })
@@ -187,7 +191,7 @@ describe('findOnPath', () => {
     createPty(makeArgs({ shell: 'bash', cwd: undefined }), makeCallbacks())
 
     // bash not found → SHELL unset → bash not found → /bin/sh
-    expect(mockSpawn).toHaveBeenCalledWith('/bin/sh', [], expect.any(Object))
+    expect(mockSpawn).toHaveBeenCalledWith('/bin/sh', expectedShellArgs, expect.any(Object))
     process.env.SHELL = savedShell
     process.env.PATH = savedPath
   })
@@ -201,7 +205,7 @@ describe('findOnPath', () => {
 
     createPty(makeArgs({ shell: 'bash', cwd: undefined }), makeCallbacks())
 
-    expect(mockSpawn).toHaveBeenCalledWith('/usr/bin/bash', [], expect.any(Object))
+    expect(mockSpawn).toHaveBeenCalledWith('/usr/bin/bash', expectedShellArgs, expect.any(Object))
     process.env.PATH = savedPath
   })
 })
@@ -220,7 +224,7 @@ describe('createPty — cwd', () => {
     createPty(makeArgs({ cwd: '/tmp' }), makeCallbacks())
 
     expect(mockSpawn).toHaveBeenCalledWith(
-      expect.any(String), [],
+      expect.any(String), expectedShellArgs,
       expect.objectContaining({ cwd: '/tmp' })
     )
   })
@@ -233,7 +237,7 @@ describe('createPty — cwd', () => {
     createPty(makeArgs({ cwd: '/nonexistent' }), makeCallbacks())
 
     expect(mockSpawn).toHaveBeenCalledWith(
-      expect.any(String), [],
+      expect.any(String), expectedShellArgs,
       expect.objectContaining({ cwd: '/home/testuser' })
     )
   })
@@ -246,7 +250,7 @@ describe('createPty — cwd', () => {
     createPty(makeArgs({ cwd: undefined }), makeCallbacks())
 
     expect(mockSpawn).toHaveBeenCalledWith(
-      expect.any(String), [],
+      expect.any(String), expectedShellArgs,
       expect.objectContaining({ cwd: '/home/testuser' })
     )
   })
