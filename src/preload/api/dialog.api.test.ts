@@ -18,6 +18,14 @@ describe('dialog.api', () => {
 
   it('selectFolder invokes dialog:select-folder', () => {
     dialogApi.selectFolder()
-    expect(mockIpc.invoke).toHaveBeenCalledWith(IpcChannels.dialogSelectFolder)
+    expect(mockIpc.invoke).toHaveBeenCalledWith(IpcChannels.dialogSelectFolder, undefined)
+  })
+
+  it('selectFolder forwards the defaultPath argument', () => {
+    dialogApi.selectFolder('/home/user/repos')
+    expect(mockIpc.invoke).toHaveBeenCalledWith(
+      IpcChannels.dialogSelectFolder,
+      '/home/user/repos',
+    )
   })
 })

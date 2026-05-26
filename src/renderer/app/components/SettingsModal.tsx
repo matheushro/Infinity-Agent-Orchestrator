@@ -24,7 +24,7 @@ export function SettingsModal({
   onClose,
 }: SettingsModalProps): JSX.Element {
   async function pickDefaultProjectFolder(): Promise<void> {
-    const selected = await window.dialogApi.selectFolder()
+    const selected = await window.dialogApi.selectFolder(defaultProjectFolder)
     if (selected) onDefaultProjectFolderChange(selected)
   }
 

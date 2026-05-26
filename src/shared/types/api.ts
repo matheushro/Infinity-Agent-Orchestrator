@@ -37,7 +37,7 @@ export interface WorkspaceApi {
 }
 
 export interface DialogApi {
-  selectFolder(): Promise<string | null>
+  selectFolder(defaultPath?: string): Promise<string | null>
 }
 
 export interface WindowApi {

@@ -4,5 +4,6 @@ import { IpcChannels } from '@shared/types/ipc'
 import type { DialogApi } from '@shared/types/api'
 
 export const dialogApi: DialogApi = {
-  selectFolder: () => ipcRenderer.invoke(IpcChannels.dialogSelectFolder)
+  selectFolder: (defaultPath?: string) =>
+    ipcRenderer.invoke(IpcChannels.dialogSelectFolder, defaultPath)
 }

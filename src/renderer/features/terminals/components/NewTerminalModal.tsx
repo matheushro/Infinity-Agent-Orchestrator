@@ -31,7 +31,7 @@ export function NewTerminalModal({
   const [theme, setTheme] = useState<Theme>('auto')
 
   async function pickFolder(): Promise<void> {
-    const selected = await window.dialogApi.selectFolder()
+    const selected = await window.dialogApi.selectFolder(folder || defaultFolder)
     if (selected) setFolder(selected)
   }
 
