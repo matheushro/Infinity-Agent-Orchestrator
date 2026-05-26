@@ -2,16 +2,6 @@
 // wiring to a pty process in the main process. Extracted from TerminalNode so
 // the component stays declarative and the pty lifecycle lives in one place.
 //
-// Known limitation — xterm.js click coords at canvas zoom != 1:
-// The canvas-surface applies CSS `transform: scale(zoom)`. xterm.js measures
-// cell dimensions in unscaled CSS px (via `_renderService.dimensions.css.cell`)
-// but reads click positions from `getBoundingClientRect()` which IS scaled.
-// The two-unit mismatch means at zoom 0.5 a click on visual row 20 selects
-// row 10 internally. There is no fix that preserves the current "shrink with
-// zoom" UX — fixing it requires either reflowing xterm on every zoom change
-// (set fontSize = baseFontSize / zoom, terminal reflows cols/rows) or moving
-// terminals out of the scaled surface entirely (position them in screen px).
-// For now: text selection inside terminals only works correctly at zoom 100%.
 import { useEffect, useRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
@@ -74,18 +64,92 @@ const THEMES = {
   },
 } as const
 
+interface XtermMouseService {
+  getCoords: (
+    event: { clientX: number; clientY: number },
+    element: HTMLElement,
+    colCount: number,
+    rowCount: number,
+    isSelection?: boolean,
+  ) => [number, number] | undefined
+  getMouseReportCoords?: (
+    event: MouseEvent,
+    element: HTMLElement,
+  ) => { col: number; row: number; x: number; y: number } | undefined
+}
+
+interface XtermCoreAccess {
+  _core?: {
+    _mouseService?: XtermMouseService
+  }
+}
+
 function resolveTheme(style: TerminalStyle, globalTheme: CanvasTheme): 'dark' | 'light' {
   return style.theme === 'auto' ? globalTheme : style.theme
+}
+
+function eventWithUnscaledClientPosition<T extends { clientX: number; clientY: number }>(
+  event: T,
+  element: HTMLElement,
+  scale: number,
+): T {
+  if (scale === 1) return event
+
+  const rect = element.getBoundingClientRect()
+  return {
+    ...event,
+    clientX: rect.left + (event.clientX - rect.left) / scale,
+    clientY: rect.top + (event.clientY - rect.top) / scale,
+  }
+}
+
+function patchXtermMouseCoordinates(
+  term: Terminal,
+  scaleRef: React.MutableRefObject<number>,
+): () => void {
+  const mouseService = (term as Terminal & XtermCoreAccess)._core?._mouseService
+  if (!mouseService) return () => {}
+
+  const originalGetCoords = mouseService.getCoords.bind(mouseService)
+  const originalGetMouseReportCoords = mouseService.getMouseReportCoords?.bind(mouseService)
+
+  mouseService.getCoords = (event, element, colCount, rowCount, isSelection) =>
+    originalGetCoords(
+      eventWithUnscaledClientPosition(event, element, scaleRef.current),
+      element,
+      colCount,
+      rowCount,
+      isSelection,
+    )
+
+  if (originalGetMouseReportCoords) {
+    mouseService.getMouseReportCoords = (event, element) =>
+      originalGetMouseReportCoords(
+        eventWithUnscaledClientPosition(event, element, scaleRef.current),
+        element,
+      )
+  }
+
+  return () => {
+    mouseService.getCoords = originalGetCoords
+    if (originalGetMouseReportCoords) {
+      mouseService.getMouseReportCoords = originalGetMouseReportCoords
+    }
+  }
 }
 
 export function useTerminalSession(
   node: TerminalNodeData,
   style: TerminalStyle = DEFAULT_TERMINAL_STYLE,
   globalTheme: CanvasTheme = 'dark',
+  scale = 1,
 ): React.RefObject<HTMLDivElement> {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
+  const scaleRef = useRef(scale)
   const { setStatus } = usePtyActivity()
+
+  scaleRef.current = scale
 
   // Initialize xterm and connect it to the pty in the main process once per node.
   useEffect(() => {
@@ -140,6 +204,7 @@ export function useTerminalSession(
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.open(containerRef.current)
+    const restoreMouseCoordinates = patchXtermMouseCoordinates(term, scaleRef)
     fit.fit()
 
     let disposed = false
@@ -201,6 +266,7 @@ export function useTerminalSession(
       offData()
       offExit()
       window.ptyApi.kill(ptyId)
+      restoreMouseCoordinates()
       term.dispose()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

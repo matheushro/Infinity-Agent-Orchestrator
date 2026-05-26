@@ -43,7 +43,7 @@ export function TerminalNode({
   onContextMenu,
   raised,
 }: TerminalNodeProps): JSX.Element {
-  const containerRef = useTerminalSession(node, style, globalTheme)
+  const containerRef = useTerminalSession(node, style, globalTheme, scale)
 
   const [editingTitle, setEditingTitle] = useState(false)
   const [draftTitle, setDraftTitle] = useState(node.title)

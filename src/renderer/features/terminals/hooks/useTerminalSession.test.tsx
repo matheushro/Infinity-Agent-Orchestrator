@@ -17,6 +17,25 @@ const mocks = vi.hoisted(() => {
     options: Record<string, unknown>
     cols = 132
     rows = 43
+    _core = {
+      _mouseService: {
+        getCoords: vi.fn(
+          (
+            event: { clientX: number; clientY: number },
+            _element: HTMLElement,
+            _colCount: number,
+            _rowCount: number,
+            _isSelection?: boolean,
+          ) => [event.clientX, event.clientY] as [number, number],
+        ),
+        getMouseReportCoords: vi.fn((event: MouseEvent, _element: HTMLElement) => ({
+          col: 0,
+          row: 0,
+          x: event.clientX,
+          y: event.clientY,
+        })),
+      },
+    }
     open = vi.fn()
     focus = vi.fn()
     loadAddon = vi.fn()
@@ -141,11 +160,13 @@ const initialStyle: TerminalStyle = {
 function SessionHarness({
   currentNode = node,
   style = initialStyle,
+  scale = 1,
 }: {
   currentNode?: TerminalNodeData
   style?: TerminalStyle
+  scale?: number
 }): JSX.Element {
-  const ref = useTerminalSession(currentNode, style)
+  const ref = useTerminalSession(currentNode, style, 'dark', scale)
 
   return <div ref={ref} data-testid="terminal-container" />
 }
@@ -158,11 +179,13 @@ function StatusDisplay({ nodeId }: { nodeId: string }): JSX.Element {
 function SessionWithStatus({
   currentNode = node,
   style = initialStyle,
+  scale = 1,
 }: {
   currentNode?: TerminalNodeData
   style?: TerminalStyle
+  scale?: number
 }): JSX.Element {
-  const ref = useTerminalSession(currentNode, style)
+  const ref = useTerminalSession(currentNode, style, 'dark', scale)
   return (
     <>
       <div ref={ref} data-testid="terminal-container" />
@@ -362,6 +385,68 @@ describe('useTerminalSession', () => {
     )
     expect(mocks.ptyApi.create).toHaveBeenCalledTimes(1)
     expect(mocks.terminalInstances).toHaveLength(1)
+  })
+
+  it('unscales xterm mouse coordinates so selection matches the visual row at any canvas zoom', async () => {
+    vi.mocked(crypto.randomUUID).mockReturnValue('pty-mouse')
+
+    const { rerender, unmount } = render(<SessionHarness scale={0.5} />)
+
+    await waitFor(() => expect(mocks.ptyApi.create).toHaveBeenCalledTimes(1))
+
+    const terminal = mocks.terminalInstances[0]
+    const element = document.createElement('div')
+    vi.spyOn(element, 'getBoundingClientRect').mockReturnValue({
+      left: 100,
+      top: 50,
+      width: 200,
+      height: 120,
+      right: 300,
+      bottom: 170,
+      x: 100,
+      y: 50,
+      toJSON: () => ({}),
+    })
+
+    expect(
+      terminal._core._mouseService.getCoords(
+        { clientX: 140, clientY: 80 },
+        element,
+        100,
+        30,
+        true,
+      ),
+    ).toEqual([180, 110])
+    expect(
+      terminal._core._mouseService.getMouseReportCoords(
+        { clientX: 140, clientY: 80 } as MouseEvent,
+        element,
+      ),
+    ).toMatchObject({ x: 180, y: 110 })
+
+    rerender(<SessionHarness scale={2} />)
+
+    expect(
+      terminal._core._mouseService.getCoords(
+        { clientX: 140, clientY: 80 },
+        element,
+        100,
+        30,
+        true,
+      ),
+    ).toEqual([120, 65])
+
+    unmount()
+
+    expect(
+      terminal._core._mouseService.getCoords(
+        { clientX: 140, clientY: 80 },
+        element,
+        100,
+        30,
+        true,
+      ),
+    ).toEqual([140, 80])
   })
 
   it('keeps the first mount cleanup from polluting a second mount', async () => {
