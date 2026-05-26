@@ -22,6 +22,9 @@ const mocks = vi.hoisted(() => {
     loadAddon = vi.fn()
     write = vi.fn()
     dispose = vi.fn()
+    attachCustomKeyEventHandler = vi.fn()
+    getSelection = vi.fn(() => '')
+    clearSelection = vi.fn()
     private readonly dataSubscriptions = new Set<(data: string) => void>()
 
     constructor(options: Record<string, unknown>) {

@@ -101,6 +101,42 @@ export function useTerminalSession(
       minimumContrastRatio: 4.5,
     })
     termRef.current = term
+
+    // Unique id per pty session. Do NOT reuse node.id, which is only for
+    // persistence/layout: under StrictMode the effect mounts twice, and the dead
+    // pty from the first mount would send `pty:exit` to the new terminal and
+    // print "[process exited]".
+    const ptyId = crypto.randomUUID()
+
+    // Copy/paste shortcuts. Ctrl+C in a terminal sends SIGINT, so we follow the
+    // gnome-terminal/iTerm convention: Ctrl+Shift+C copies, Ctrl+Shift+V pastes.
+    // Also: if Ctrl+C is pressed while text is selected, copy instead of SIGINT
+    // (selection is the user's explicit intent to copy).
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type !== 'keydown') return true
+      const ctrl = e.ctrlKey || e.metaKey
+      if (ctrl && e.shiftKey && e.code === 'KeyC') {
+        const sel = term.getSelection()
+        if (sel) void navigator.clipboard.writeText(sel)
+        return false
+      }
+      if (ctrl && e.shiftKey && e.code === 'KeyV') {
+        void navigator.clipboard.readText().then((text) => {
+          if (text) window.ptyApi.input(ptyId, text)
+        })
+        return false
+      }
+      if (ctrl && !e.shiftKey && e.code === 'KeyC') {
+        const sel = term.getSelection()
+        if (sel) {
+          void navigator.clipboard.writeText(sel)
+          term.clearSelection()
+          return false
+        }
+      }
+      return true
+    })
+
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.open(containerRef.current)
@@ -108,12 +144,6 @@ export function useTerminalSession(
 
     let disposed = false
     let idleTimer: ReturnType<typeof setTimeout> | null = null
-
-    // Unique id per pty session. Do NOT reuse node.id, which is only for
-    // persistence/layout: under StrictMode the effect mounts twice, and the dead
-    // pty from the first mount would send `pty:exit` to the new terminal and
-    // print "[process exited]".
-    const ptyId = crypto.randomUUID()
 
     // Create the pty process before wiring listeners.
     window.ptyApi
