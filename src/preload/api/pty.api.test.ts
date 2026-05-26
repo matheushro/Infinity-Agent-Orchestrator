@@ -5,10 +5,14 @@ const mockIpc = vi.hoisted(() => ({
   send: vi.fn(),
   on: vi.fn(),
   removeListener: vi.fn(),
+  getPathForFile: vi.fn(),
 }))
 
 vi.mock('electron', () => ({
   ipcRenderer: mockIpc,
+  webUtils: {
+    getPathForFile: mockIpc.getPathForFile,
+  },
 }))
 
 import { ptyApi } from './pty.api'
@@ -28,6 +32,14 @@ describe('pty.api', () => {
   it('input sends pty:input with id and data', () => {
     ptyApi.input('p1', 'hello')
     expect(mockIpc.send).toHaveBeenCalledWith(IpcChannels.ptyInput, { id: 'p1', data: 'hello' })
+  })
+
+  it('getPathForFile delegates to Electron webUtils', () => {
+    const file = new File(['image'], 'Screenshot.png', { type: 'image/png' })
+    mockIpc.getPathForFile.mockReturnValue('/Users/me/Desktop/Screenshot.png')
+
+    expect(ptyApi.getPathForFile(file)).toBe('/Users/me/Desktop/Screenshot.png')
+    expect(mockIpc.getPathForFile).toHaveBeenCalledWith(file)
   })
 
   it('resize sends pty:resize with id, cols, rows', () => {

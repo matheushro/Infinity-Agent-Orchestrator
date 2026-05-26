@@ -89,6 +89,7 @@ const mocks = vi.hoisted(() => {
   const ptyApi = {
     create: vi.fn(() => new Promise<void>((resolve) => createResolvers.push(resolve))),
     input: vi.fn(),
+    getPathForFile: vi.fn(),
     resize: vi.fn(),
     kill: vi.fn(),
     onData: vi.fn((handler: (id: string, data: string) => void) => {
@@ -212,6 +213,7 @@ beforeEach(() => {
     input: vi.fn(),
     resize: vi.fn(),
     kill: vi.fn(),
+    getPathForFile: vi.fn((file: File) => `/tmp/${file.name}`),
     create: vi.fn(() => new Promise<void>((resolve) => mocks.createResolvers.push(resolve))),
   })
   vi.stubGlobal('ResizeObserver', mocks.MockResizeObserver)
@@ -306,6 +308,69 @@ describe('useTerminalSession', () => {
 
     mocks.ptyApi.emitData('pty-input', 'from-pty')
     expect(terminal.write).toHaveBeenCalledWith('from-pty')
+  })
+
+  it('sends dropped image file paths to the pty like pasted terminal text', async () => {
+    vi.mocked(crypto.randomUUID).mockReturnValue('pty-drop')
+    mocks.ptyApi.getPathForFile.mockReturnValue('/Users/me/Desktop/Screen Shot 2026-05-25.png')
+
+    render(<SessionHarness />)
+
+    await waitFor(() => expect(mocks.ptyApi.create).toHaveBeenCalledTimes(1))
+
+    const file = new File(['image'], 'Screen Shot 2026-05-25.png', { type: 'image/png' })
+    const drop = new Event('drop', { bubbles: true, cancelable: true })
+    Object.defineProperty(drop, 'dataTransfer', {
+      value: { files: [file] },
+    })
+
+    screen.getByTestId('terminal-container').dispatchEvent(drop)
+
+    expect(drop.defaultPrevented).toBe(true)
+    expect(mocks.ptyApi.getPathForFile).toHaveBeenCalledWith(file)
+    expect(mocks.ptyApi.input).toHaveBeenCalledWith(
+      'pty-drop',
+      "'/Users/me/Desktop/Screen Shot 2026-05-25.png'",
+    )
+  })
+
+  it('allows file drops when dragover only exposes file items', async () => {
+    vi.mocked(crypto.randomUUID).mockReturnValue('pty-dragover')
+
+    render(<SessionHarness />)
+
+    await waitFor(() => expect(mocks.ptyApi.create).toHaveBeenCalledTimes(1))
+
+    const dragover = new Event('dragover', { bubbles: true, cancelable: true })
+    Object.defineProperty(dragover, 'dataTransfer', {
+      value: {
+        files: [],
+        items: [{ kind: 'file' }],
+        types: [],
+      },
+    })
+
+    screen.getByTestId('terminal-container').dispatchEvent(dragover)
+
+    expect(dragover.defaultPrevented).toBe(true)
+  })
+
+  it('keeps non-file drops available for the browser/xterm default behavior', async () => {
+    vi.mocked(crypto.randomUUID).mockReturnValue('pty-non-file-drop')
+
+    render(<SessionHarness />)
+
+    await waitFor(() => expect(mocks.ptyApi.create).toHaveBeenCalledTimes(1))
+
+    const drop = new Event('drop', { bubbles: true, cancelable: true })
+    Object.defineProperty(drop, 'dataTransfer', {
+      value: { files: [] },
+    })
+
+    screen.getByTestId('terminal-container').dispatchEvent(drop)
+
+    expect(drop.defaultPrevented).toBe(false)
+    expect(mocks.ptyApi.input).not.toHaveBeenCalled()
   })
 
   it('writes the process-exited marker in red for the matching ptyId only', async () => {

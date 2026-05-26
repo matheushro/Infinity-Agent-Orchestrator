@@ -9,6 +9,7 @@ import type { WorkspaceRecord } from './workspace'
 export interface PtyApi {
   create(args: PtyCreateArgs): Promise<PtyCreateResult>
   input(id: string, data: string): void
+  getPathForFile(file: File): string
   resize(id: string, cols: number, rows: number): void
   kill(id: string): void
   onData(cb: (id: string, data: string) => void): () => void

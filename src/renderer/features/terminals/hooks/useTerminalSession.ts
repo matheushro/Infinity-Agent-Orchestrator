@@ -138,6 +138,25 @@ function patchXtermMouseCoordinates(
   }
 }
 
+function shellQuotePath(path: string): string {
+  if (!path) return ''
+  if (/^[A-Za-z0-9_./:@%+=,-]+$/.test(path)) return path
+  return `'${path.replace(/'/g, `'\\''`)}'`
+}
+
+function droppedFiles(event: DragEvent): File[] {
+  const files = event.dataTransfer?.files
+  return files ? Array.from(files) : []
+}
+
+function hasDraggedFiles(event: DragEvent): boolean {
+  const dataTransfer = event.dataTransfer
+  if (!dataTransfer) return false
+  if (dataTransfer.files.length > 0) return true
+  if (Array.from(dataTransfer.items).some((item) => item.kind === 'file')) return true
+  return Array.from(dataTransfer.types).includes('Files')
+}
+
 export function useTerminalSession(
   node: TerminalNodeData,
   style: TerminalStyle = DEFAULT_TERMINAL_STYLE,
@@ -207,6 +226,26 @@ export function useTerminalSession(
     const restoreMouseCoordinates = patchXtermMouseCoordinates(term, scaleRef)
     fit.fit()
 
+    const container = containerRef.current
+    const handleDragOver = (event: DragEvent): void => {
+      if (!hasDraggedFiles(event)) return
+      event.preventDefault()
+    }
+    const handleDrop = (event: DragEvent): void => {
+      const files = droppedFiles(event)
+      if (files.length === 0) return
+
+      event.preventDefault()
+      const paths = files
+        .map((file) => window.ptyApi.getPathForFile(file))
+        .filter((path) => path.length > 0)
+        .map(shellQuotePath)
+
+      if (paths.length > 0) window.ptyApi.input(ptyId, paths.join(' '))
+    }
+    container.addEventListener('dragover', handleDragOver)
+    container.addEventListener('drop', handleDrop)
+
     let disposed = false
     let idleTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -262,6 +301,8 @@ export function useTerminalSession(
       if (idleTimer) clearTimeout(idleTimer)
       setStatus(node.id, 'offline')
       observer.disconnect()
+      container.removeEventListener('dragover', handleDragOver)
+      container.removeEventListener('drop', handleDrop)
       inputSub.dispose()
       offData()
       offExit()

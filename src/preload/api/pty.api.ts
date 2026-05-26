@@ -1,5 +1,5 @@
 // Secure bridge for the terminal/pty domain.
-import { ipcRenderer } from 'electron'
+import { ipcRenderer, webUtils } from 'electron'
 import {
   IpcChannels,
   type PtyDataPayload,
@@ -10,6 +10,7 @@ import type { PtyApi } from '@shared/types/api'
 export const ptyApi: PtyApi = {
   create: (args) => ipcRenderer.invoke(IpcChannels.ptyCreate, args),
   input: (id, data) => ipcRenderer.send(IpcChannels.ptyInput, { id, data }),
+  getPathForFile: (file) => webUtils.getPathForFile(file),
   resize: (id, cols, rows) => ipcRenderer.send(IpcChannels.ptyResize, { id, cols, rows }),
   kill: (id) => ipcRenderer.send(IpcChannels.ptyKill, { id }),
   onData: (cb) => {
