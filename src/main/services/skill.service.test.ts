@@ -39,6 +39,10 @@ const COPILOT_DIR = '/home/testuser/.copilot/skills/iao'
 const COPILOT_DEST = `${COPILOT_DIR}/SKILL.md`
 const GEMINI_DIR = '/home/testuser/.gemini/skills/iao'
 const GEMINI_DEST = `${GEMINI_DIR}/SKILL.md`
+const OPENCODE_DIR = '/home/testuser/.opencode/skills/iao'
+const OPENCODE_DEST = `${OPENCODE_DIR}/SKILL.md`
+const CURSOR_DIR = '/home/testuser/.cursor/skills/iao'
+const CURSOR_DEST = `${CURSOR_DIR}/SKILL.md`
 const REAL_SRC = join(process.cwd(), 'resources', 'skills', 'iao', 'SKILL.md')
 
 describe('skill.service', () => {
@@ -109,9 +113,16 @@ describe('skill.service', () => {
 
       const destinations = mockCopyFileSync.mock.calls.map(([, dest]) => dest)
       expect(destinations).toEqual(
-        expect.arrayContaining([CODEX_DEST, CLAUDE_DEST, COPILOT_DEST, GEMINI_DEST])
+        expect.arrayContaining([
+          CODEX_DEST,
+          CLAUDE_DEST,
+          COPILOT_DEST,
+          GEMINI_DEST,
+          OPENCODE_DEST,
+          CURSOR_DEST,
+        ])
       )
-      expect(mockCopyFileSync).toHaveBeenCalledTimes(4)
+      expect(mockCopyFileSync).toHaveBeenCalledTimes(6)
     })
 
     it('copies the same packaged source into every user-level destination', () => {
@@ -121,7 +132,14 @@ describe('skill.service', () => {
 
       const destinations = mockCopyFileSync.mock.calls.map(([, dest]) => dest)
       expect(destinations).toEqual(
-        expect.arrayContaining([CODEX_DEST, CLAUDE_DEST, COPILOT_DEST, GEMINI_DEST])
+        expect.arrayContaining([
+          CODEX_DEST,
+          CLAUDE_DEST,
+          COPILOT_DEST,
+          GEMINI_DEST,
+          OPENCODE_DEST,
+          CURSOR_DEST,
+        ])
       )
       for (const [src] of mockCopyFileSync.mock.calls) {
         expect(src).toBe(SRC)

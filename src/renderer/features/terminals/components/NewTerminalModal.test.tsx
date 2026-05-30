@@ -83,6 +83,9 @@ describe('NewTerminalModal', () => {
     expect(screen.getByRole('button', { name: /Claude Code/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Gemini/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /GitHub Copilot/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Open Code/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Cursor CLI/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Terminal/ })).toBeInTheDocument()
   })
 
   it('calls selectFolder and populates the folder input', async () => {
