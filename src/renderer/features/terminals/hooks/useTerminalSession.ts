@@ -195,18 +195,26 @@ export function useTerminalSession(
     // gnome-terminal/iTerm convention: Ctrl+Shift+C copies, Ctrl+Shift+V pastes.
     // Also: if Ctrl+C is pressed while text is selected, copy instead of SIGINT
     // (selection is the user's explicit intent to copy).
+    //
+    // We call preventDefault on the handled shortcuts because returning false only
+    // stops xterm from processing the key — the browser's native clipboard action
+    // still fires. On Linux/Chromium, Ctrl+Shift+V is the native "paste as plain
+    // text" shortcut, which triggers a paste event on xterm's textarea and sends
+    // the text to the pty a second time (double paste).
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== 'keydown') return true
       const ctrl = e.ctrlKey || e.metaKey
       if (ctrl && e.shiftKey && e.code === 'KeyC') {
         const sel = term.getSelection()
         if (sel) void navigator.clipboard.writeText(sel)
+        e.preventDefault()
         return false
       }
       if (ctrl && e.shiftKey && e.code === 'KeyV') {
         void navigator.clipboard.readText().then((text) => {
           if (text) window.ptyApi.input(ptyId, text)
         })
+        e.preventDefault()
         return false
       }
       if (ctrl && !e.shiftKey && e.code === 'KeyC') {
@@ -214,6 +222,7 @@ export function useTerminalSession(
         if (sel) {
           void navigator.clipboard.writeText(sel)
           term.clearSelection()
+          e.preventDefault()
           return false
         }
       }

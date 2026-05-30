@@ -41,7 +41,10 @@ const mocks = vi.hoisted(() => {
     loadAddon = vi.fn()
     write = vi.fn()
     dispose = vi.fn()
-    attachCustomKeyEventHandler = vi.fn()
+    keyEventHandler: ((e: KeyboardEvent) => boolean) | null = null
+    attachCustomKeyEventHandler = vi.fn((handler: (e: KeyboardEvent) => boolean) => {
+      this.keyEventHandler = handler
+    })
     getSelection = vi.fn(() => '')
     clearSelection = vi.fn()
     private readonly dataSubscriptions = new Set<(data: string) => void>()
@@ -308,6 +311,88 @@ describe('useTerminalSession', () => {
 
     mocks.ptyApi.emitData('pty-input', 'from-pty')
     expect(terminal.write).toHaveBeenCalledWith('from-pty')
+  })
+
+  describe('copy/paste shortcuts', () => {
+    function keydown(overrides: Partial<KeyboardEvent>): KeyboardEvent {
+      return {
+        type: 'keydown',
+        ctrlKey: false,
+        metaKey: false,
+        shiftKey: false,
+        code: '',
+        preventDefault: vi.fn(),
+        ...overrides,
+      } as unknown as KeyboardEvent
+    }
+
+    it('pastes once and prevents the browser default on Ctrl+Shift+V', async () => {
+      vi.mocked(crypto.randomUUID).mockReturnValue('pty-paste')
+      const readText = vi.fn().mockResolvedValue('clipboard text')
+      vi.stubGlobal('navigator', { clipboard: { readText, writeText: vi.fn() } })
+
+      render(<SessionHarness />)
+      await waitFor(() => expect(mocks.ptyApi.create).toHaveBeenCalledTimes(1))
+
+      const terminal = mocks.terminalInstances[0]
+      const event = keydown({ ctrlKey: true, shiftKey: true, code: 'KeyV' })
+
+      const result = terminal.keyEventHandler(event)
+
+      // Returns false (xterm skips it) AND prevents the native paste that would
+      // otherwise duplicate the input via xterm's textarea paste handler.
+      expect(result).toBe(false)
+      expect(event.preventDefault).toHaveBeenCalledTimes(1)
+
+      await waitFor(() =>
+        expect(mocks.ptyApi.input).toHaveBeenCalledWith('pty-paste', 'clipboard text'),
+      )
+      expect(mocks.ptyApi.input).toHaveBeenCalledTimes(1)
+    })
+
+    it('copies the selection and prevents the default on Ctrl+Shift+C', async () => {
+      vi.mocked(crypto.randomUUID).mockReturnValue('pty-copy')
+      const writeText = vi.fn()
+      vi.stubGlobal('navigator', { clipboard: { writeText, readText: vi.fn() } })
+
+      render(<SessionHarness />)
+      await waitFor(() => expect(mocks.ptyApi.create).toHaveBeenCalledTimes(1))
+
+      const terminal = mocks.terminalInstances[0]
+      terminal.getSelection.mockReturnValue('selected text')
+      const event = keydown({ ctrlKey: true, shiftKey: true, code: 'KeyC' })
+
+      const result = terminal.keyEventHandler(event)
+
+      expect(result).toBe(false)
+      expect(event.preventDefault).toHaveBeenCalledTimes(1)
+      expect(writeText).toHaveBeenCalledWith('selected text')
+    })
+
+    it('copies on Ctrl+C only when text is selected, otherwise passes SIGINT through', async () => {
+      vi.mocked(crypto.randomUUID).mockReturnValue('pty-ctrlc')
+      const writeText = vi.fn()
+      vi.stubGlobal('navigator', { clipboard: { writeText, readText: vi.fn() } })
+
+      render(<SessionHarness />)
+      await waitFor(() => expect(mocks.ptyApi.create).toHaveBeenCalledTimes(1))
+
+      const terminal = mocks.terminalInstances[0]
+
+      // No selection: Ctrl+C must reach the pty as SIGINT (handler returns true).
+      terminal.getSelection.mockReturnValue('')
+      const sigint = keydown({ ctrlKey: true, code: 'KeyC' })
+      expect(terminal.keyEventHandler(sigint)).toBe(true)
+      expect(sigint.preventDefault).not.toHaveBeenCalled()
+
+      // Selection present: copy and swallow the key.
+      terminal.getSelection.mockReturnValue('grab me')
+      const copy = keydown({ ctrlKey: true, code: 'KeyC' })
+      expect(terminal.keyEventHandler(copy)).toBe(false)
+      expect(copy.preventDefault).toHaveBeenCalledTimes(1)
+      expect(writeText).toHaveBeenCalledWith('grab me')
+      expect(terminal.clearSelection).toHaveBeenCalledTimes(1)
+    })
   })
 
   it('sends dropped image file paths to the pty like pasted terminal text', async () => {
