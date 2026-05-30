@@ -20,29 +20,27 @@ afterEach(() => {
 })
 
 describe('Select', () => {
-  it('changes value via keyboard', () => {
+  it('opens and changes value via keyboard', () => {
     const onChange = vi.fn()
 
-    render(<Select label="Mode" value="one" options={OPTIONS} onChange={onChange} />)
+    render(<Select ariaLabel="Mode" value="one" options={OPTIONS} onChange={onChange} />)
 
-    const select = screen.getByRole('combobox', { name: 'Mode' })
+    const select = screen.getByRole('button', { name: 'Mode' })
 
-    select.focus()
     fireEvent.keyDown(select, { key: 'ArrowDown' })
-    fireEvent.change(select, { target: { value: 'two' } })
+    fireEvent.keyDown(select, { key: 'Enter' })
 
     expect(onChange).toHaveBeenCalledTimes(1)
     expect(onChange).toHaveBeenCalledWith('two')
   })
 
-  it('changes value via mouse', () => {
+  it('opens and changes value via mouse', () => {
     const onChange = vi.fn()
 
-    render(<Select label="Mode" value="one" options={OPTIONS} onChange={onChange} />)
+    render(<Select ariaLabel="Mode" value="one" options={OPTIONS} onChange={onChange} />)
 
-    fireEvent.change(screen.getByRole('combobox', { name: 'Mode' }), {
-      target: { value: 'three' },
-    })
+    fireEvent.click(screen.getByRole('button', { name: 'Mode' }))
+    fireEvent.click(screen.getByRole('option', { name: 'Three' }))
 
     expect(onChange).toHaveBeenCalledTimes(1)
     expect(onChange).toHaveBeenCalledWith('three')

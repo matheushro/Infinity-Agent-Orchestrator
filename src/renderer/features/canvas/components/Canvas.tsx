@@ -156,6 +156,11 @@ export function Canvas({
   const { pan, zoom, setPan, setZoom, containerRef, handlers, startPan } = usePanZoom()
   const wrapRef = containerRef
   const [wrapSize, setWrapSize] = useState({ w: 1200, h: 800 })
+  // Gate the Rnd-based layers (terminals/texts) until the canvas wrapper has a
+  // real, laid-out size. react-rnd measures its offsetFromParent once on mount;
+  // if the scaled canvas-surface isn't laid out yet (0x0, common on Linux at
+  // app open) it bakes a wrong offset and renders nodes at node.x*(1+zoom).
+  const [measured, setMeasured] = useState(false)
   const [minimapVisible, setMinimapVisible] = useState(true)
   const [marquee, setMarquee] = useState<{
     x0: number
@@ -179,11 +184,17 @@ export function Canvas({
     if (!el) return
     const ro = new ResizeObserver(() => {
       const r = el.getBoundingClientRect()
-      if (r.width > 0 && r.height > 0) setWrapSize({ w: r.width, h: r.height })
+      if (r.width > 0 && r.height > 0) {
+        setWrapSize({ w: r.width, h: r.height })
+        setMeasured(true)
+      }
     })
     ro.observe(el)
     const r = el.getBoundingClientRect()
-    if (r.width > 0 && r.height > 0) setWrapSize({ w: r.width, h: r.height })
+    if (r.width > 0 && r.height > 0) {
+      setWrapSize({ w: r.width, h: r.height })
+      setMeasured(true)
+    }
     return () => ro.disconnect()
   }, [wrapRef])
 
@@ -719,7 +730,7 @@ export function Canvas({
         </svg>
 
         <div style={{ position: 'absolute', left: -surface.minX, top: -surface.minY }}>
-          {nodes.map((node) => (
+          {measured && nodes.map((node) => (
             <TerminalNode
               key={node.id}
               node={node}
@@ -751,7 +762,7 @@ export function Canvas({
               restartSignal={getRestartSignal(node.id)}
             />
           ))}
-          {texts.map((text) => (
+          {measured && texts.map((text) => (
             <CanvasText
               key={text.id}
               text={text}
@@ -854,7 +865,11 @@ export function Canvas({
       {minimapVisible ? (
         <Minimap
           nodes={nodes}
+          texts={texts}
+          edges={edges}
           selectedIds={selectedIds}
+          selectedTextIds={selectedTextIds}
+          selectedEdgeId={selectedEdgeId}
           pan={pan}
           zoom={zoom}
           wrapSize={wrapSize}

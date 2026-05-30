@@ -60,4 +60,13 @@ describe('SettingsModal', () => {
 
     expect(defaultProps.onDefaultProjectFolderChange).toHaveBeenCalledWith('')
   })
+
+  it('changes the default shell from the dropdown', () => {
+    render(<SettingsModal {...defaultProps} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Default shell' }))
+    fireEvent.click(screen.getByRole('option', { name: 'zsh' }))
+
+    expect(defaultProps.onDefaultShellChange).toHaveBeenCalledWith('zsh')
+  })
 })

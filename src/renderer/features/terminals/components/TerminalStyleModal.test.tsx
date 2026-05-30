@@ -61,10 +61,10 @@ describe('TerminalStyleModal', () => {
       color: 'var(--fg)',
     })
 
-    const select = screen.getByRole('combobox') as HTMLSelectElement
+    const select = screen.getByRole('button', { name: 'Font' })
     const range = screen.getByRole('slider') as HTMLInputElement
 
-    expect(select).toHaveValue(FONT_FAMILY_OPTIONS[2].value)
+    expect(select).toHaveTextContent(FONT_FAMILY_OPTIONS[2].label)
     expect(range).toHaveValue('18')
     expect(screen.getByText('Font size · 18px')).toBeInTheDocument()
   })
@@ -98,9 +98,8 @@ describe('TerminalStyleModal', () => {
   it('changing the font family calls onChange with the selected value', () => {
     const { onChange } = renderModal()
 
-    fireEvent.change(screen.getByRole('combobox'), {
-      target: { value: FONT_FAMILY_OPTIONS[3].value },
-    })
+    fireEvent.click(screen.getByRole('button', { name: 'Font' }))
+    fireEvent.click(screen.getByRole('option', { name: FONT_FAMILY_OPTIONS[3].label }))
 
     expect(onChange).toHaveBeenCalledTimes(1)
     expect(onChange).toHaveBeenCalledWith({ fontFamily: FONT_FAMILY_OPTIONS[3].value })

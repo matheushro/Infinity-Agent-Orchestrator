@@ -83,6 +83,7 @@ export function SettingsModal({
           hint="Used when creating new terminals"
         >
           <Select
+            ariaLabel="Default shell"
             value={defaultShell}
             onChange={(v) => onDefaultShellChange(v as ShellType)}
             options={[

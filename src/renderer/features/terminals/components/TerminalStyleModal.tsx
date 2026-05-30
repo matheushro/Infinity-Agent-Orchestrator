@@ -59,6 +59,7 @@ export function TerminalStyleModal({
 
         <Field label="Font">
           <Select
+            ariaLabel="Font"
             value={value.fontFamily}
             onChange={(v) => onChange({ fontFamily: v })}
             options={FONT_FAMILY_OPTIONS}

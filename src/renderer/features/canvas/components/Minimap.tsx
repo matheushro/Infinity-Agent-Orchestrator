@@ -1,13 +1,19 @@
 // Mini-map of the canvas + draggable viewport rectangle.
-// Bounds union node positions and the current viewport, so zoom-out shows
-// more area inside the (fixed-size) map without growing the box itself.
+// Bounds union all visible canvas items and the current viewport, so zoom-out
+// shows more area inside the fixed-size map without growing the box itself.
 import { useRef } from 'react'
 import { IClose } from '@renderer/components/ui'
+import type { CanvasTextRecord } from '@shared/types/canvas'
+import type { EdgeRecord } from '@shared/types/terminal'
 import type { TerminalNodeData } from '@renderer/features/terminals/types'
 
 interface MinimapProps {
   nodes: TerminalNodeData[]
+  texts: CanvasTextRecord[]
+  edges: EdgeRecord[]
   selectedIds: string[]
+  selectedTextIds: string[]
+  selectedEdgeId: string | null
   pan: { x: number; y: number }
   zoom: number
   wrapSize: { w: number; h: number }
@@ -18,9 +24,16 @@ interface MinimapProps {
 const W = 168
 const H = 110
 
+type CanvasItem = Pick<TerminalNodeData, 'id' | 'x' | 'y' | 'width' | 'height'> |
+  Pick<CanvasTextRecord, 'id' | 'x' | 'y' | 'width' | 'height'>
+
 export function Minimap({
   nodes,
+  texts,
+  edges,
   selectedIds,
+  selectedTextIds,
+  selectedEdgeId,
   pan,
   zoom,
   wrapSize,
@@ -32,20 +45,21 @@ export function Minimap({
   const vw1 = vw0 + wrapSize.w / zoom
   const vh1 = vh0 + wrapSize.h / zoom
 
+  const visibleItems = [...nodes, ...texts]
   let minX: number
   let minY: number
   let maxX: number
   let maxY: number
-  if (nodes.length === 0) {
+  if (visibleItems.length === 0) {
     minX = vw0
     minY = vh0
     maxX = vw1
     maxY = vh1
   } else {
-    minX = Math.min(vw0, ...nodes.map((n) => n.x))
-    minY = Math.min(vh0, ...nodes.map((n) => n.y))
-    maxX = Math.max(vw1, ...nodes.map((n) => n.x + n.width))
-    maxY = Math.max(vh1, ...nodes.map((n) => n.y + n.height))
+    minX = Math.min(vw0, ...visibleItems.map((item) => item.x))
+    minY = Math.min(vh0, ...visibleItems.map((item) => item.y))
+    maxX = Math.max(vw1, ...visibleItems.map((item) => item.x + item.width))
+    maxY = Math.max(vh1, ...visibleItems.map((item) => item.y + item.height))
   }
   const pad = Math.max(80, Math.max(maxX - minX, maxY - minY) * 0.1)
   minX -= pad
@@ -60,6 +74,7 @@ export function Minimap({
   const offY = (H - bh * s) / 2
   const px = (x: number): number => offX + (x - minX) * s
   const py = (y: number): number => offY + (y - minY) * s
+  const byId = new Map<CanvasItem['id'], CanvasItem>([...nodes, ...texts].map((item) => [item.id, item]))
 
   const dragRef = useRef<{ lastX: number; lastY: number } | null>(null)
 
@@ -123,6 +138,34 @@ export function Minimap({
         }}
         onMouseDown={startDrag}
       >
+        {edges.map((edge) => {
+          const source = byId.get(edge.source)
+          const target = byId.get(edge.target)
+          if (!source || !target) return null
+          const x1 = px(source.x + source.width / 2)
+          const y1 = py(source.y + source.height / 2)
+          const x2 = px(target.x + target.width / 2)
+          const y2 = py(target.y + target.height / 2)
+          const highlighted =
+            selectedEdgeId === edge.id ||
+            selectedIds.includes(source.id) ||
+            selectedIds.includes(target.id) ||
+            selectedTextIds.includes(source.id) ||
+            selectedTextIds.includes(target.id)
+          return (
+            <line
+              key={edge.id}
+              x1={x1}
+              y1={y1}
+              x2={x2}
+              y2={y2}
+              stroke={highlighted ? 'var(--accent)' : 'color-mix(in oklch, var(--fg) 45%, transparent)'}
+              strokeWidth={highlighted ? 1.6 : 1}
+              strokeLinecap="round"
+              opacity={highlighted ? 0.9 : 0.55}
+            />
+          )
+        })}
         {nodes.map((n) => (
           <rect
             key={n.id}
@@ -137,6 +180,22 @@ export function Minimap({
                 : 'color-mix(in oklch, var(--fg) 60%, transparent)'
             }
             opacity={selectedIds.includes(n.id) ? 0.95 : 0.55}
+          />
+        ))}
+        {texts.map((text) => (
+          <rect
+            key={text.id}
+            x={px(text.x)}
+            y={py(text.y)}
+            width={Math.max(3, text.width * s)}
+            height={Math.max(3, text.height * s)}
+            rx={2}
+            fill={
+              selectedTextIds.includes(text.id)
+                ? 'var(--accent)'
+                : 'color-mix(in oklch, var(--accent) 45%, var(--fg) 10%)'
+            }
+            opacity={selectedTextIds.includes(text.id) ? 0.95 : 0.72}
           />
         ))}
         <rect

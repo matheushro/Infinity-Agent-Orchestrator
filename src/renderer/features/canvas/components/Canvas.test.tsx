@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CanvasTextRecord } from '@shared/types/canvas'
 import type { EdgeRecord } from '@shared/types/terminal'
@@ -19,15 +19,37 @@ const CANVAS_RECT = {
   },
 }
 
+const ZERO_RECT = {
+  left: 0,
+  top: 0,
+  width: 0,
+  height: 0,
+  right: 0,
+  bottom: 0,
+  x: 0,
+  y: 0,
+  toJSON() {
+    return this
+  },
+}
+
 const mocks = vi.hoisted(() => {
+  const resizeObservers: MockResizeObserver[] = []
+
   class MockResizeObserver {
-    constructor(private readonly callback: ResizeObserverCallback) {}
+    constructor(private readonly callback: ResizeObserverCallback) {
+      resizeObservers.push(this)
+    }
 
     observe = vi.fn(() => {
-      this.callback([{ target: document.body, contentRect: CANVAS_RECT } as never], this as never)
+      this.emit()
     })
 
     disconnect = vi.fn()
+
+    emit(): void {
+      this.callback([{ target: document.body, contentRect: {} as DOMRectReadOnly }], this)
+    }
   }
 
   function MockTerminalNode({
@@ -76,7 +98,11 @@ const mocks = vi.hoisted(() => {
     onClose,
   }: {
     nodes: TerminalNodeData[]
+    texts: CanvasTextRecord[]
+    edges: EdgeRecord[]
     selectedIds: string[]
+    selectedTextIds: string[]
+    selectedEdgeId: string | null
     pan: { x: number; y: number }
     zoom: number
     wrapSize: { w: number; h: number }
@@ -131,7 +157,7 @@ const mocks = vi.hoisted(() => {
     )
   }
 
-  return { MockResizeObserver, MockTerminalNode, MockMinimap, MockCanvasText }
+  return { MockResizeObserver, MockTerminalNode, MockMinimap, MockCanvasText, resizeObservers }
 })
 
 vi.mock('@renderer/features/terminals/components/TerminalNode', () => ({
@@ -262,6 +288,7 @@ function renderCanvas(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mocks.resizeObservers.length = 0
   vi.stubGlobal('ResizeObserver', mocks.MockResizeObserver)
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() => CANVAS_RECT)
 })
@@ -271,6 +298,40 @@ afterEach(() => {
 })
 
 describe('Canvas', () => {
+  it('waits for a non-zero canvas measurement before mounting Rnd-based nodes and texts', async () => {
+    const rectSpy = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockImplementation(() => ZERO_RECT)
+    const text: CanvasTextRecord = {
+      id: 'text-1',
+      text: 'Note',
+      x: 40,
+      y: 50,
+      width: 120,
+      height: 40,
+      workspace_id: 'default',
+    }
+
+    const { container } = renderCanvas({
+      nodes: [nodeA, nodeB],
+      texts: [text],
+      edges: [{ id: 'edge-ab', source: 'a', target: 'b' }],
+    })
+
+    expect(screen.queryByTestId('terminal-node-a')).toBeNull()
+    expect(screen.queryByTestId('canvas-text-text-1')).toBeNull()
+    expect(container.querySelector('[data-edge-id="edge-ab"]')).toBeTruthy()
+
+    rectSpy.mockImplementation(() => CANVAS_RECT)
+    act(() => {
+      mocks.resizeObservers[0]?.emit()
+    })
+
+    await waitFor(() => expect(screen.getByTestId('terminal-node-a')).toBeTruthy())
+    expect(screen.getByTestId('terminal-node-b')).toBeTruthy()
+    expect(screen.getByTestId('canvas-text-text-1')).toBeTruthy()
+  })
+
   it('computes edge paths, mirrors left-target edges, filters orphans, and marks highlighted edges', async () => {
     const edges: EdgeRecord[] = [
       { id: 'edge-ab', source: 'a', target: 'b' },
