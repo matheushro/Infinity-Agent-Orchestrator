@@ -241,6 +241,7 @@ function makeProps(overrides: Record<string, unknown> = {}) {
     onTextContextMenu: vi.fn(),
     onCanvasContextMenu: vi.fn(),
     getTerminalStyle: vi.fn(() => baseStyle),
+    getRestartSignal: vi.fn(() => 0),
     ...overrides,
   } as any
 }

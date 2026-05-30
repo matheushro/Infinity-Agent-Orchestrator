@@ -1,6 +1,6 @@
 {
   "name": "IAO",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "description": "MVP - local terminal canvas in Electron",
   "main": "out/main/index.js",
   "author": {

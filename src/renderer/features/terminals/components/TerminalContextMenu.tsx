@@ -4,12 +4,13 @@
 // any sibling terminal node regardless of DOM order.
 import { useEffect, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { ILink, IPalette, ITrash } from '@renderer/components/ui'
+import { ILink, IPalette, IRefresh, ITrash } from '@renderer/components/ui'
 
 interface TerminalContextMenuProps {
   x: number
   y: number
   onClose: () => void
+  onRestart: () => void
   onLink: () => void
   onDelete: () => void
   onStyle: () => void
@@ -19,6 +20,7 @@ export function TerminalContextMenu({
   x,
   y,
   onClose,
+  onRestart,
   onLink,
   onDelete,
   onStyle,
@@ -39,6 +41,7 @@ export function TerminalContextMenu({
   }, [onClose])
 
   const items: Array<{ icon: ReactNode; label: string; onClick: () => void; danger?: boolean }> = [
+    { icon: <IRefresh size={13} />, label: 'Restart terminal', onClick: onRestart },
     { icon: <ILink size={13} />, label: 'Link to another terminal', onClick: onLink },
     { icon: <IPalette size={13} />, label: 'Customize style…', onClick: onStyle },
     { icon: <ITrash size={13} />, label: 'Delete terminal', onClick: onDelete, danger: true },

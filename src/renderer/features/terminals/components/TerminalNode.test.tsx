@@ -141,6 +141,7 @@ function renderNode(overrides: Partial<Parameters<typeof TerminalNode>[0]> = {})
     onRemoveNode: vi.fn(),
     onContextMenu: vi.fn(),
     raised: false,
+    restartSignal: 0,
     ...overrides,
   }
 

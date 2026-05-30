@@ -112,6 +112,7 @@ interface CanvasProps {
   onTextContextMenu: (id: string, x: number, y: number) => void
   onCanvasContextMenu: (worldX: number, worldY: number, clientX: number, clientY: number) => void
   getTerminalStyle: (id: string) => TerminalStyle
+  getRestartSignal: (id: string) => number
   theme: CanvasTheme
 }
 
@@ -149,6 +150,7 @@ export function Canvas({
   onTextContextMenu,
   onCanvasContextMenu,
   getTerminalStyle,
+  getRestartSignal,
   theme,
 }: CanvasProps): JSX.Element {
   const { pan, zoom, setPan, setZoom, containerRef, handlers, startPan } = usePanZoom()
@@ -746,6 +748,7 @@ export function Canvas({
               onUpdateNode={handleNodeUpdate}
               onRemoveNode={onRemoveNode}
               onContextMenu={onNodeContextMenu}
+              restartSignal={getRestartSignal(node.id)}
             />
           ))}
           {texts.map((text) => (

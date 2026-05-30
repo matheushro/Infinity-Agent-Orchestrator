@@ -7,6 +7,7 @@ import { TerminalContextMenu } from './TerminalContextMenu'
 
 function renderMenu() {
   const onClose = vi.fn()
+  const onRestart = vi.fn()
   const onLink = vi.fn()
   const onDelete = vi.fn()
   const onStyle = vi.fn()
@@ -16,6 +17,7 @@ function renderMenu() {
       x={248}
       y={392}
       onClose={onClose}
+      onRestart={onRestart}
       onLink={onLink}
       onDelete={onDelete}
       onStyle={onStyle}
@@ -26,7 +28,7 @@ function renderMenu() {
   const menu = linkButton.parentElement as HTMLElement
   const overlay = menu.previousElementSibling as HTMLElement
 
-  return { onClose, onLink, onDelete, onStyle, menu, overlay }
+  return { onClose, onRestart, onLink, onDelete, onStyle, menu, overlay }
 }
 
 beforeEach(() => {
@@ -44,12 +46,14 @@ describe('TerminalContextMenu', () => {
 
     expect(menu).toHaveStyle({ left: '248px', top: '392px' })
     expect(menu.className).toContain('fixed')
+    expect(screen.getByRole('button', { name: 'Restart terminal' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Link to another terminal' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Customize style…' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Delete terminal' })).toBeInTheDocument()
   })
 
   it.each([
+    ['Restart terminal', 'onRestart'],
     ['Link to another terminal', 'onLink'],
     ['Customize style…', 'onStyle'],
     ['Delete terminal', 'onDelete'],

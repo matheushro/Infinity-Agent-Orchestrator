@@ -110,8 +110,15 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
     const [textCtxMenu, setTextCtxMenu] = useState<TextContextMenuState | null>(null)
     const [canvasMenu, setCanvasMenu] = useState<CanvasMenuState | null>(null)
     const [styleEditorFor, setStyleEditorFor] = useState<string | null>(null)
+    // Per-terminal restart counter; bumping a node's value rebuilds its pty/xterm
+    // session from scratch, as if the terminal had just been opened.
+    const [restartSignals, setRestartSignals] = useState<Record<string, number>>({})
 
     const selectedId = selectedIds[0] ?? null
+
+    const restartTerminal = useCallback((id: string): void => {
+      setRestartSignals((prev) => ({ ...prev, [id]: (prev[id] ?? 0) + 1 }))
+    }, [])
 
     // Bubble node list up so the parent sidebar can display them.
     useEffect(() => {
@@ -340,6 +347,7 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
             setCanvasMenu({ worldX, worldY, clientX, clientY })
           }
           getTerminalStyle={getTerminalStyle}
+          getRestartSignal={(id) => restartSignals[id] ?? 0}
           theme={theme}
         />
 
@@ -370,6 +378,10 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
             x={ctxMenu.x}
             y={ctxMenu.y}
             onClose={() => setCtxMenu(null)}
+            onRestart={() => {
+              restartTerminal(ctxMenu.nodeId)
+              setCtxMenu(null)
+            }}
             onLink={() => startLinkFrom(ctxMenu.nodeId)}
             onDelete={() => {
               const id = ctxMenu.nodeId

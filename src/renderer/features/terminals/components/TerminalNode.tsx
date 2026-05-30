@@ -24,6 +24,7 @@ interface TerminalNodeProps {
   onRemoveNode: (id: string) => void
   onContextMenu: (id: string, x: number, y: number) => void
   raised: boolean
+  restartSignal: number
 }
 
 export function TerminalNode({
@@ -42,8 +43,9 @@ export function TerminalNode({
   onRemoveNode,
   onContextMenu,
   raised,
+  restartSignal,
 }: TerminalNodeProps): JSX.Element {
-  const containerRef = useTerminalSession(node, style, globalTheme, scale)
+  const containerRef = useTerminalSession(node, style, globalTheme, scale, restartSignal)
 
   const [editingTitle, setEditingTitle] = useState(false)
   const [draftTitle, setDraftTitle] = useState(node.title)

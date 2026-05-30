@@ -162,6 +162,9 @@ export function useTerminalSession(
   style: TerminalStyle = DEFAULT_TERMINAL_STYLE,
   globalTheme: CanvasTheme = 'dark',
   scale = 1,
+  // Bumping this tears down the current pty/xterm and rebuilds a fresh session,
+  // exactly as if the terminal had just been opened.
+  restartSignal = 0,
 ): React.RefObject<HTMLDivElement> {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
@@ -320,7 +323,7 @@ export function useTerminalSession(
       term.dispose()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [restartSignal])
 
   // Apply live style updates (theme, font) without rebuilding the pty session.
   useEffect(() => {

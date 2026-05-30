@@ -165,12 +165,14 @@ function SessionHarness({
   currentNode = node,
   style = initialStyle,
   scale = 1,
+  restartSignal = 0,
 }: {
   currentNode?: TerminalNodeData
   style?: TerminalStyle
   scale?: number
+  restartSignal?: number
 }): JSX.Element {
-  const ref = useTerminalSession(currentNode, style, 'dark', scale)
+  const ref = useTerminalSession(currentNode, style, 'dark', scale, restartSignal)
 
   return <div ref={ref} data-testid="terminal-container" />
 }
@@ -505,6 +507,22 @@ describe('useTerminalSession', () => {
     expect(observer.disconnect).toHaveBeenCalledTimes(1)
     expect(terminal.dispose).toHaveBeenCalledTimes(1)
     expect(mocks.ptyApi.kill).toHaveBeenCalledWith('pty-cleanup')
+  })
+
+  it('rebuilds the session (kills old pty, creates a fresh one) when restartSignal changes', async () => {
+    vi.mocked(crypto.randomUUID)
+      .mockReturnValueOnce('pty-restart-1')
+      .mockReturnValueOnce('pty-restart-2')
+
+    const { rerender } = render(<SessionHarness restartSignal={0} />)
+
+    await waitFor(() => expect(mocks.ptyApi.create).toHaveBeenCalledTimes(1))
+
+    rerender(<SessionHarness restartSignal={1} />)
+
+    expect(mocks.ptyApi.kill).toHaveBeenCalledWith('pty-restart-1')
+    await waitFor(() => expect(mocks.ptyApi.create).toHaveBeenCalledTimes(2))
+    expect(mocks.terminalInstances).toHaveLength(2)
   })
 
   it('keeps style updates in term.options without recreating the pty', async () => {
