@@ -2,6 +2,7 @@
 import { ipcMain } from 'electron'
 import { IpcChannels } from '@shared/types/ipc'
 import type { CanvasTextRecord } from '@shared/types/canvas'
+import type { NoteRecord } from '@shared/types/notes'
 import type { EdgeRecord, TerminalRecord } from '@shared/types/terminal'
 import * as dbService from '../services/db.service'
 
@@ -27,4 +28,11 @@ export function registerDbIpc(): void {
   ipcMain.handle(IpcChannels.canvasTextsRemove, (_event, id: string) =>
     dbService.removeCanvasText(id),
   )
+  ipcMain.handle(IpcChannels.notesList, (_event, workspaceId: string) =>
+    dbService.listNotes(workspaceId),
+  )
+  ipcMain.handle(IpcChannels.notesUpsert, (_event, record: NoteRecord) =>
+    dbService.upsertNote(record),
+  )
+  ipcMain.handle(IpcChannels.notesRemove, (_event, id: string) => dbService.removeNote(id))
 }

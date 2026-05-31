@@ -68,4 +68,20 @@ describe('db.api', () => {
     dbApi.removeCanvasText('text-1')
     expect(mockIpc.invoke).toHaveBeenCalledWith(IpcChannels.canvasTextsRemove, 'text-1')
   })
+
+  it('listNotes invokes notes:list with workspaceId', () => {
+    dbApi.listNotes('ws-1')
+    expect(mockIpc.invoke).toHaveBeenCalledWith(IpcChannels.notesList, 'ws-1')
+  })
+
+  it('upsertNote invokes notes:upsert with record', () => {
+    const note = { id: 'note-1', title: 'N', content: 'body', x: 0, y: 0, width: 280, height: 200, workspace_id: 'ws-1', created_at: 1, updated_at: 1 }
+    dbApi.upsertNote(note)
+    expect(mockIpc.invoke).toHaveBeenCalledWith(IpcChannels.notesUpsert, note)
+  })
+
+  it('removeNote invokes notes:remove with id', () => {
+    dbApi.removeNote('note-1')
+    expect(mockIpc.invoke).toHaveBeenCalledWith(IpcChannels.notesRemove, 'note-1')
+  })
 })

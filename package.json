@@ -1,6 +1,6 @@
 {
   "name": "IAO",
-  "version": "0.2.9",
+  "version": "0.3.0",
   "description": "MVP - local terminal canvas in Electron",
   "main": "out/main/index.js",
   "author": {
@@ -78,6 +78,8 @@
     "node-pty": "^1.0.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-rnd": "^10.4.13"
+    "react-markdown": "^10.1.0",
+    "react-rnd": "^10.4.13",
+    "remark-gfm": "^4.0.1"
   }
 }

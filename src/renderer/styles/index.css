@@ -154,6 +154,67 @@ body {
   color: var(--fg-3);
 }
 
+/* ── Notes ──────────────────────────────────────────────────────────────── */
+.note-editor {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.note-editor::placeholder { color: var(--fg-3); }
+
+.note-markdown {
+  font-size: 13px;
+  line-height: 1.55;
+  word-break: break-word;
+}
+.note-markdown > :first-child { margin-top: 0; }
+.note-markdown > :last-child { margin-bottom: 0; }
+.note-markdown h1,
+.note-markdown h2,
+.note-markdown h3,
+.note-markdown h4 { font-weight: 600; line-height: 1.25; margin: 0.8em 0 0.4em; }
+.note-markdown h1 { font-size: 1.5em; }
+.note-markdown h2 { font-size: 1.3em; }
+.note-markdown h3 { font-size: 1.13em; }
+.note-markdown h4 { font-size: 1em; }
+.note-markdown p { margin: 0.5em 0; }
+.note-markdown strong { font-weight: 600; }
+.note-markdown em { font-style: italic; }
+.note-markdown a { color: var(--accent); text-decoration: underline; cursor: pointer; }
+.note-markdown ul,
+.note-markdown ol { margin: 0.5em 0; padding-left: 1.4em; }
+.note-markdown ul { list-style: disc; }
+.note-markdown ol { list-style: decimal; }
+.note-markdown li { margin: 0.2em 0; }
+.note-markdown li.task-list-item,
+.note-markdown li:has(> input[type='checkbox']) { list-style: none; margin-left: -1.2em; }
+.note-markdown input[type='checkbox'] { margin-right: 0.5em; cursor: pointer; vertical-align: middle; }
+.note-markdown code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.88em;
+  background: color-mix(in oklch, var(--fg) 8%, transparent);
+  border-radius: 4px;
+  padding: 0.12em 0.35em;
+}
+.note-markdown pre {
+  background: color-mix(in oklch, var(--fg) 8%, transparent);
+  border-radius: 8px;
+  padding: 0.7em 0.85em;
+  overflow: auto;
+  margin: 0.6em 0;
+}
+.note-markdown pre code { background: transparent; padding: 0; }
+.note-markdown blockquote {
+  margin: 0.6em 0;
+  padding-left: 0.85em;
+  border-left: 3px solid var(--line);
+  color: var(--fg-3);
+}
+.note-markdown table { border-collapse: collapse; margin: 0.6em 0; }
+.note-markdown th,
+.note-markdown td { border: 1px solid var(--line); padding: 0.3em 0.6em; }
+.note-markdown hr { border: 0; border-top: 1px solid var(--line); margin: 0.8em 0; }
+
 .chip {
   display: inline-flex;
   align-items: center;

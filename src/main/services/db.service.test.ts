@@ -6,6 +6,7 @@ const store = vi.hoisted(() => ({
   terminals: new Map<string, Record<string, unknown>>(),
   edges: new Map<string, Record<string, unknown>>(),
   canvasTexts: new Map<string, Record<string, unknown>>(),
+  notes: new Map<string, Record<string, unknown>>(),
   workspaces: new Map<string, Record<string, unknown>>(),
 }))
 
@@ -64,6 +65,11 @@ vi.mock('better-sqlite3', () => {
                   height,
                   workspace_id,
                 }))
+            }
+            if (sql.includes('FROM notes')) {
+              return Array.from(store.notes.values())
+                .filter(n => !sql.includes('workspace_id = ?') || n.workspace_id === args[0])
+                .sort((a, b) => (a.created_at as number) - (b.created_at as number))
             }
             if (sql.includes('FROM workspaces')) {
               return Array.from(store.workspaces.values())
@@ -128,6 +134,16 @@ vi.mock('better-sqlite3', () => {
                   ? { ...existing, ...rec, created_at: existing.created_at }
                   : { ...rec }
               )
+            } else if (sql.startsWith('INSERT INTO notes')) {
+              const rec = args[0] as Record<string, unknown>
+              const existing = store.notes.get(rec.id as string)
+              // ON CONFLICT preserves created_at and refreshes the rest.
+              store.notes.set(
+                rec.id as string,
+                existing
+                  ? { ...existing, ...rec, created_at: existing.created_at }
+                  : { ...rec }
+              )
             } else if (sql.includes('UPDATE terminals SET workspace_id')) {
               // migration: assign orphaned terminals to default workspace
               for (const [key, t] of store.terminals) {
@@ -146,6 +162,8 @@ vi.mock('better-sqlite3', () => {
               store.edges.delete(args[0] as string)
             } else if (sql.includes('DELETE FROM canvas_texts WHERE id = ?')) {
               store.canvasTexts.delete(args[0] as string)
+            } else if (sql.includes('DELETE FROM notes WHERE id = ?')) {
+              store.notes.delete(args[0] as string)
             } else if (sql.includes('DELETE FROM workspaces WHERE id = ?')) {
               store.workspaces.delete(args[0] as string)
             }
@@ -167,11 +185,16 @@ import {
   listCanvasTexts,
   upsertCanvasText,
   removeCanvasText,
+  listNotes,
+  upsertNote,
+  removeNote,
   listWorkspaces,
   createWorkspace,
   deleteWorkspace,
+  duplicateWorkspace,
 } from './db.service'
 import type { CanvasTextRecord } from '@shared/types/canvas'
+import type { NoteRecord } from '@shared/types/notes'
 import type { TerminalRecord, EdgeRecord } from '@shared/types/terminal'
 import type { WorkspaceRecord } from '@shared/types/workspace'
 
@@ -226,11 +249,28 @@ function makeCanvasText(overrides: Partial<CanvasTextRecord> = {}): CanvasTextRe
   }
 }
 
+function makeNote(overrides: Partial<NoteRecord> = {}): NoteRecord {
+  return {
+    id: `note-${++seq}`,
+    title: `Note ${seq}`,
+    content: `# Heading ${seq}`,
+    x: 30,
+    y: 40,
+    width: 280,
+    height: 200,
+    workspace_id: 'default',
+    created_at: seq * 1000,
+    updated_at: seq * 1000,
+    ...overrides,
+  }
+}
+
 beforeEach(() => {
   seq = 0
   store.terminals.clear()
   store.edges.clear()
   store.canvasTexts.clear()
+  store.notes.clear()
   store.workspaces.clear()
   executedSql.length = 0
   initDb() // initializes the module-level `db` instance (mock: no-op schema ops)
@@ -652,5 +692,62 @@ describe('canvas text persistence', () => {
     removeCanvasText('text-gone')
 
     expect(listCanvasTexts('default').some((text) => text.id === 'text-gone')).toBe(false)
+  })
+})
+
+describe('note persistence', () => {
+  it('lists notes scoped to a workspace, ordered by created_at', () => {
+    upsertNote(makeNote({ id: 'note-a', workspace_id: 'ws-a', created_at: 2000 }))
+    upsertNote(makeNote({ id: 'note-b', workspace_id: 'ws-b' }))
+    upsertNote(makeNote({ id: 'note-c', workspace_id: 'ws-a', created_at: 1000 }))
+
+    expect(listNotes('ws-a').map((note) => note.id)).toEqual(['note-c', 'note-a'])
+  })
+
+  it('inserts a note with title, content and layout fields', () => {
+    upsertNote(
+      makeNote({ id: 'note-1', title: 'Todo', content: '- [ ] task', x: 12, width: 300 }),
+    )
+
+    const [found] = listNotes('default').filter((note) => note.id === 'note-1')
+    expect(found).toMatchObject({ title: 'Todo', content: '- [ ] task', x: 12, width: 300 })
+  })
+
+  it('updates content/title on conflict while preserving created_at and bumping updated_at', () => {
+    const nowSpy = vi.spyOn(Date, 'now')
+
+    nowSpy.mockReturnValue(5000)
+    upsertNote(makeNote({ id: 'note-edit', title: 'Old', content: 'old', created_at: 1234 }))
+
+    nowSpy.mockReturnValue(9000)
+    upsertNote(makeNote({ id: 'note-edit', title: 'New', content: 'new body', created_at: 1234 }))
+
+    const [found] = listNotes('default').filter((note) => note.id === 'note-edit')
+    expect(found).toMatchObject({ title: 'New', content: 'new body' })
+    expect(found.created_at).toBe(1234)
+    expect(found.updated_at).toBe(9000)
+
+    nowSpy.mockRestore()
+  })
+
+  it('removes a note by id', () => {
+    upsertNote(makeNote({ id: 'note-gone' }))
+
+    removeNote('note-gone')
+
+    expect(listNotes('default').some((note) => note.id === 'note-gone')).toBe(false)
+  })
+
+  it('copies notes into the duplicated workspace', () => {
+    const source = makeWorkspace({ id: 'ws-src' })
+    createWorkspace(source)
+    upsertNote(makeNote({ id: 'note-src', workspace_id: 'ws-src', title: 'Keep me' }))
+
+    const copy = duplicateWorkspace('ws-src')
+
+    const copied = listNotes(copy.id)
+    expect(copied).toHaveLength(1)
+    expect(copied[0].title).toBe('Keep me')
+    expect(copied[0].id).not.toBe('note-src')
   })
 })

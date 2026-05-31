@@ -13,3 +13,9 @@ export function createCanvasTextId(): string {
   counter += 1
   return `text-${Date.now()}-${counter}`
 }
+
+/** Stable, unique id for a canvas note element. */
+export function createNoteId(): string {
+  counter += 1
+  return `note-${Date.now()}-${counter}`
+}

@@ -13,4 +13,7 @@ export const dbApi: DbApi = {
   listCanvasTexts: (workspaceId) => ipcRenderer.invoke(IpcChannels.canvasTextsList, workspaceId),
   upsertCanvasText: (record) => ipcRenderer.invoke(IpcChannels.canvasTextsUpsert, record),
   removeCanvasText: (id) => ipcRenderer.invoke(IpcChannels.canvasTextsRemove, id),
+  listNotes: (workspaceId) => ipcRenderer.invoke(IpcChannels.notesList, workspaceId),
+  upsertNote: (record) => ipcRenderer.invoke(IpcChannels.notesUpsert, record),
+  removeNote: (id) => ipcRenderer.invoke(IpcChannels.notesRemove, id),
 }

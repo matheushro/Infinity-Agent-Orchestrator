@@ -134,9 +134,11 @@ describe('Minimap', () => {
       <Minimap
         nodes={nodes}
         texts={texts}
+        notes={[]}
         edges={edges}
         selectedIds={['b']}
         selectedTextIds={['t1']}
+        selectedNoteIds={[]}
         selectedEdgeId="edge-at"
         pan={pan}
         zoom={zoom}
@@ -234,9 +236,11 @@ describe('Minimap', () => {
       <Minimap
         nodes={nodes}
         texts={texts}
+        notes={[]}
         edges={edges}
         selectedIds={[]}
         selectedTextIds={[]}
+        selectedNoteIds={[]}
         selectedEdgeId={null}
         pan={pan}
         zoom={zoom}

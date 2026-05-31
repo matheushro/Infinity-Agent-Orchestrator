@@ -3,6 +3,7 @@ import { app } from 'electron'
 import { join } from 'path'
 import Database from 'better-sqlite3'
 import type { CanvasTextRecord } from '@shared/types/canvas'
+import type { NoteRecord } from '@shared/types/notes'
 import type { EdgeRecord, TerminalRecord } from '@shared/types/terminal'
 import type { WorkspaceRecord } from '@shared/types/workspace'
 
@@ -55,6 +56,21 @@ export function initDb(): void {
       height REAL NOT NULL,
       workspace_id TEXT NOT NULL,
       created_at INTEGER NOT NULL
+    )
+  `)
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS notes (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      x REAL NOT NULL,
+      y REAL NOT NULL,
+      width REAL NOT NULL,
+      height REAL NOT NULL,
+      workspace_id TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
     )
   `)
 
@@ -175,6 +191,23 @@ export function duplicateWorkspace(sourceId: string): WorkspaceRecord {
     insertText.run({ ...text, id: crypto.randomUUID(), workspace_id: newId, created_at: now })
   }
 
+  const notes = db
+    .prepare('SELECT * FROM notes WHERE workspace_id = ?')
+    .all(sourceId) as Array<NoteRecord>
+  const insertNote = db.prepare(
+    `INSERT INTO notes (id, title, content, x, y, width, height, workspace_id, created_at, updated_at)
+     VALUES (@id, @title, @content, @x, @y, @width, @height, @workspace_id, @created_at, @updated_at)`,
+  )
+  for (const note of notes) {
+    insertNote.run({
+      ...note,
+      id: crypto.randomUUID(),
+      workspace_id: newId,
+      created_at: now,
+      updated_at: now,
+    })
+  }
+
   return newRecord
 }
 
@@ -251,4 +284,31 @@ export function upsertCanvasText(record: CanvasTextRecord): void {
 
 export function removeCanvasText(id: string): void {
   db.prepare('DELETE FROM canvas_texts WHERE id = ?').run(id)
+}
+
+// ── Notes ────────────────────────────────────────────────────────────────────
+
+export function listNotes(workspaceId: string): NoteRecord[] {
+  return db
+    .prepare(
+      'SELECT id, title, content, x, y, width, height, workspace_id, created_at, updated_at FROM notes WHERE workspace_id = ? ORDER BY created_at',
+    )
+    .all(workspaceId) as NoteRecord[]
+}
+
+export function upsertNote(record: NoteRecord): void {
+  // created_at is set once on insert and preserved on update; updated_at is
+  // always refreshed so list ordering and "last edited" stay correct.
+  const now = Date.now()
+  db.prepare(
+    `INSERT INTO notes (id, title, content, x, y, width, height, workspace_id, created_at, updated_at)
+     VALUES (@id, @title, @content, @x, @y, @width, @height, @workspace_id, @created_at, @updated_at)
+     ON CONFLICT(id) DO UPDATE SET
+       title = @title, content = @content, x = @x, y = @y, width = @width, height = @height,
+       workspace_id = @workspace_id, updated_at = @updated_at`,
+  ).run({ ...record, created_at: record.created_at || now, updated_at: now })
+}
+
+export function removeNote(id: string): void {
+  db.prepare('DELETE FROM notes WHERE id = ?').run(id)
 }

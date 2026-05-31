@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { TerminalNode } from '@renderer/features/terminals/components/TerminalNode'
 import type { TerminalNodeData, TerminalStyle } from '@renderer/features/terminals/types'
+import { NoteNode } from '@renderer/features/notes/components/NoteNode'
 import type { CanvasTextRecord } from '@shared/types/canvas'
+import type { NoteRecord } from '@shared/types/notes'
 import type { EdgeRecord } from '@shared/types/terminal'
 import type { CanvasTheme } from '../types'
 import {
@@ -13,6 +15,7 @@ import {
   ILink,
   IMap,
   IMinus,
+  INote,
   IPlus,
   IText,
   ITrash,
@@ -21,7 +24,7 @@ import { usePanZoom } from '../hooks/usePanZoom'
 import { CanvasText } from './CanvasText'
 import { Minimap } from './Minimap'
 
-export type CanvasTool = 'select' | 'pan' | 'link' | 'delete' | 'text'
+export type CanvasTool = 'select' | 'pan' | 'link' | 'delete' | 'text' | 'note'
 
 type SideDir = 'left' | 'right' | 'top' | 'bottom'
 
@@ -81,11 +84,14 @@ function offsetByDirection(x: number, y: number, dir: SideDir, c: number): [numb
 interface CanvasProps {
   nodes: TerminalNodeData[]
   texts: CanvasTextRecord[]
+  notes: NoteRecord[]
   edges: EdgeRecord[]
   selectedIds: string[]
   selectedTextIds: string[]
+  selectedNoteIds: string[]
   selectedEdgeId: string | null
   editingTextId: string | null
+  editingNoteId: string | null
   focusedId: string | null
   focusRequest: string | null
   linkSource: string | null
@@ -102,6 +108,13 @@ interface CanvasProps {
   onMoveText: (id: string, patch: Partial<CanvasTextRecord>) => void
   onUpdateText: (id: string, patch: Partial<CanvasTextRecord>) => void
   onRemoveText: (id: string) => void
+  onSelectNote: (id: string | null) => void
+  onCreateNote: (position: { x: number; y: number }) => void
+  onEditNote: (id: string | null) => void
+  onMoveNote: (id: string, patch: Partial<NoteRecord>) => void
+  onUpdateNote: (id: string, patch: Partial<NoteRecord>) => void
+  onRemoveNote: (id: string) => void
+  onNoteContextMenu: (id: string, x: number, y: number) => void
   onFocusConsumed: () => void
   onMoveNode: (id: string, patch: Partial<TerminalNodeData>) => void
   onUpdateNode: (id: string, patch: Partial<TerminalNodeData>) => void
@@ -119,11 +132,14 @@ interface CanvasProps {
 export function Canvas({
   nodes,
   texts,
+  notes,
   edges,
   selectedIds,
   selectedTextIds,
+  selectedNoteIds,
   selectedEdgeId,
   editingTextId,
+  editingNoteId,
   focusedId,
   focusRequest,
   linkSource,
@@ -140,6 +156,13 @@ export function Canvas({
   onMoveText,
   onUpdateText,
   onRemoveText,
+  onSelectNote,
+  onCreateNote,
+  onEditNote,
+  onMoveNote,
+  onUpdateNote,
+  onRemoveNote,
+  onNoteContextMenu,
   onFocusConsumed,
   onMoveNode,
   onUpdateNode,
@@ -247,9 +270,14 @@ export function Canvas({
 
   function fitAll(): void {
     const size = liveSize()
-    if ((nodes.length === 0 && texts.length === 0) || size.w === 0 || size.h === 0) return
+    if (
+      (nodes.length === 0 && texts.length === 0 && notes.length === 0) ||
+      size.w === 0 ||
+      size.h === 0
+    )
+      return
     const pad = 80
-    const elements = [...nodes, ...texts]
+    const elements = [...nodes, ...texts, ...notes]
     const minX = Math.min(...elements.map((n) => n.x)) - pad
     const minY = Math.min(...elements.map((n) => n.y)) - pad
     const maxX = Math.max(...elements.map((n) => n.x + n.width)) + pad
@@ -284,6 +312,12 @@ export function Canvas({
       if (text.x + text.width + margin > maxX) maxX = text.x + text.width + margin
       if (text.y + text.height + margin > maxY) maxY = text.y + text.height + margin
     }
+    for (const note of notes) {
+      if (note.x - margin < minX) minX = note.x - margin
+      if (note.y - margin < minY) minY = note.y - margin
+      if (note.x + note.width + margin > maxX) maxX = note.x + note.width + margin
+      if (note.y + note.height + margin > maxY) maxY = note.y + note.height + margin
+    }
     const vMinX = -pan.x / zoom
     const vMinY = -pan.y / zoom
     const vMaxX = vMinX + wrapSize.w / zoom
@@ -293,7 +327,7 @@ export function Canvas({
     if (vMaxX + margin > maxX) maxX = vMaxX + margin
     if (vMaxY + margin > maxY) maxY = vMaxY + margin
     return { minX, minY, w: maxX - minX, h: maxY - minY }
-  }, [nodes, texts, pan, zoom, wrapSize])
+  }, [nodes, texts, notes, pan, zoom, wrapSize])
 
   const edgePaths = useMemo(() => {
     const byId = new Map(nodes.map((n) => [n.id, n]))
@@ -505,6 +539,7 @@ export function Canvas({
     const isShiftLeftClick = e.shiftKey && e.button === 0
     if (!isShiftLeftClick && (e.target as HTMLElement).closest('.terminal-node')) return
     if (!isShiftLeftClick && (e.target as HTMLElement).closest('.canvas-text')) return
+    if (!isShiftLeftClick && (e.target as HTMLElement).closest('.note-node')) return
     if ((e.target as HTMLElement).closest('[data-edge-id]')) return
 
     const DRAG_THRESHOLD = 4
@@ -550,7 +585,7 @@ export function Canvas({
     // Left-click
     if (e.button !== 0) return
 
-    if (tool === 'text') {
+    if (tool === 'text' || tool === 'note') {
       return
     }
 
@@ -579,6 +614,7 @@ export function Canvas({
         if (!moved) {
           onSelect(null, false)
           onSelectText(null)
+          onSelectNote(null)
           onSelectEdge(null)
           onSelectManyTexts([])
         }
@@ -598,6 +634,7 @@ export function Canvas({
     // Other tools (link, delete): deselect on background click
     onSelect(null, false)
     onSelectText(null)
+    onSelectNote(null)
     onSelectEdge(null)
   }
 
@@ -605,26 +642,32 @@ export function Canvas({
     if (e.button !== 0 || tool !== 'select') return
     const target = e.target as HTMLElement
     if (target.closest('.terminal-node') || target.closest('.canvas-text')) return
+    if (target.closest('.note-node')) return
     if (target.closest('[data-edge-id]')) return
     onCreateText(clientToWorld(e.clientX, e.clientY))
   }
 
   function handleCanvasClick(e: React.MouseEvent): void {
-    if (e.button !== 0 || tool !== 'text') return
+    if (e.button !== 0 || (tool !== 'text' && tool !== 'note')) return
     const target = e.target as HTMLElement
     if (target.closest('.terminal-node') || target.closest('.canvas-text')) return
+    if (target.closest('.note-node')) return
     if (target.closest('[data-edge-id]')) return
 
     onSelect(null, false)
     onSelectEdge(null)
     onSelectText(null)
-    onCreateText(clientToWorld(e.clientX, e.clientY))
+    onSelectNote(null)
+    const position = clientToWorld(e.clientX, e.clientY)
+    if (tool === 'note') onCreateNote(position)
+    else onCreateText(position)
     onSetTool('select')
   }
 
   function handleCanvasContextMenu(e: React.MouseEvent): void {
     if ((e.target as HTMLElement).closest('.terminal-node')) return
     if ((e.target as HTMLElement).closest('.canvas-text')) return
+    if ((e.target as HTMLElement).closest('.note-node')) return
     if ((e.target as HTMLElement).closest('[data-edge-id]')) return
 
     e.preventDefault()
@@ -695,6 +738,7 @@ export function Canvas({
         onSelectEdge(p.id)
         onSelect(null, false)
         onSelectText(null)
+        onSelectNote(null)
         onSelectManyTexts([])
       }}
               />
@@ -752,6 +796,7 @@ export function Canvas({
                   return
                 }
                 onSelectText(null)
+                onSelectNote(null)
                 onSelect(id, additive)
               }}
               onDragStart={handleNodeDragStart}
@@ -772,6 +817,7 @@ export function Canvas({
               onSelect={(id) => {
                 onSelect(null, false)
                 onSelectEdge(null)
+                onSelectNote(null)
                 onSelectText(id)
                 onSelectManyTexts(id ? [id] : [])
               }}
@@ -784,10 +830,33 @@ export function Canvas({
               onContextMenu={onTextContextMenu}
             />
           ))}
+          {measured && notes.map((note) => (
+            <NoteNode
+              key={note.id}
+              note={note}
+              selected={selectedNoteIds.includes(note.id)}
+              editing={editingNoteId === note.id}
+              scale={zoom}
+              onSelect={(id) => {
+                onSelect(null, false)
+                onSelectEdge(null)
+                onSelectText(null)
+                onSelectManyTexts([])
+                onSelectNote(id)
+              }}
+              onEdit={onEditNote}
+              onDragStart={() => onSelectNote(note.id)}
+              onMove={onMoveNote}
+              onUpdate={onUpdateNote}
+              onRemove={onRemoveNote}
+              onEditingComplete={() => onEditNote(null)}
+              onContextMenu={onNoteContextMenu}
+            />
+          ))}
         </div>
       </div>
 
-      {nodes.length === 0 && texts.length === 0 && (
+      {nodes.length === 0 && texts.length === 0 && notes.length === 0 && (
         <div
           className="pointer-events-none absolute inset-0 flex items-center justify-center text-[12.5px]"
           style={{ color: 'var(--fg-3)' }}
@@ -820,6 +889,14 @@ export function Canvas({
             title="Text (T)"
           >
             <IText size={14} />
+          </ToolButton>
+          <span className="sep" />
+          <ToolButton
+            active={tool === 'note'}
+            onClick={() => onSetTool(tool === 'note' ? 'select' : 'note')}
+            title="Note (N)"
+          >
+            <INote size={14} />
           </ToolButton>
           <span className="sep" />
           <ToolButton
@@ -866,9 +943,11 @@ export function Canvas({
         <Minimap
           nodes={nodes}
           texts={texts}
+          notes={notes}
           edges={edges}
           selectedIds={selectedIds}
           selectedTextIds={selectedTextIds}
+          selectedNoteIds={selectedNoteIds}
           selectedEdgeId={selectedEdgeId}
           pan={pan}
           zoom={zoom}

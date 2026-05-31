@@ -20,6 +20,9 @@ vi.mock('../services/db.service', () => ({
   listCanvasTexts: vi.fn(() => []),
   upsertCanvasText: vi.fn(),
   removeCanvasText: vi.fn(),
+  listNotes: vi.fn(() => []),
+  upsertNote: vi.fn(),
+  removeNote: vi.fn(),
 }))
 
 import { registerDbIpc } from './db.ipc'
@@ -88,5 +91,24 @@ describe('db.ipc', () => {
   it('canvas-texts:remove calls removeCanvasText(id)', async () => {
     await ipcHandlers.get(IpcChannels.canvasTextsRemove)!({}, 'text-1')
     expect(dbService.removeCanvasText).toHaveBeenCalledWith('text-1')
+  })
+
+  it('notes:list calls listNotes and returns its result', async () => {
+    const notes = [{ id: 'note-1', title: 'N', content: '', x: 0, y: 0, width: 280, height: 200, workspace_id: 'ws-1', created_at: 1, updated_at: 1 }]
+    vi.mocked(dbService.listNotes).mockReturnValue(notes as any)
+    const result = await ipcHandlers.get(IpcChannels.notesList)!({}, 'ws-1')
+    expect(dbService.listNotes).toHaveBeenCalledWith('ws-1')
+    expect(result).toBe(notes)
+  })
+
+  it('notes:upsert calls upsertNote with the record payload', async () => {
+    const note = { id: 'note-1', title: 'N', content: 'body', x: 0, y: 0, width: 280, height: 200, workspace_id: 'ws-1', created_at: 1, updated_at: 1 }
+    await ipcHandlers.get(IpcChannels.notesUpsert)!({}, note)
+    expect(dbService.upsertNote).toHaveBeenCalledWith(note)
+  })
+
+  it('notes:remove calls removeNote(id)', async () => {
+    await ipcHandlers.get(IpcChannels.notesRemove)!({}, 'note-1')
+    expect(dbService.removeNote).toHaveBeenCalledWith('note-1')
   })
 })

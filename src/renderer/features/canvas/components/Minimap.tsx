@@ -4,15 +4,18 @@
 import { useRef } from 'react'
 import { IClose } from '@renderer/components/ui'
 import type { CanvasTextRecord } from '@shared/types/canvas'
+import type { NoteRecord } from '@shared/types/notes'
 import type { EdgeRecord } from '@shared/types/terminal'
 import type { TerminalNodeData } from '@renderer/features/terminals/types'
 
 interface MinimapProps {
   nodes: TerminalNodeData[]
   texts: CanvasTextRecord[]
+  notes: NoteRecord[]
   edges: EdgeRecord[]
   selectedIds: string[]
   selectedTextIds: string[]
+  selectedNoteIds: string[]
   selectedEdgeId: string | null
   pan: { x: number; y: number }
   zoom: number
@@ -25,14 +28,17 @@ const W = 168
 const H = 110
 
 type CanvasItem = Pick<TerminalNodeData, 'id' | 'x' | 'y' | 'width' | 'height'> |
-  Pick<CanvasTextRecord, 'id' | 'x' | 'y' | 'width' | 'height'>
+  Pick<CanvasTextRecord, 'id' | 'x' | 'y' | 'width' | 'height'> |
+  Pick<NoteRecord, 'id' | 'x' | 'y' | 'width' | 'height'>
 
 export function Minimap({
   nodes,
   texts,
+  notes,
   edges,
   selectedIds,
   selectedTextIds,
+  selectedNoteIds,
   selectedEdgeId,
   pan,
   zoom,
@@ -45,7 +51,7 @@ export function Minimap({
   const vw1 = vw0 + wrapSize.w / zoom
   const vh1 = vh0 + wrapSize.h / zoom
 
-  const visibleItems = [...nodes, ...texts]
+  const visibleItems = [...nodes, ...texts, ...notes]
   let minX: number
   let minY: number
   let maxX: number
@@ -74,7 +80,9 @@ export function Minimap({
   const offY = (H - bh * s) / 2
   const px = (x: number): number => offX + (x - minX) * s
   const py = (y: number): number => offY + (y - minY) * s
-  const byId = new Map<CanvasItem['id'], CanvasItem>([...nodes, ...texts].map((item) => [item.id, item]))
+  const byId = new Map<CanvasItem['id'], CanvasItem>(
+    [...nodes, ...texts, ...notes].map((item) => [item.id, item]),
+  )
 
   const dragRef = useRef<{ lastX: number; lastY: number } | null>(null)
 
@@ -196,6 +204,22 @@ export function Minimap({
                 : 'color-mix(in oklch, var(--accent) 45%, var(--fg) 10%)'
             }
             opacity={selectedTextIds.includes(text.id) ? 0.95 : 0.72}
+          />
+        ))}
+        {notes.map((note) => (
+          <rect
+            key={note.id}
+            x={px(note.x)}
+            y={py(note.y)}
+            width={Math.max(3, note.width * s)}
+            height={Math.max(3, note.height * s)}
+            rx={1.5}
+            fill={
+              selectedNoteIds.includes(note.id)
+                ? 'var(--accent)'
+                : 'color-mix(in oklch, var(--accent) 25%, var(--fg) 35%)'
+            }
+            opacity={selectedNoteIds.includes(note.id) ? 0.95 : 0.7}
           />
         ))}
         <rect

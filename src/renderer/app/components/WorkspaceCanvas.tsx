@@ -16,6 +16,7 @@ import { TerminalContextMenu } from '@renderer/features/terminals/components/Ter
 import { TerminalStyleModal } from '@renderer/features/terminals/components/TerminalStyleModal'
 import { useTerminals } from '@renderer/features/terminals/hooks/useTerminals'
 import { useCanvasTexts } from '@renderer/features/canvas/hooks/useCanvasTexts'
+import { useNotes } from '@renderer/features/notes/hooks/useNotes'
 import { useEdges } from '@renderer/features/canvas/hooks/useEdges'
 import type { TerminalNodeData } from '@renderer/features/terminals/types'
 import type { ShellType } from '@renderer/features/terminals/types'
@@ -30,6 +31,12 @@ interface ContextMenuState {
 
 interface TextContextMenuState {
   textId: string
+  x: number
+  y: number
+}
+
+interface NoteContextMenuState {
+  noteId: string
   x: number
   y: number
 }
@@ -91,13 +98,22 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
       updateText,
       removeText,
     } = useCanvasTexts(workspace.id)
+    const {
+      notes,
+      createNote,
+      moveNote,
+      updateNote,
+      removeNote,
+    } = useNotes(workspace.id)
     const nodeIds = useMemo(() => nodes.map((n) => n.id), [nodes])
     const { edges, addEdge, removeEdge } = useEdges(nodeIds)
 
     const [selectedIds, setSelectedIds] = useState<string[]>([])
     const [selectedTextIds, setSelectedTextIds] = useState<string[]>([])
+    const [selectedNoteIds, setSelectedNoteIds] = useState<string[]>([])
     const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null)
     const [editingTextId, setEditingTextId] = useState<string | null>(null)
+    const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
     const [focusedId, setFocusedId] = useState<string | null>(null)
     const [focusRequest, setFocusRequest] = useState<string | null>(null)
     const [tool, setTool] = useState<CanvasTool>('select')
@@ -108,6 +124,7 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
     )
     const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null)
     const [textCtxMenu, setTextCtxMenu] = useState<TextContextMenuState | null>(null)
+    const [noteCtxMenu, setNoteCtxMenu] = useState<NoteContextMenuState | null>(null)
     const [canvasMenu, setCanvasMenu] = useState<CanvasMenuState | null>(null)
     const [styleEditorFor, setStyleEditorFor] = useState<string | null>(null)
     // Per-terminal restart counter; bumping a node's value rebuilds its pty/xterm
@@ -148,7 +165,7 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
             setLinkSource(null)
             return
           }
-          if (tool === 'text') {
+          if (tool === 'text' || tool === 'note') {
             setTool('select')
           }
         }
@@ -168,6 +185,13 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
             setSelectedTextIds([])
             setEditingTextId(null)
           }
+          if (selectedNoteIds.length > 0) {
+            for (const id of selectedNoteIds) {
+              removeNote(id)
+            }
+            setSelectedNoteIds([])
+            setEditingNoteId(null)
+          }
           if (selectedIds.length > 0) {
             for (const id of selectedIds) {
               removeNode(id)
@@ -186,9 +210,11 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
       selectedIds,
       selectedEdgeId,
       selectedTextIds,
+      selectedNoteIds,
       removeEdge,
       removeNode,
       removeText,
+      removeNote,
       removeTerminalStyle,
     ])
 
@@ -220,6 +246,7 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
       }
       setSelectedEdgeId(null)
       setSelectedTextIds([])
+      setSelectedNoteIds([])
       setSelectedIds((prev) => {
         if (additive) {
           if (prev.includes(id)) return prev.filter((p) => p !== id)
@@ -232,8 +259,11 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
 
     function selectEdge(id: string | null): void {
       setSelectedEdgeId(id)
-      if (id !== null) setSelectedIds([])
-      if (id !== null) setSelectedTextIds([])
+      if (id !== null) {
+        setSelectedIds([])
+        setSelectedTextIds([])
+        setSelectedNoteIds([])
+      }
     }
 
     function selectText(id: string | null): void {
@@ -241,6 +271,16 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
       if (id !== null) {
         setSelectedIds([])
         setSelectedEdgeId(null)
+        setSelectedNoteIds([])
+      }
+    }
+
+    function selectNote(id: string | null): void {
+      setSelectedNoteIds(id ? [id] : [])
+      if (id !== null) {
+        setSelectedIds([])
+        setSelectedEdgeId(null)
+        setSelectedTextIds([])
       }
     }
 
@@ -285,11 +325,14 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
         <Canvas
           nodes={nodes}
           texts={texts}
+          notes={notes}
           edges={edges}
           selectedIds={selectedIds}
           selectedTextIds={selectedTextIds}
+          selectedNoteIds={selectedNoteIds}
           selectedEdgeId={selectedEdgeId}
           editingTextId={editingTextId}
+          editingNoteId={editingNoteId}
           focusedId={focusedId}
           focusRequest={focusRequest}
           linkSource={linkSource}
@@ -301,15 +344,18 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
           onSelectMany={(ids) => {
             setSelectedEdgeId(null)
             setSelectedTextIds([])
+            setSelectedNoteIds([])
             setSelectedIds(ids)
           }}
           onSelectManyTexts={(ids) => {
             setSelectedEdgeId(null)
             setSelectedIds([])
+            setSelectedNoteIds([])
             setSelectedTextIds(ids)
           }}
           onSelectManyMixed={(nodeIds, textIds) => {
             setSelectedEdgeId(null)
+            setSelectedNoteIds([])
             setSelectedIds(nodeIds)
             setSelectedTextIds(textIds)
           }}
@@ -317,6 +363,7 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
             const id = createText(position)
             setSelectedIds([])
             setSelectedEdgeId(null)
+            setSelectedNoteIds([])
             setSelectedTextIds([id])
             setEditingTextId(id)
           }}
@@ -328,6 +375,24 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
             setSelectedTextIds((prev) => prev.filter((p) => p !== id))
             setEditingTextId((prev) => (prev === id ? null : prev))
           }}
+          onSelectNote={selectNote}
+          onCreateNote={(position) => {
+            const id = createNote(position)
+            setSelectedIds([])
+            setSelectedEdgeId(null)
+            setSelectedTextIds([])
+            setSelectedNoteIds([id])
+            setEditingNoteId(id)
+          }}
+          onEditNote={setEditingNoteId}
+          onMoveNote={moveNote}
+          onUpdateNote={updateNote}
+          onRemoveNote={(id) => {
+            removeNote(id)
+            setSelectedNoteIds((prev) => prev.filter((p) => p !== id))
+            setEditingNoteId((prev) => (prev === id ? null : prev))
+          }}
+          onNoteContextMenu={(noteId, x, y) => setNoteCtxMenu({ noteId, x, y })}
           onFocusConsumed={() => setFocusRequest(null)}
           onMoveNode={moveNode}
           onUpdateNode={updateNode}
@@ -412,6 +477,25 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
           />
         )}
 
+        {noteCtxMenu && (
+          <NoteContextMenu
+            x={noteCtxMenu.x}
+            y={noteCtxMenu.y}
+            onClose={() => setNoteCtxMenu(null)}
+            onEdit={() => {
+              setEditingNoteId(noteCtxMenu.noteId)
+              setNoteCtxMenu(null)
+            }}
+            onDelete={() => {
+              const id = noteCtxMenu.noteId
+              removeNote(id)
+              setSelectedNoteIds((prev) => prev.filter((p) => p !== id))
+              setEditingNoteId((prev) => (prev === id ? null : prev))
+              setNoteCtxMenu(null)
+            }}
+          />
+        )}
+
         {canvasMenu && (
           <CanvasContextMenu
             x={canvasMenu.clientX}
@@ -420,6 +504,15 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
             onNewTerminal={() => {
               setPendingCreatePos({ x: canvasMenu.worldX, y: canvasMenu.worldY })
               setModalOpen(true)
+              setCanvasMenu(null)
+            }}
+            onNewNote={() => {
+              const id = createNote({ x: canvasMenu.worldX, y: canvasMenu.worldY })
+              setSelectedIds([])
+              setSelectedEdgeId(null)
+              setSelectedTextIds([])
+              setSelectedNoteIds([id])
+              setEditingNoteId(id)
               setCanvasMenu(null)
             }}
           />
@@ -444,11 +537,13 @@ function CanvasContextMenu({
   y,
   onClose,
   onNewTerminal,
+  onNewNote,
 }: {
   x: number
   y: number
   onClose: () => void
   onNewTerminal: () => void
+  onNewNote: () => void
 }): JSX.Element {
   return (
     <>
@@ -478,6 +573,65 @@ function CanvasContextMenu({
           onClick={onNewTerminal}
         >
           New terminal here
+        </button>
+        <button
+          className="ctx-item flex w-full items-center gap-2.5 px-3 py-2 text-[12.5px]"
+          onClick={onNewNote}
+        >
+          New note here
+        </button>
+      </div>
+    </>
+  )
+}
+
+function NoteContextMenu({
+  x,
+  y,
+  onClose,
+  onEdit,
+  onDelete,
+}: {
+  x: number
+  y: number
+  onClose: () => void
+  onEdit: () => void
+  onDelete: () => void
+}): JSX.Element {
+  return (
+    <>
+      <div
+        className="fixed inset-0 z-[100]"
+        onMouseDown={onClose}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          onClose()
+        }}
+      />
+      <div
+        className="fixed z-[101] min-w-[180px] py-1 rounded-[10px]"
+        style={{
+          left: x,
+          top: y,
+          background: 'color-mix(in oklch, var(--bg-2) 96%, transparent)',
+          backdropFilter: 'blur(10px)',
+          border: '1px solid var(--line)',
+          boxShadow: '0 12px 32px -8px rgb(var(--shadow-color) / 0.32)',
+          color: 'var(--fg)',
+        }}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <button
+          className="ctx-item flex w-full items-center gap-2.5 px-3 py-2 text-[12.5px]"
+          onClick={onEdit}
+        >
+          Edit note
+        </button>
+        <button
+          className="ctx-item flex w-full items-center gap-2.5 px-3 py-2 text-[12.5px]"
+          onClick={onDelete}
+        >
+          Delete note
         </button>
       </div>
     </>
