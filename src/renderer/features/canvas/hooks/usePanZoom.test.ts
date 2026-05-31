@@ -38,17 +38,21 @@ function createWheelEvent({
   deltaX = 0,
   deltaY = 0,
   shiftKey = false,
-  targetMatchesNode = false,
+  targetNodeSelector = null,
 }: {
   clientX: number
   clientY: number
   deltaX?: number
   deltaY?: number
   shiftKey?: boolean
-  targetMatchesNode?: boolean
+  targetNodeSelector?: string | null
 }): any {
   const target: MockTarget = {
-    closest: vi.fn(() => (targetMatchesNode ? document.createElement('div') : null)),
+    closest: vi.fn((selector: string) =>
+      targetNodeSelector && selector.split(',').map((part) => part.trim()).includes(targetNodeSelector)
+        ? document.createElement('div')
+        : null,
+    ),
   }
 
   return {
@@ -176,7 +180,31 @@ describe('usePanZoom', () => {
           clientY: 220,
           deltaY: -1,
           shiftKey: true,
-          targetMatchesNode: true,
+          targetNodeSelector: '.terminal-node',
+        }),
+      )
+    })
+
+    expect(result.current.pan).toEqual({ x: 0, y: 0 })
+    expect(result.current.zoom).toBe(1)
+  })
+
+  it('ignores wheel events over .note-node', () => {
+    const { result } = renderHook(() => usePanZoom())
+    const container = document.createElement('div')
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: vi.fn(() => ({ left: 10, top: 20 })),
+    })
+    result.current.containerRef.current = container
+
+    act(() => {
+      result.current.handlers.onWheel(
+        createWheelEvent({
+          clientX: 110,
+          clientY: 220,
+          deltaX: 3,
+          deltaY: -4,
+          targetNodeSelector: '.note-node',
         }),
       )
     })

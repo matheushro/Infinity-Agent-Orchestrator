@@ -4,6 +4,7 @@ import { useRef, useState } from 'react'
 
 const MIN_ZOOM = 0.25
 const MAX_ZOOM = 2.5
+const WHEEL_OWNING_NODE_SELECTOR = '.terminal-node, .note-node'
 
 interface DragState {
   startX: number
@@ -55,8 +56,8 @@ export function usePanZoom(): PanZoom {
   }
 
   function onWheel(e: React.WheelEvent): void {
-    // If the pointer is over a terminal, let xterm scroll the content.
-    if ((e.target as HTMLElement).closest('.terminal-node')) return
+    // If the pointer is over a scroll-owning node, let that node scroll itself.
+    if ((e.target as HTMLElement).closest(WHEEL_OWNING_NODE_SELECTOR)) return
 
     // Shift + mouse wheel: zoom anchored to the cursor position.
     if (e.shiftKey) {
