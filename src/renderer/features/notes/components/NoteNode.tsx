@@ -4,13 +4,17 @@
 // Task-list checkboxes stay interactive in view mode and rewrite the raw
 // Markdown when toggled. Mirrors CanvasText's prop shape so Canvas wiring is
 // identical to the text element.
-import { memo, useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { Rnd } from 'react-rnd'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { IClose } from '@renderer/components/ui'
 import type { NoteRecord } from '@shared/types/notes'
 import { toggleTaskAt } from '../lib/markdown'
+
+// Hoisted so the array identity is stable across renders — a fresh `[remarkGfm]`
+// literal would make react-markdown reprocess the document on every render.
+const REMARK_PLUGINS = [remarkGfm]
 
 interface NoteNodeProps {
   note: NoteRecord
@@ -70,37 +74,55 @@ export const NoteNode = memo(function NoteNode({
     setEditingTitle(false)
   }
 
-  function toggleTask(index: number): void {
-    onUpdate(note.id, { content: toggleTaskAt(note.content, index) })
-  }
+  // The Markdown components MUST be referentially stable: react-markdown uses
+  // each override function as the rendered element's component *type*, so a
+  // fresh object/closure per render makes React unmount+remount every checkbox
+  // on each render. That remount mid-click (mousedown lands on the old node,
+  // mouseup on the freshly-mounted one) means the browser never fires `click`,
+  // so toggling silently did nothing. We keep one stable `markdownComponents`
+  // and read the latest note/handler through a ref so the closures stay fresh.
+  const latestRef = useRef({ id: note.id, content: note.content, onUpdate })
+  latestRef.current = { id: note.id, content: note.content, onUpdate }
 
-  // Fresh per render so checkbox ordinals reset; ReactMarkdown renders its
-  // children in document order, so the counter lines up with toggleTaskAt.
-  let checkboxOrdinal = 0
-  const markdownComponents: Components = {
-    input: ({ node: _node, ...props }) => {
-      if (props.type === 'checkbox') {
-        const index = checkboxOrdinal++
-        return (
-          <input
-            type="checkbox"
-            checked={Boolean(props.checked)}
-            onChange={() => toggleTask(index)}
-            onClick={(event) => event.stopPropagation()}
-            onMouseDown={(event) => event.stopPropagation()}
-          />
-        )
-      }
-      return <input {...props} />
-    },
-    // Render links as text-styled anchors but never let them navigate the app
-    // window (no external-shell handling in step 1).
-    a: ({ node: _node, children, ...props }) => (
-      <a {...props} onClick={(event) => event.preventDefault()} rel="noreferrer">
-        {children}
-      </a>
-    ),
-  }
+  const markdownComponents = useMemo<Components>(
+    () => ({
+      input: ({ node: _node, ...props }) => {
+        if (props.type === 'checkbox') {
+          return (
+            <input
+              type="checkbox"
+              checked={Boolean(props.checked)}
+              // The task index is derived at click time from the checkbox's
+              // position among its siblings (DOM order == document order ==
+              // toggleTaskAt's ordinals). Computing it during render with a
+              // counter is impure and breaks under StrictMode's double render.
+              onChange={(event) => {
+                const container = event.currentTarget.closest('.note-markdown')
+                const boxes = Array.from(
+                  container?.querySelectorAll('input[type="checkbox"]') ?? [],
+                )
+                const index = boxes.indexOf(event.currentTarget)
+                if (index < 0) return
+                const { id, content, onUpdate: update } = latestRef.current
+                update(id, { content: toggleTaskAt(content, index) })
+              }}
+              onClick={(event) => event.stopPropagation()}
+              onMouseDown={(event) => event.stopPropagation()}
+            />
+          )
+        }
+        return <input {...props} />
+      },
+      // Render links as text-styled anchors but never let them navigate the app
+      // window (no external-shell handling in step 1).
+      a: ({ node: _node, children, ...props }) => (
+        <a {...props} onClick={(event) => event.preventDefault()} rel="noreferrer">
+          {children}
+        </a>
+      ),
+    }),
+    [],
+  )
 
   return (
     <Rnd
@@ -250,7 +272,7 @@ export const NoteNode = memo(function NoteNode({
             }}
           >
             {note.content.trim() ? (
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+              <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={markdownComponents}>
                 {note.content}
               </ReactMarkdown>
             ) : (

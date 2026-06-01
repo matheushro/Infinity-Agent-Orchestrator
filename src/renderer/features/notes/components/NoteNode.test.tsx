@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom/vitest'
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { type CSSProperties, type ReactNode } from 'react'
+import { StrictMode, type CSSProperties, type ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { NoteRecord } from '@shared/types/notes'
 
@@ -148,6 +148,55 @@ describe('NoteNode', () => {
 
     fireEvent.click(checkboxes[0])
     expect(onUpdate).toHaveBeenCalledWith('note-1', { content: '- [x] first\n- [x] second' })
+  })
+
+  it('keeps the same checkbox DOM node across re-renders (no remount mid-click)', async () => {
+    // Regression: markdownComponents used to be rebuilt every render, so
+    // react-markdown saw a new component type and remounted each checkbox on
+    // every render. A remount between mousedown and mouseup cancels the native
+    // `click`, so toggling a task did nothing in the real browser.
+    const { rerender, props } = renderNode({
+      note: { ...baseNote, content: '- [ ] first' },
+      selected: false,
+    })
+    const before = await screen.findByRole('checkbox')
+
+    rerender(<NoteNode {...props} selected />)
+    const after = screen.getByRole('checkbox')
+
+    expect(after).toBe(before)
+  })
+
+  it('toggles the correct task by DOM order under StrictMode (dev double-render)', async () => {
+    // Regression: deriving the task index with a render-time counter
+    // over-counts under React.StrictMode (dev runs render twice), so clicking
+    // a checkbox toggled the wrong task — or none. The index must be computed
+    // from DOM order at click time instead.
+    const onUpdate = vi.fn()
+    render(
+      <StrictMode>
+        <NoteNode
+          note={{ ...baseNote, content: '- [ ] first\n- [ ] second' }}
+          selected={false}
+          editing={false}
+          scale={1}
+          onSelect={vi.fn()}
+          onEdit={vi.fn()}
+          onDragStart={vi.fn()}
+          onMove={vi.fn()}
+          onUpdate={onUpdate}
+          onRemove={vi.fn()}
+          onEditingComplete={vi.fn()}
+          onContextMenu={vi.fn()}
+        />
+      </StrictMode>,
+    )
+
+    const checkboxes = await screen.findAllByRole('checkbox')
+    expect(checkboxes).toHaveLength(2)
+
+    fireEvent.click(checkboxes[1])
+    expect(onUpdate).toHaveBeenCalledWith('note-1', { content: '- [ ] first\n- [x] second' })
   })
 
   it('removes the note when the delete button is clicked', () => {
