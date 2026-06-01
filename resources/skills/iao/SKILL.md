@@ -26,8 +26,15 @@ iao send --no-wait "Agent" "prompt"         # Fire-and-forget delivery (legacy b
 iao send --timeout 300 "Agent" "prompt"     # Cap the wait at 300s (default 120s)
 iao send --quiet "Agent" "prompt"           # Hide progress lines on stderr
 iao inspect "Agent Name"                    # Read the current terminal output (manual / debug)
+iao note create ["content"]                 # Create a note (auto-linked to this terminal)
+iao note list                               # List notes linked to this terminal
+iao note read "Note Name" [start] [end]     # Read a linked note (optionally a line range)
+iao note write "Note Name" "content"        # Replace a linked note's entire content
+iao note edit "Note Name" "old" "new"       # Replace text within a linked note
+iao note rename "Old Name" "New Name"       # Rename a linked note
+iao note delete "Note Name"                 # Delete a linked note (and its links)
 iao help                                    # Show built-in help
-iao debug                                   # Show diagnostic info (bridge port, env, linked agents)
+iao debug                                   # Show diagnostic info (spool dir, env, linked agents)
 ```
 
 If `iao` is not on `PATH` (some custom shells strip it), use the absolute path exported
@@ -90,9 +97,45 @@ sanity check on what another agent is doing right now (e.g. the user asks "what 
 Backend doing?") — **not** as part of a polling loop, since `iao send` already waits for
 you.
 
+## Working with notes
+
+Notes are Markdown documents that live on the canvas. They are a shared scratchpad
+between you and the user (and any other agent linked to the same note). Use them to record
+plans, findings, checklists, or anything the user should be able to read on the canvas.
+
+**You can only access notes that are linked to your terminal.** A note that exists on the
+canvas but is not linked to you cannot be read, written, edited, renamed, or deleted — the
+CLI returns an *access denied* message. Ask the user to link the note to this terminal on
+the canvas (or use `iao note create`, which links the new note to you automatically).
+
+```bash
+iao note create "# Plan\n\n- [ ] First step"   # Create + auto-link; title comes from the first line
+iao note list                                  # Show the notes you can access (by title)
+iao note read "Plan"                           # Print the full Markdown body
+iao note read "Plan" 10 20                      # Print only lines 10–20
+iao note edit "Plan" "- [ ] First step" "- [x] First step"   # Surgical replacement
+iao note write "Plan" "Entirely new body"      # Replace the whole document
+iao note rename "Plan" "Implementation Plan"   # Change the title
+iao note delete "Plan"                          # Remove the note and all its links
+```
+
+Guidelines:
+
+- **Notes support Markdown** — headings, lists, task checkboxes (`- [ ]` / `- [x]`),
+  tables, code blocks. They render live on the canvas.
+- **Use `iao note list` when you don't know the exact name.** `read`/`write`/`edit`/
+  `rename`/`delete` resolve a note by title (exact match first, then a unique substring).
+- **Prefer `iao note edit` over `iao note write` for small changes.** `edit` replaces only
+  the matched text and preserves the rest; `write` overwrites the entire body, so an
+  imprecise call can destroy content. Reach for `write` only when replacing the whole note.
+- **Changes are reflected on the canvas in real time** — the user sees your edits the
+  moment the command returns, and any edits the user makes are visible to your next `read`.
+
 ## Rules
 
 - **Always `iao agents` first.** Never guess agent names.
+- **Use `iao note list` before reading or editing a note** when you are unsure of its name,
+  and remember you can only touch notes linked to this terminal.
 - **Never wrap `iao send` in a sleep/inspect loop.** The bridge already waits. Adding
   your own polling just wastes prompts.
 - **Never resend the same prompt** while the previous `iao send` is still running — they

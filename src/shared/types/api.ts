@@ -3,7 +3,7 @@
 // global typings reference the same contract.
 import type { EdgeRecord, TerminalRecord } from './terminal'
 import type { CanvasTextRecord } from './canvas'
-import type { NoteRecord } from './notes'
+import type { NoteRecord, NoteLinkRecord } from './notes'
 import type { PtyCreateArgs, PtyCreateResult } from './ipc'
 import type { WorkspaceRecord } from './workspace'
 
@@ -30,6 +30,16 @@ export interface DbApi {
   listNotes(workspaceId: string): Promise<NoteRecord[]>
   upsertNote(record: NoteRecord): Promise<void>
   removeNote(id: string): Promise<void>
+  listNoteLinks(): Promise<NoteLinkRecord[]>
+  upsertNoteLink(record: NoteLinkRecord): Promise<void>
+  removeNoteLink(id: string): Promise<void>
+  /**
+   * Subscribe to note/link mutations driven from outside the renderer (e.g. an
+   * agent using the `iao note` CLI). Fires after the main process has persisted
+   * the change so the renderer can re-list notes and links. Returns an
+   * unsubscribe function.
+   */
+  onNotesChanged(cb: () => void): () => void
 }
 
 export interface WorkspaceApi {

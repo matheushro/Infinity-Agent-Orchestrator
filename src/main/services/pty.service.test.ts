@@ -69,7 +69,7 @@ function makeMockProc(): MockProc {
 // ---- IAO session env stub ----
 
 const IAO_SESSION = {
-  IAO_PORT: '9000',
+  IAO_RPC_DIR: '/tmp/iao-rpc-test',
   IAO_TOKEN: 'tok-abc',
   IAO_NODE_ID: 'node-1',
   IAO_CLI: '/iao/bin/iao',
@@ -294,7 +294,7 @@ describe('createPty — PATH / env injection', () => {
     process.env.PATH = savedPath
   })
 
-  it('injects IAO_PORT, IAO_TOKEN and IAO_NODE_ID into child env', () => {
+  it('injects IAO_RPC_DIR, IAO_TOKEN and IAO_NODE_ID into child env', () => {
     const proc = makeMockProc()
     mockSpawn.mockReturnValue(proc as any)
     mockExistsSync.mockReturnValue(true)
@@ -302,7 +302,7 @@ describe('createPty — PATH / env injection', () => {
     createPty(makeArgs({ nodeId: 'node-1' }), makeCallbacks())
 
     const env = mockSpawn.mock.calls[0][2].env
-    expect(env.IAO_PORT).toBe('9000')
+    expect(env.IAO_RPC_DIR).toBe('/tmp/iao-rpc-test')
     expect(env.IAO_TOKEN).toBe('tok-abc')
     expect(env.IAO_NODE_ID).toBe('node-1')
   })

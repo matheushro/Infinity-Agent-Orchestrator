@@ -20,7 +20,12 @@ vi.mock('fs', async (importOriginal) => {
 
 vi.mock('./db.service', () => ({
   listEdges: vi.fn(() => []),
-  listActiveTerminals: vi.fn(() => [])
+  listActiveTerminals: vi.fn(() => []),
+  getTerminal: vi.fn(() => undefined),
+  listNotesForTerminal: vi.fn(() => []),
+  upsertNote: vi.fn(),
+  linkNoteToTerminal: vi.fn(),
+  removeNote: vi.fn()
 }))
 
 vi.mock('./pty.service', () => ({
@@ -41,6 +46,11 @@ import {
 
 const mockListEdges = vi.mocked(dbService.listEdges)
 const mockListActive = vi.mocked(dbService.listActiveTerminals)
+const mockGetTerminal = vi.mocked(dbService.getTerminal)
+const mockListNotesForTerminal = vi.mocked(dbService.listNotesForTerminal)
+const mockUpsertNote = vi.mocked(dbService.upsertNote)
+const mockLinkNoteToTerminal = vi.mocked(dbService.linkNoteToTerminal)
+const mockRemoveNote = vi.mocked(dbService.removeNote)
 const mockWriteToPty = vi.mocked(ptyService.writeToPty)
 const mockMkdirSync = vi.mocked(mkdirSync)
 const mockWriteFileSync = vi.mocked(writeFileSync)
@@ -73,7 +83,7 @@ function makeEdge(source: string, target: string) {
 
 /** Fire an HTTP request to the running server and return status + parsed body. */
 function request(
-  port: number,
+  socketPath: string,
   method: string,
   path: string,
   opts: { token?: string; body?: unknown; rawBody?: string } = {}
@@ -90,7 +100,7 @@ function request(
     }
 
     const req = http.request(
-      { host: '127.0.0.1', port, method, path, headers },
+      { socketPath, method, path, headers },
       (res) => {
         const chunks: Buffer[] = []
         res.on('data', (c) => chunks.push(c))
@@ -114,6 +124,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockListEdges.mockReturnValue([])
   mockListActive.mockReturnValue([])
+  mockGetTerminal.mockReturnValue(undefined)
+  mockListNotesForTerminal.mockReturnValue([])
 })
 
 afterEach(async () => {
@@ -155,29 +167,31 @@ describe('ensureBundle', () => {
 // ---------------------------------------------------------------------------
 
 describe('startIaoServer', () => {
-  it('binds to 127.0.0.1 on an ephemeral port and returns it', async () => {
-    const { port } = await startIaoServer()
-    expect(port).toBeGreaterThan(0)
+  it('binds to a unix socket under the temp dir and returns its path', async () => {
+    const { socketPath } = await startIaoServer()
+    expect(socketPath).toMatch(/iao-\d+-[0-9a-f]+\.sock$/)
   })
 
-  it('is idempotent — second call returns same port', async () => {
-    const { port: p1 } = await startIaoServer()
-    const { port: p2 } = await startIaoServer()
-    expect(p1).toBe(p2)
+  it('is idempotent — second call returns the same socket path', async () => {
+    const { socketPath: s1 } = await startIaoServer()
+    const { socketPath: s2 } = await startIaoServer()
+    expect(s1).toBe(s2)
   })
 })
 
 describe('stopIaoServer', () => {
   it('closes the server and clears all sessions/buffers', async () => {
-    const { port } = await startIaoServer()
+    const { socketPath } = await startIaoServer()
     registerPtySession('pty-1', 'node-1')
     appendOutput('node-1', 'hello')
 
     await stopIaoServer()
 
-    // Server should be gone — next start gets a fresh port (may differ)
+    // Server should be gone — connecting to the (now removed) socket must fail.
     await expect(
-      new Promise((_, rej) => http.get(`http://127.0.0.1:${port}/agents`, rej).on('error', rej))
+      new Promise((_, rej) =>
+        http.get({ socketPath, path: '/agents' }, rej).on('error', rej)
+      )
     ).rejects.toThrow()
   })
 })
@@ -194,16 +208,16 @@ describe('registerPtySession', () => {
   })
 
   it('maps token ↔ entry so the token is auth-able', async () => {
-    const { port } = await startIaoServer()
+    const { socketPath } = await startIaoServer()
     const env = registerPtySession('pty-1', 'node-1')
     mockListActive.mockReturnValue([makeTerminal({ id: 'node-1' })])
 
-    const { status } = await request(port, 'GET', '/agents', { token: env.IAO_TOKEN })
+    const { status } = await request(socketPath, 'GET', '/agents', { token: env.IAO_TOKEN })
     expect(status).toBe(200)
   })
 
   it('maps ptyId ↔ entry (used by findPtyForNode)', async () => {
-    const { port } = await startIaoServer()
+    const { socketPath } = await startIaoServer()
     const envA = registerPtySession('pty-A', 'node-A')
     const envB = registerPtySession('pty-B', 'node-B')
 
@@ -214,7 +228,7 @@ describe('registerPtySession', () => {
     ])
 
     // POST /send from A to B should deliver (pty-B is registered)
-    const { status } = await request(port, 'POST', '/send', {
+    const { status } = await request(socketPath, 'POST', '/send', {
       token: envA.IAO_TOKEN,
       body: { target: 'Beta', prompt: 'hello' }
     })
@@ -223,7 +237,7 @@ describe('registerPtySession', () => {
   })
 
   it('zeroes the output buffer for the node', async () => {
-    const { port } = await startIaoServer()
+    const { socketPath } = await startIaoServer()
     appendOutput('node-1', 'stale data')
 
     const envB = registerPtySession('pty-2', 'node-2')
@@ -235,7 +249,7 @@ describe('registerPtySession', () => {
       makeTerminal({ id: 'node-1', title: 'Target' })
     ])
 
-    const { body } = await request(port, 'GET', '/inspect?target=Target', { token: envB.IAO_TOKEN })
+    const { body } = await request(socketPath, 'GET', '/inspect?target=Target', { token: envB.IAO_TOKEN })
     expect((body as any).bytes).toBe(0)
     expect((body as any).output).toBe('')
   })
@@ -243,11 +257,11 @@ describe('registerPtySession', () => {
 
 describe('unregisterPtySession', () => {
   it('removes both token and ptyId mappings', async () => {
-    const { port } = await startIaoServer()
+    const { socketPath } = await startIaoServer()
     const env = registerPtySession('pty-1', 'node-1')
     unregisterPtySession('pty-1')
 
-    const { status } = await request(port, 'GET', '/agents', { token: env.IAO_TOKEN })
+    const { status } = await request(socketPath, 'GET', '/agents', { token: env.IAO_TOKEN })
     expect(status).toBe(401)
   })
 
@@ -262,7 +276,7 @@ describe('unregisterPtySession', () => {
 
 describe('appendOutput', () => {
   it('concatenates chunks in order', async () => {
-    const { port } = await startIaoServer()
+    const { socketPath } = await startIaoServer()
     const envB = registerPtySession('pty-B', 'node-B')
     const envA = registerPtySession('pty-A', 'node-A')
 
@@ -275,12 +289,12 @@ describe('appendOutput', () => {
       makeTerminal({ id: 'node-B', title: 'B' })
     ])
 
-    const { body } = await request(port, 'GET', '/inspect?target=B', { token: envA.IAO_TOKEN })
+    const { body } = await request(socketPath, 'GET', '/inspect?target=B', { token: envA.IAO_TOKEN })
     expect((body as any).output).toBe('foobar')
   })
 
   it('truncates to MAX_BUFFER (64 KB) keeping the most recent bytes', async () => {
-    const { port } = await startIaoServer()
+    const { socketPath } = await startIaoServer()
     const envB = registerPtySession('pty-B', 'node-B')
     const envA = registerPtySession('pty-A', 'node-A')
 
@@ -295,7 +309,7 @@ describe('appendOutput', () => {
       makeTerminal({ id: 'node-B', title: 'B' })
     ])
 
-    const { body } = await request(port, 'GET', '/inspect?target=B', { token: envA.IAO_TOKEN })
+    const { body } = await request(socketPath, 'GET', '/inspect?target=B', { token: envA.IAO_TOKEN })
     const bytes: number = (body as any).bytes
     expect(bytes).toBe(64 * 1024)
     // The tail 'Z' chars should be at the very end of the preserved slice
@@ -305,7 +319,7 @@ describe('appendOutput', () => {
 
 describe('clearOutput', () => {
   it('removes the buffer for a node', async () => {
-    const { port } = await startIaoServer()
+    const { socketPath } = await startIaoServer()
     const envB = registerPtySession('pty-B', 'node-B')
     const envA = registerPtySession('pty-A', 'node-A')
 
@@ -318,7 +332,7 @@ describe('clearOutput', () => {
       makeTerminal({ id: 'node-B', title: 'B' })
     ])
 
-    const { body } = await request(port, 'GET', '/inspect?target=B', { token: envA.IAO_TOKEN })
+    const { body } = await request(socketPath, 'GET', '/inspect?target=B', { token: envA.IAO_TOKEN })
     expect((body as any).bytes).toBe(0)
   })
 })
@@ -345,41 +359,41 @@ describe('HTTP security', () => {
     // so we verify the guard exists via code inspection.
     //
     // Direct path: send request with no auth → 401 (IP passed → logic works)
-    const { port } = await startIaoServer()
-    const { status } = await request(port, 'GET', '/agents', {})
+    const { socketPath } = await startIaoServer()
+    const { status } = await request(socketPath, 'GET', '/agents', {})
     expect(status).toBe(401)
   })
 
   it('accepts 127.0.0.1 as loopback (requests succeed past IP check)', async () => {
-    const { port } = await startIaoServer()
+    const { socketPath } = await startIaoServer()
     const env = registerPtySession('pty-1', 'node-1')
     mockListActive.mockReturnValue([makeTerminal({ id: 'node-1' })])
-    const { status } = await request(port, 'GET', '/agents', { token: env.IAO_TOKEN })
+    const { status } = await request(socketPath, 'GET', '/agents', { token: env.IAO_TOKEN })
     expect(status).toBe(200)
   })
 
   it('responds 401 with no Authorization header', async () => {
-    const { port } = await startIaoServer()
-    const { status } = await request(port, 'GET', '/agents', {})
+    const { socketPath } = await startIaoServer()
+    const { status } = await request(socketPath, 'GET', '/agents', {})
     expect(status).toBe(401)
   })
 
   it('responds 401 for an invalid token', async () => {
-    const { port } = await startIaoServer()
-    const { status } = await request(port, 'GET', '/agents', { token: 'bad-token' })
+    const { socketPath } = await startIaoServer()
+    const { status } = await request(socketPath, 'GET', '/agents', { token: 'bad-token' })
     expect(status).toBe(401)
   })
 
   it('rejects a token after unregisterPtySession', async () => {
-    const { port } = await startIaoServer()
+    const { socketPath } = await startIaoServer()
     const env = registerPtySession('pty-1', 'node-1')
     unregisterPtySession('pty-1')
-    const { status } = await request(port, 'GET', '/agents', { token: env.IAO_TOKEN })
+    const { status } = await request(socketPath, 'GET', '/agents', { token: env.IAO_TOKEN })
     expect(status).toBe(401)
   })
 
   it('rejects body above 1,000,000 bytes', async () => {
-    const { port } = await startIaoServer()
+    const { socketPath } = await startIaoServer()
     const env = registerPtySession('pty-1', 'node-1')
 
     // Build a payload just over 1 MB
@@ -387,8 +401,7 @@ describe('HTTP security', () => {
     await new Promise<void>((resolve, reject) => {
       const req = http.request(
         {
-          host: '127.0.0.1',
-          port,
+          socketPath,
           method: 'POST',
           path: '/send',
           headers: {
@@ -418,7 +431,7 @@ describe('HTTP security', () => {
 
 describe('GET /agents', () => {
   it('returns self + list of linked agents', async () => {
-    const { port } = await startIaoServer()
+    const { socketPath } = await startIaoServer()
     const envA = registerPtySession('pty-A', 'node-A')
     registerPtySession('pty-B', 'node-B')
 
@@ -428,7 +441,7 @@ describe('GET /agents', () => {
       makeTerminal({ id: 'node-B', title: 'Beta' })
     ])
 
-    const { status, body } = await request(port, 'GET', '/agents', { token: envA.IAO_TOKEN })
+    const { status, body } = await request(socketPath, 'GET', '/agents', { token: envA.IAO_TOKEN })
     expect(status).toBe(200)
     expect((body as any).self.nodeId).toBe('node-A')
     expect((body as any).agents).toHaveLength(1)
@@ -436,27 +449,27 @@ describe('GET /agents', () => {
   })
 
   it('returns empty agents list when no edges exist', async () => {
-    const { port } = await startIaoServer()
+    const { socketPath } = await startIaoServer()
     const env = registerPtySession('pty-1', 'node-1')
     mockListActive.mockReturnValue([makeTerminal({ id: 'node-1' })])
 
-    const { body } = await request(port, 'GET', '/agents', { token: env.IAO_TOKEN })
+    const { body } = await request(socketPath, 'GET', '/agents', { token: env.IAO_TOKEN })
     expect((body as any).agents).toEqual([])
   })
 
   it('excludes the caller from the agents list', async () => {
-    const { port } = await startIaoServer()
+    const { socketPath } = await startIaoServer()
     const envA = registerPtySession('pty-A', 'node-A')
 
     mockListEdges.mockReturnValue([makeEdge('node-A', 'node-A')])
     mockListActive.mockReturnValue([makeTerminal({ id: 'node-A', title: 'Alpha' })])
 
-    const { body } = await request(port, 'GET', '/agents', { token: envA.IAO_TOKEN })
+    const { body } = await request(socketPath, 'GET', '/agents', { token: envA.IAO_TOKEN })
     expect((body as any).agents).toEqual([])
   })
 
   it('includes only terminals with active = 1', async () => {
-    const { port } = await startIaoServer()
+    const { socketPath } = await startIaoServer()
     const envA = registerPtySession('pty-A', 'node-A')
     registerPtySession('pty-B', 'node-B')
 
@@ -464,7 +477,7 @@ describe('GET /agents', () => {
     // listActiveTerminals only returns active ones — simulate by excluding node-B
     mockListActive.mockReturnValue([makeTerminal({ id: 'node-A', title: 'Alpha' })])
 
-    const { body } = await request(port, 'GET', '/agents', { token: envA.IAO_TOKEN })
+    const { body } = await request(socketPath, 'GET', '/agents', { token: envA.IAO_TOKEN })
     expect((body as any).agents).toEqual([])
   })
 })
@@ -475,7 +488,7 @@ describe('GET /agents', () => {
 
 describe('POST /send', () => {
   async function setup() {
-    const { port } = await startIaoServer()
+    const { socketPath } = await startIaoServer()
     const envA = registerPtySession('pty-A', 'node-A')
     registerPtySession('pty-B', 'node-B')
     mockListEdges.mockReturnValue([makeEdge('node-A', 'node-B')])
@@ -483,12 +496,12 @@ describe('POST /send', () => {
       makeTerminal({ id: 'node-A', title: 'Alpha' }),
       makeTerminal({ id: 'node-B', title: 'Beta' })
     ])
-    return { port, envA }
+    return { socketPath, envA }
   }
 
   it('returns 400 when target is missing', async () => {
-    const { port, envA } = await setup()
-    const { status } = await request(port, 'POST', '/send', {
+    const { socketPath, envA } = await setup()
+    const { status } = await request(socketPath, 'POST', '/send', {
       token: envA.IAO_TOKEN,
       body: { prompt: 'hello' }
     })
@@ -496,8 +509,8 @@ describe('POST /send', () => {
   })
 
   it('returns 400 when prompt is missing', async () => {
-    const { port, envA } = await setup()
-    const { status } = await request(port, 'POST', '/send', {
+    const { socketPath, envA } = await setup()
+    const { status } = await request(socketPath, 'POST', '/send', {
       token: envA.IAO_TOKEN,
       body: { target: 'Beta' }
     })
@@ -505,8 +518,8 @@ describe('POST /send', () => {
   })
 
   it('returns 404 when target matches no linked agent', async () => {
-    const { port, envA } = await setup()
-    const { status } = await request(port, 'POST', '/send', {
+    const { socketPath, envA } = await setup()
+    const { status } = await request(socketPath, 'POST', '/send', {
       token: envA.IAO_TOKEN,
       body: { target: 'NoSuchAgent', prompt: 'hi' }
     })
@@ -514,8 +527,8 @@ describe('POST /send', () => {
   })
 
   it('resolves by exact match case-insensitively', async () => {
-    const { port, envA } = await setup()
-    const { status } = await request(port, 'POST', '/send', {
+    const { socketPath, envA } = await setup()
+    const { status } = await request(socketPath, 'POST', '/send', {
       token: envA.IAO_TOKEN,
       body: { target: 'BETA', prompt: 'hello' }
     })
@@ -524,8 +537,8 @@ describe('POST /send', () => {
   })
 
   it('resolves by substring when there is a unique candidate', async () => {
-    const { port, envA } = await setup()
-    const { status } = await request(port, 'POST', '/send', {
+    const { socketPath, envA } = await setup()
+    const { status } = await request(socketPath, 'POST', '/send', {
       token: envA.IAO_TOKEN,
       body: { target: 'et', prompt: 'hi' }
     })
@@ -533,7 +546,7 @@ describe('POST /send', () => {
   })
 
   it('returns 404 when substring is ambiguous', async () => {
-    const { port } = await startIaoServer()
+    const { socketPath } = await startIaoServer()
     const envA = registerPtySession('pty-A', 'node-A')
     registerPtySession('pty-B', 'node-B')
     registerPtySession('pty-C', 'node-C')
@@ -543,7 +556,7 @@ describe('POST /send', () => {
       makeTerminal({ id: 'node-B', title: 'Beta-1' }),
       makeTerminal({ id: 'node-C', title: 'Beta-2' })
     ])
-    const { status } = await request(port, 'POST', '/send', {
+    const { status } = await request(socketPath, 'POST', '/send', {
       token: envA.IAO_TOKEN,
       body: { target: 'Beta', prompt: 'hi' }
     })
@@ -551,7 +564,7 @@ describe('POST /send', () => {
   })
 
   it('returns 409 when the target agent has no live pty', async () => {
-    const { port } = await startIaoServer()
+    const { socketPath } = await startIaoServer()
     const envA = registerPtySession('pty-A', 'node-A')
     // node-B has no registered pty session
     mockListEdges.mockReturnValue([makeEdge('node-A', 'node-B')])
@@ -559,7 +572,7 @@ describe('POST /send', () => {
       makeTerminal({ id: 'node-A', title: 'Alpha' }),
       makeTerminal({ id: 'node-B', title: 'Beta' })
     ])
-    const { status } = await request(port, 'POST', '/send', {
+    const { status } = await request(socketPath, 'POST', '/send', {
       token: envA.IAO_TOKEN,
       body: { target: 'Beta', prompt: 'hello' }
     })
@@ -567,9 +580,9 @@ describe('POST /send', () => {
   })
 
   it('writes prompt then \\r after 50ms', async () => {
-    const { port, envA } = await setup()
+    const { socketPath, envA } = await setup()
 
-    await request(port, 'POST', '/send', {
+    await request(socketPath, 'POST', '/send', {
       token: envA.IAO_TOKEN,
       body: { target: 'Beta', prompt: 'run tests' }
     })
@@ -583,8 +596,8 @@ describe('POST /send', () => {
   })
 
   it('returns { delivered: true, target } on success', async () => {
-    const { port, envA } = await setup()
-    const { status, body } = await request(port, 'POST', '/send', {
+    const { socketPath, envA } = await setup()
+    const { status, body } = await request(socketPath, 'POST', '/send', {
       token: envA.IAO_TOKEN,
       body: { target: 'Beta', prompt: 'go' }
     })
@@ -605,7 +618,7 @@ describe('POST /send', () => {
  * via `appendOutput` after the request starts.
  */
 function streamSend(
-  port: number,
+  socketPath: string,
   token: string,
   body: Record<string, unknown>
 ): { events: any[]; statusPromise: Promise<number> } {
@@ -614,8 +627,7 @@ function streamSend(
   const statusPromise = new Promise<number>((resolve, reject) => {
     const req = http.request(
       {
-        host: '127.0.0.1',
-        port,
+        socketPath,
         method: 'POST',
         path: '/send',
         headers: {
@@ -654,7 +666,7 @@ function streamSend(
 
 describe('POST /send (wait mode)', () => {
   async function setupLinked() {
-    const { port } = await startIaoServer()
+    const { socketPath } = await startIaoServer()
     const envA = registerPtySession('pty-A', 'node-A')
     registerPtySession('pty-B', 'node-B')
     mockListEdges.mockReturnValue([makeEdge('node-A', 'node-B')])
@@ -662,13 +674,13 @@ describe('POST /send (wait mode)', () => {
       makeTerminal({ id: 'node-A', title: 'Alpha' }),
       makeTerminal({ id: 'node-B', title: 'Beta' })
     ])
-    return { port, envA }
+    return { socketPath, envA }
   }
 
   it('streams NDJSON: a "sent" event, then a "result" with the captured delta', async () => {
-    const { port, envA } = await setupLinked()
+    const { socketPath, envA } = await setupLinked()
 
-    const { events, statusPromise } = streamSend(port, envA.IAO_TOKEN, {
+    const { events, statusPromise } = streamSend(socketPath, envA.IAO_TOKEN, {
       target: 'Beta',
       prompt: 'hello',
       wait: true,
@@ -701,8 +713,8 @@ describe('POST /send (wait mode)', () => {
   })
 
   it('returns timedOut:true when the target produces no output before timeoutMs', async () => {
-    const { port, envA } = await setupLinked()
-    const { events, statusPromise } = streamSend(port, envA.IAO_TOKEN, {
+    const { socketPath, envA } = await setupLinked()
+    const { events, statusPromise } = streamSend(socketPath, envA.IAO_TOKEN, {
       target: 'Beta',
       prompt: 'go',
       wait: true,
@@ -719,10 +731,10 @@ describe('POST /send (wait mode)', () => {
   })
 
   it('only returns output written after the prompt was sent (delta from initialLen)', async () => {
-    const { port, envA } = await setupLinked()
+    const { socketPath, envA } = await setupLinked()
     appendOutput('node-B', 'PRE-EXISTING OUTPUT')
 
-    const { events, statusPromise } = streamSend(port, envA.IAO_TOKEN, {
+    const { events, statusPromise } = streamSend(socketPath, envA.IAO_TOKEN, {
       target: 'Beta',
       prompt: 'go',
       wait: true,
@@ -744,9 +756,9 @@ describe('POST /send (wait mode)', () => {
   })
 
   it('rejects overlapping waits against the same target with HTTP 429', async () => {
-    const { port, envA } = await setupLinked()
+    const { socketPath, envA } = await setupLinked()
 
-    const first = streamSend(port, envA.IAO_TOKEN, {
+    const first = streamSend(socketPath, envA.IAO_TOKEN, {
       target: 'Beta',
       prompt: 'first',
       wait: true,
@@ -762,7 +774,7 @@ describe('POST /send (wait mode)', () => {
       }, 10)
     })
 
-    const { status, body } = await request(port, 'POST', '/send', {
+    const { status, body } = await request(socketPath, 'POST', '/send', {
       token: envA.IAO_TOKEN,
       body: { target: 'Beta', prompt: 'second', wait: true }
     })
@@ -774,8 +786,8 @@ describe('POST /send (wait mode)', () => {
   })
 
   it('writes the prompt and a delayed \\r to the target pty', async () => {
-    const { port, envA } = await setupLinked()
-    const { events, statusPromise } = streamSend(port, envA.IAO_TOKEN, {
+    const { socketPath, envA } = await setupLinked()
+    const { events, statusPromise } = streamSend(socketPath, envA.IAO_TOKEN, {
       target: 'Beta',
       prompt: 'run tests',
       wait: true,
@@ -796,8 +808,8 @@ describe('POST /send (wait mode)', () => {
   })
 
   it('returns 400 when target is missing in wait mode', async () => {
-    const { port, envA } = await setupLinked()
-    const { status } = await request(port, 'POST', '/send', {
+    const { socketPath, envA } = await setupLinked()
+    const { status } = await request(socketPath, 'POST', '/send', {
       token: envA.IAO_TOKEN,
       body: { prompt: 'hi', wait: true }
     })
@@ -805,14 +817,14 @@ describe('POST /send (wait mode)', () => {
   })
 
   it('returns 409 when target has no live pty in wait mode', async () => {
-    const { port } = await startIaoServer()
+    const { socketPath } = await startIaoServer()
     const envA = registerPtySession('pty-A', 'node-A')
     mockListEdges.mockReturnValue([makeEdge('node-A', 'node-B')])
     mockListActive.mockReturnValue([
       makeTerminal({ id: 'node-A', title: 'Alpha' }),
       makeTerminal({ id: 'node-B', title: 'Beta' })
     ])
-    const { status } = await request(port, 'POST', '/send', {
+    const { status } = await request(socketPath, 'POST', '/send', {
       token: envA.IAO_TOKEN,
       body: { target: 'Beta', prompt: 'hi', wait: true }
     })
@@ -826,22 +838,22 @@ describe('POST /send (wait mode)', () => {
 
 describe('GET /inspect', () => {
   it('returns 400 when target query param is missing', async () => {
-    const { port } = await startIaoServer()
+    const { socketPath } = await startIaoServer()
     const env = registerPtySession('pty-1', 'node-1')
-    const { status } = await request(port, 'GET', '/inspect', { token: env.IAO_TOKEN })
+    const { status } = await request(socketPath, 'GET', '/inspect', { token: env.IAO_TOKEN })
     expect(status).toBe(400)
   })
 
   it('returns 404 when target is not a linked agent', async () => {
-    const { port } = await startIaoServer()
+    const { socketPath } = await startIaoServer()
     const env = registerPtySession('pty-1', 'node-1')
     mockListActive.mockReturnValue([makeTerminal({ id: 'node-1' })])
-    const { status } = await request(port, 'GET', '/inspect?target=Ghost', { token: env.IAO_TOKEN })
+    const { status } = await request(socketPath, 'GET', '/inspect?target=Ghost', { token: env.IAO_TOKEN })
     expect(status).toBe(404)
   })
 
   it('returns stripped output and raw byte count', async () => {
-    const { port } = await startIaoServer()
+    const { socketPath } = await startIaoServer()
     const envB = registerPtySession('pty-B', 'node-B')
     const envA = registerPtySession('pty-A', 'node-A')
 
@@ -854,7 +866,7 @@ describe('GET /inspect', () => {
       makeTerminal({ id: 'node-B', title: 'Beta' })
     ])
 
-    const { status, body } = await request(port, 'GET', '/inspect?target=Beta', { token: envA.IAO_TOKEN })
+    const { status, body } = await request(socketPath, 'GET', '/inspect?target=Beta', { token: envA.IAO_TOKEN })
     expect(status).toBe(200)
     expect((body as any).output).toBe('hello\nworld')
     expect((body as any).bytes).toBe(raw.length)
@@ -863,7 +875,7 @@ describe('GET /inspect', () => {
 
 describe('send / inspect integration flow', () => {
   it('delivers a prompt to a linked agent and then inspects the live reply buffer', async () => {
-    const { port } = await startIaoServer()
+    const { socketPath } = await startIaoServer()
     const envA = registerPtySession('pty-A', 'node-A')
     registerPtySession('pty-B', 'node-B')
 
@@ -873,7 +885,7 @@ describe('send / inspect integration flow', () => {
       makeTerminal({ id: 'node-B', title: 'Beta' })
     ])
 
-    const send = await request(port, 'POST', '/send', {
+    const send = await request(socketPath, 'POST', '/send', {
       token: envA.IAO_TOKEN,
       body: { target: 'Beta', prompt: 'hello' }
     })
@@ -882,9 +894,220 @@ describe('send / inspect integration flow', () => {
 
     appendOutput('node-B', '\x1B[32mreply\x1B[0m')
 
-    const inspect = await request(port, 'GET', '/inspect?target=Beta', { token: envA.IAO_TOKEN })
+    const inspect = await request(socketPath, 'GET', '/inspect?target=Beta', { token: envA.IAO_TOKEN })
     expect(inspect.status).toBe(200)
     expect((inspect.body as any).output).toBe('reply')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Notes — link-gated access
+// ---------------------------------------------------------------------------
+
+function makeNote(overrides: Partial<{
+  id: string; title: string; content: string; workspace_id: string; created_at: number; updated_at: number
+}> = {}) {
+  return {
+    id: 'note-1',
+    title: 'Plan',
+    content: '# Plan\nline two\nline three',
+    x: 0,
+    y: 0,
+    width: 280,
+    height: 200,
+    workspace_id: 'ws-1',
+    created_at: 1000,
+    updated_at: 1000,
+    ...overrides
+  }
+}
+
+describe('POST /notes/create', () => {
+  it('creates a note in the terminal workspace and links it to the caller', async () => {
+    const { socketPath } = await startIaoServer()
+    const env = registerPtySession('pty-1', 'node-1')
+    mockGetTerminal.mockReturnValue({
+      id: 'node-1', title: 'Self', cwd: '/p', command: 'claude', shell: 'default',
+      x: 100, y: 50, width: 800, height: 600, workspace_id: 'ws-1'
+    })
+
+    const { status, body } = await request(socketPath, 'POST', '/notes/create', {
+      token: env.IAO_TOKEN,
+      body: { content: '# My Title\nbody' }
+    })
+
+    expect(status).toBe(200)
+    expect((body as any).note.title).toBe('My Title')
+    expect(mockUpsertNote).toHaveBeenCalledTimes(1)
+    const persisted = mockUpsertNote.mock.calls[0][0]
+    expect(persisted).toMatchObject({ content: '# My Title\nbody', workspace_id: 'ws-1' })
+    expect(mockLinkNoteToTerminal).toHaveBeenCalledWith(persisted.id, 'node-1')
+  })
+
+  it('defaults the title to "Untitled note" for empty content', async () => {
+    const { socketPath } = await startIaoServer()
+    const env = registerPtySession('pty-1', 'node-1')
+    mockGetTerminal.mockReturnValue({
+      id: 'node-1', title: 'Self', cwd: '/p', command: 'claude', shell: 'default',
+      x: 0, y: 0, width: 800, height: 600, workspace_id: 'ws-1'
+    })
+
+    const { status, body } = await request(socketPath, 'POST', '/notes/create', {
+      token: env.IAO_TOKEN, body: {}
+    })
+    expect(status).toBe(200)
+    expect((body as any).note.title).toBe('Untitled note')
+  })
+
+  it('returns 404 when the caller terminal is not found', async () => {
+    const { socketPath } = await startIaoServer()
+    const env = registerPtySession('pty-1', 'node-1')
+    mockGetTerminal.mockReturnValue(undefined)
+    const { status } = await request(socketPath, 'POST', '/notes/create', {
+      token: env.IAO_TOKEN, body: { content: 'x' }
+    })
+    expect(status).toBe(404)
+  })
+})
+
+describe('GET /notes/list', () => {
+  it('lists only notes linked to the caller terminal', async () => {
+    const { socketPath } = await startIaoServer()
+    const env = registerPtySession('pty-1', 'node-1')
+    mockListNotesForTerminal.mockReturnValue([
+      makeNote({ id: 'note-1', title: 'Alpha' }),
+      makeNote({ id: 'note-2', title: 'Beta' })
+    ])
+    const { status, body } = await request(socketPath, 'GET', '/notes/list', { token: env.IAO_TOKEN })
+    expect(status).toBe(200)
+    expect(mockListNotesForTerminal).toHaveBeenCalledWith('node-1')
+    expect((body as any).notes.map((n: any) => n.title)).toEqual(['Alpha', 'Beta'])
+  })
+})
+
+describe('GET /notes/read', () => {
+  it('returns the full content for a linked note (resolved by title)', async () => {
+    const { socketPath } = await startIaoServer()
+    const env = registerPtySession('pty-1', 'node-1')
+    mockListNotesForTerminal.mockReturnValue([makeNote()])
+    const { status, body } = await request(socketPath, 'GET', '/notes/read?target=Plan', { token: env.IAO_TOKEN })
+    expect(status).toBe(200)
+    expect((body as any).content).toBe('# Plan\nline two\nline three')
+  })
+
+  it('supports a 1-based inclusive line range', async () => {
+    const { socketPath } = await startIaoServer()
+    const env = registerPtySession('pty-1', 'node-1')
+    mockListNotesForTerminal.mockReturnValue([makeNote()])
+    const { body } = await request(socketPath, 'GET', '/notes/read?target=Plan&start=2&end=3', { token: env.IAO_TOKEN })
+    expect((body as any).content).toBe('line two\nline three')
+  })
+
+  it('denies access (403) when the note is not linked to the terminal', async () => {
+    const { socketPath } = await startIaoServer()
+    const env = registerPtySession('pty-1', 'node-1')
+    mockListNotesForTerminal.mockReturnValue([])
+    const { status, body } = await request(socketPath, 'GET', '/notes/read?target=Plan', { token: env.IAO_TOKEN })
+    expect(status).toBe(403)
+    expect((body as any).error).toMatch(/access denied/i)
+  })
+})
+
+describe('POST /notes/write', () => {
+  it('replaces the entire content of a linked note', async () => {
+    const { socketPath } = await startIaoServer()
+    const env = registerPtySession('pty-1', 'node-1')
+    mockListNotesForTerminal.mockReturnValue([makeNote()])
+    const { status } = await request(socketPath, 'POST', '/notes/write', {
+      token: env.IAO_TOKEN, body: { target: 'Plan', content: 'brand new' }
+    })
+    expect(status).toBe(200)
+    expect(mockUpsertNote).toHaveBeenCalledWith(expect.objectContaining({ id: 'note-1', content: 'brand new' }))
+  })
+
+  it('denies access (403) when not linked', async () => {
+    const { socketPath } = await startIaoServer()
+    const env = registerPtySession('pty-1', 'node-1')
+    mockListNotesForTerminal.mockReturnValue([])
+    const { status } = await request(socketPath, 'POST', '/notes/write', {
+      token: env.IAO_TOKEN, body: { target: 'Plan', content: 'x' }
+    })
+    expect(status).toBe(403)
+    expect(mockUpsertNote).not.toHaveBeenCalled()
+  })
+})
+
+describe('POST /notes/edit', () => {
+  it('replaces matched text and reports the count', async () => {
+    const { socketPath } = await startIaoServer()
+    const env = registerPtySession('pty-1', 'node-1')
+    mockListNotesForTerminal.mockReturnValue([makeNote({ content: 'foo bar foo' })])
+    const { status, body } = await request(socketPath, 'POST', '/notes/edit', {
+      token: env.IAO_TOKEN, body: { target: 'Plan', old: 'foo', new: 'baz' }
+    })
+    expect(status).toBe(200)
+    expect((body as any).replaced).toBe(2)
+    expect(mockUpsertNote).toHaveBeenCalledWith(expect.objectContaining({ content: 'baz bar baz' }))
+  })
+
+  it('returns 422 when the old text is not present', async () => {
+    const { socketPath } = await startIaoServer()
+    const env = registerPtySession('pty-1', 'node-1')
+    mockListNotesForTerminal.mockReturnValue([makeNote({ content: 'nothing here' })])
+    const { status } = await request(socketPath, 'POST', '/notes/edit', {
+      token: env.IAO_TOKEN, body: { target: 'Plan', old: 'absent', new: 'x' }
+    })
+    expect(status).toBe(422)
+    expect(mockUpsertNote).not.toHaveBeenCalled()
+  })
+
+  it('denies access (403) when not linked', async () => {
+    const { socketPath } = await startIaoServer()
+    const env = registerPtySession('pty-1', 'node-1')
+    mockListNotesForTerminal.mockReturnValue([])
+    const { status } = await request(socketPath, 'POST', '/notes/edit', {
+      token: env.IAO_TOKEN, body: { target: 'Plan', old: 'a', new: 'b' }
+    })
+    expect(status).toBe(403)
+  })
+})
+
+describe('POST /notes/rename', () => {
+  it('updates the title of a linked note', async () => {
+    const { socketPath } = await startIaoServer()
+    const env = registerPtySession('pty-1', 'node-1')
+    mockListNotesForTerminal.mockReturnValue([makeNote()])
+    const { status, body } = await request(socketPath, 'POST', '/notes/rename', {
+      token: env.IAO_TOKEN, body: { target: 'Plan', name: 'Roadmap' }
+    })
+    expect(status).toBe(200)
+    expect((body as any).note.title).toBe('Roadmap')
+    expect(mockUpsertNote).toHaveBeenCalledWith(expect.objectContaining({ id: 'note-1', title: 'Roadmap' }))
+  })
+})
+
+describe('POST /notes/delete', () => {
+  it('removes a linked note', async () => {
+    const { socketPath } = await startIaoServer()
+    const env = registerPtySession('pty-1', 'node-1')
+    mockListNotesForTerminal.mockReturnValue([makeNote()])
+    const { status, body } = await request(socketPath, 'POST', '/notes/delete', {
+      token: env.IAO_TOKEN, body: { target: 'Plan' }
+    })
+    expect(status).toBe(200)
+    expect((body as any).deleted).toBe(true)
+    expect(mockRemoveNote).toHaveBeenCalledWith('note-1')
+  })
+
+  it('denies access (403) and does not delete when not linked', async () => {
+    const { socketPath } = await startIaoServer()
+    const env = registerPtySession('pty-1', 'node-1')
+    mockListNotesForTerminal.mockReturnValue([])
+    const { status } = await request(socketPath, 'POST', '/notes/delete', {
+      token: env.IAO_TOKEN, body: { target: 'Plan' }
+    })
+    expect(status).toBe(403)
+    expect(mockRemoveNote).not.toHaveBeenCalled()
   })
 })
 
@@ -893,8 +1116,8 @@ describe('send / inspect integration flow', () => {
 // ---------------------------------------------------------------------------
 
 describe('GET /debug', () => {
-  it('returns self, port, cli paths, linked agents and buffered_bytes', async () => {
-    const { port } = await startIaoServer()
+  it('returns self, spool dir, cli paths, linked agents and buffered_bytes', async () => {
+    const { socketPath } = await startIaoServer()
     const envA = registerPtySession('pty-A', 'node-A')
     registerPtySession('pty-B', 'node-B')
 
@@ -906,11 +1129,11 @@ describe('GET /debug', () => {
       makeTerminal({ id: 'node-B', title: 'Beta' })
     ])
 
-    const { status, body } = await request(port, 'GET', '/debug', { token: envA.IAO_TOKEN })
+    const { status, body } = await request(socketPath, 'GET', '/debug', { token: envA.IAO_TOKEN })
     expect(status).toBe(200)
     const b = body as any
     expect(b.self.nodeId).toBe('node-A')
-    expect(b.port).toBe(port)
+    expect(b.spool).toContain('iao-rpc-')
     expect(b.cli.bin).toContain('iao')
     expect(b.cli.script).toContain('cli.cjs')
     expect(b.linked).toHaveLength(1)
@@ -925,9 +1148,9 @@ describe('GET /debug', () => {
 
 describe('unknown routes', () => {
   it('returns 404 for unknown method/path combos', async () => {
-    const { port } = await startIaoServer()
+    const { socketPath } = await startIaoServer()
     const env = registerPtySession('pty-1', 'node-1')
-    const { status } = await request(port, 'GET', '/nope', { token: env.IAO_TOKEN })
+    const { status } = await request(socketPath, 'GET', '/nope', { token: env.IAO_TOKEN })
     expect(status).toBe(404)
   })
 })
@@ -938,10 +1161,10 @@ describe('unknown routes', () => {
 
 describe('invalid JSON body', () => {
   it('returns 500 for malformed JSON', async () => {
-    const { port } = await startIaoServer()
+    const { socketPath } = await startIaoServer()
     const env = registerPtySession('pty-1', 'node-1')
 
-    const { status } = await request(port, 'POST', '/send', {
+    const { status } = await request(socketPath, 'POST', '/send', {
       token: env.IAO_TOKEN,
       rawBody: 'not-valid-json{'
     })
@@ -956,7 +1179,7 @@ describe('invalid JSON body', () => {
 
 describe('stripAnsi (via GET /inspect)', () => {
   async function inspectWith(raw: string) {
-    const { port } = await startIaoServer()
+    const { socketPath } = await startIaoServer()
     const envB = registerPtySession('pty-B', 'node-B')
     const envA = registerPtySession('pty-A', 'node-A')
 
@@ -968,7 +1191,7 @@ describe('stripAnsi (via GET /inspect)', () => {
       makeTerminal({ id: 'node-B', title: 'Beta' })
     ])
 
-    const { body } = await request(port, 'GET', '/inspect?target=Beta', { token: envA.IAO_TOKEN })
+    const { body } = await request(socketPath, 'GET', '/inspect?target=Beta', { token: envA.IAO_TOKEN })
     await stopIaoServer()
     return (body as any).output as string
   }
@@ -1000,7 +1223,7 @@ describe('stripAnsi (via GET /inspect)', () => {
 
 describe('resolveLinkedAgent', () => {
   it('exact match takes priority over partial', async () => {
-    const { port } = await startIaoServer()
+    const { socketPath } = await startIaoServer()
     const envA = registerPtySession('pty-A', 'node-A')
     registerPtySession('pty-B', 'node-B')
     registerPtySession('pty-C', 'node-C')
@@ -1012,7 +1235,7 @@ describe('resolveLinkedAgent', () => {
       makeTerminal({ id: 'node-C', title: 'beta-extended' }) // partial
     ])
 
-    const { status, body } = await request(port, 'POST', '/send', {
+    const { status, body } = await request(socketPath, 'POST', '/send', {
       token: envA.IAO_TOKEN,
       body: { target: 'beta', prompt: 'go' }
     })
@@ -1021,7 +1244,7 @@ describe('resolveLinkedAgent', () => {
   })
 
   it('returns 404 (undefined) when partial match is ambiguous', async () => {
-    const { port } = await startIaoServer()
+    const { socketPath } = await startIaoServer()
     const envA = registerPtySession('pty-A', 'node-A')
     registerPtySession('pty-B', 'node-B')
     registerPtySession('pty-C', 'node-C')
@@ -1033,7 +1256,7 @@ describe('resolveLinkedAgent', () => {
       makeTerminal({ id: 'node-C', title: 'BetaTwo' })
     ])
 
-    const { status } = await request(port, 'POST', '/send', {
+    const { status } = await request(socketPath, 'POST', '/send', {
       token: envA.IAO_TOKEN,
       body: { target: 'Beta', prompt: 'go' }
     })

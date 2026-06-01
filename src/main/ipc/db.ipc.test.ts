@@ -23,6 +23,9 @@ vi.mock('../services/db.service', () => ({
   listNotes: vi.fn(() => []),
   upsertNote: vi.fn(),
   removeNote: vi.fn(),
+  listNoteLinks: vi.fn(() => []),
+  upsertNoteLink: vi.fn(),
+  removeNoteLink: vi.fn(),
 }))
 
 import { registerDbIpc } from './db.ipc'
@@ -110,5 +113,24 @@ describe('db.ipc', () => {
   it('notes:remove calls removeNote(id)', async () => {
     await ipcHandlers.get(IpcChannels.notesRemove)!({}, 'note-1')
     expect(dbService.removeNote).toHaveBeenCalledWith('note-1')
+  })
+
+  it('note-links:list calls listNoteLinks and returns its result', async () => {
+    const links = [{ id: 'l1', note_id: 'note-1', terminal_id: 't1' }]
+    vi.mocked(dbService.listNoteLinks).mockReturnValue(links as any)
+    const result = await ipcHandlers.get(IpcChannels.noteLinksList)!()
+    expect(dbService.listNoteLinks).toHaveBeenCalled()
+    expect(result).toBe(links)
+  })
+
+  it('note-links:upsert calls upsertNoteLink with the record payload', async () => {
+    const link = { id: 'l1', note_id: 'note-1', terminal_id: 't1' }
+    await ipcHandlers.get(IpcChannels.noteLinksUpsert)!({}, link)
+    expect(dbService.upsertNoteLink).toHaveBeenCalledWith(link)
+  })
+
+  it('note-links:remove calls removeNoteLink(id)', async () => {
+    await ipcHandlers.get(IpcChannels.noteLinksRemove)!({}, 'l1')
+    expect(dbService.removeNoteLink).toHaveBeenCalledWith('l1')
   })
 })

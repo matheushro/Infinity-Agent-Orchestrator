@@ -1,19 +1,28 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { EventEmitter } from 'events'
 import { readFileSync } from 'fs'
 import { join } from 'path'
+import * as realPath from 'path'
 import vm from 'vm'
 
-type HttpResponseSpec = {
+// The in-terminal CLI talks to the bridge purely through files (the agent
+// sandbox blocks connect()). These tests run the bundled CLI source in a vm
+// with a mocked `fs`: when the CLI renames a `<id>.req` into place we play the
+// role of the bridge, materializing the matching `<id>.res` from a queued
+// response. The CLI then polls and parses it exactly as in production.
+
+type ResponseSpec = {
+  /** Buffered JSON reply. */
   statusCode?: number
   body?: unknown
+  /** Streaming reply (POST /send wait): NDJSON text the bridge would emit. */
   chunks?: string[]
-  error?: Error
 }
 
-type RequestCall = {
-  options: Record<string, unknown>
-  body: string
+type RpcCall = {
+  method: string
+  path: string
+  body: unknown
+  token: string
 }
 
 class ExitSignal extends Error {
@@ -42,72 +51,82 @@ function removeAutoRun(source: string): string {
   return source.slice(0, autoRunIndex)
 }
 
-function makeHttpMock(responses: HttpResponseSpec[]) {
-  const calls: RequestCall[] = []
+/** Translate a queued response spec into the NDJSON `.res` file the bridge writes. */
+function resFileFor(spec: ResponseSpec): string {
+  if (spec.chunks) {
+    const joined = spec.chunks.join('')
+    let out = ''
+    for (const raw of joined.split('\n')) {
+      const line = raw.trim()
+      if (!line) continue
+      out += JSON.stringify({ t: 'event', d: JSON.parse(line) }) + '\n'
+    }
+    out += JSON.stringify({ t: 'end', status: spec.statusCode ?? 200 }) + '\n'
+    return out
+  }
+  const status = spec.statusCode ?? 200
+  const body = spec.body ?? {}
+  return (
+    JSON.stringify({ t: 'response', status, body }) + '\n' +
+    JSON.stringify({ t: 'end', status }) + '\n'
+  )
+}
+
+function makeFsMock(responses: ResponseSpec[]) {
+  const files = new Map<string, string>()
+  const rpcCalls: RpcCall[] = []
   const queue = [...responses]
 
-  const request = vi.fn((options: Record<string, unknown>, callback: (res: EventEmitter) => void) => {
-    const call: RequestCall = { options, body: '' }
-    calls.push(call)
-
-    const req = new EventEmitter() as EventEmitter & {
-      write: (chunk: string | Buffer) => boolean
-      end: () => void
-      destroy: () => void
-    }
-
-    req.write = (chunk: string | Buffer) => {
-      call.body += Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk)
-      return true
-    }
-
-    req.destroy = () => {
-      req.emit('close')
-    }
-
-    req.end = () => {
-      const spec = queue.shift()
-      if (!spec) throw new Error('missing mocked http response')
-      if (spec.error) {
-        req.emit('error', spec.error)
-        return
+  const fs = {
+    writeFileSync: vi.fn((p: unknown, data: unknown) => {
+      files.set(String(p), String(data))
+    }),
+    renameSync: vi.fn((from: unknown, to: unknown) => {
+      const f = String(from)
+      const t = String(to)
+      const data = files.get(f)
+      files.delete(f)
+      if (data !== undefined) files.set(t, data)
+      // A rename into `<id>.req` is the CLI handing us a request. Act as the
+      // bridge: record it and drop the matching `<id>.res` for the CLI to read.
+      if (t.endsWith('.req') && data !== undefined) {
+        let reqObj: { method?: string; path?: string; body?: unknown; token?: string } = {}
+        try { reqObj = JSON.parse(data) } catch { /* malformed */ }
+        rpcCalls.push({
+          method: reqObj.method ?? '',
+          path: reqObj.path ?? '',
+          body: reqObj.body,
+          token: reqObj.token ?? ''
+        })
+        const spec = queue.shift()
+        if (!spec) throw new Error('missing mocked bridge response')
+        const resPath = t.slice(0, -'.req'.length) + '.res'
+        files.set(resPath, resFileFor(spec))
       }
-
-      const res = new EventEmitter() as EventEmitter & {
-        statusCode: number
-        setEncoding: (encoding: string) => void
+    }),
+    readFileSync: vi.fn((p: unknown) => {
+      const v = files.get(String(p))
+      if (v === undefined) {
+        const err = new Error('ENOENT') as Error & { code: string }
+        err.code = 'ENOENT'
+        throw err
       }
-      res.statusCode = spec.statusCode ?? 200
-      res.setEncoding = vi.fn()
+      return v
+    }),
+    unlinkSync: vi.fn((p: unknown) => { files.delete(String(p)) })
+  }
 
-      callback(res)
-
-      if (spec.body !== undefined) {
-        const text = typeof spec.body === 'string' ? spec.body : JSON.stringify(spec.body)
-        res.emit('data', Buffer.from(text, 'utf8'))
-      }
-
-      for (const chunk of spec.chunks ?? []) {
-        res.emit('data', chunk)
-      }
-
-      res.emit('end')
-    }
-
-    return req
-  })
-
-  return { request, calls }
+  return { fs, rpcCalls }
 }
 
 async function loadCli(options: {
   argv?: string[]
   env?: Record<string, string | undefined>
-  responses?: HttpResponseSpec[]
+  responses?: ResponseSpec[]
 }) {
   const stdout: string[] = []
   const stderr: string[] = []
-  const http = makeHttpMock(options.responses ?? [])
+  const { fs, rpcCalls } = makeFsMock(options.responses ?? [])
 
   const processMock = {
     argv: options.argv ?? ['node', 'iao'],
@@ -146,7 +165,8 @@ async function loadCli(options: {
     parseInt,
     process: processMock,
     require: (id: string) => {
-      if (id === 'http') return { request: http.request }
+      if (id === 'fs') return fs
+      if (id === 'path') return realPath
       throw new Error(`unexpected require: ${id}`)
     },
     setInterval,
@@ -169,7 +189,7 @@ async function loadCli(options: {
     ...exports,
     stdout: () => stdout.join(''),
     stderr: () => stderr.join(''),
-    httpCalls: http.calls,
+    rpcCalls,
     runMain: async () => {
       try {
         await exports.main()
@@ -180,15 +200,17 @@ async function loadCli(options: {
   }
 }
 
+const ENV = { IAO_RPC_DIR: '/tmp/iao-rpc-test', IAO_TOKEN: 'test-token' }
+
 afterEach(() => {
   vi.clearAllMocks()
 })
 
 describe('CLI bundle', () => {
-  it('boots the local HTTP client on 127.0.0.1 with the bearer token from env', async () => {
+  it('writes a request file with method, path and bearer token from env', async () => {
     const cli = await loadCli({
       env: {
-        IAO_PORT: '4312',
+        IAO_RPC_DIR: '/tmp/iao-rpc-test',
         IAO_TOKEN: 'test-token',
         IAO_NODE_ID: 'node-self',
         IAO_CLI: '/custom/bin/iao'
@@ -199,17 +221,15 @@ describe('CLI bundle', () => {
 
     await cli.request('GET', '/agents')
 
-    expect(cli.httpCalls).toHaveLength(1)
-    expect(cli.httpCalls[0].options).toMatchObject({
-      host: '127.0.0.1',
-      port: 4312,
+    expect(cli.rpcCalls).toHaveLength(1)
+    expect(cli.rpcCalls[0]).toMatchObject({
       method: 'GET',
-      path: '/agents'
+      path: '/agents',
+      token: 'test-token'
     })
-    expect((cli.httpCalls[0].options.headers as Record<string, string>).authorization).toBe('Bearer test-token')
   })
 
-  it('prints help for no args, -h, and --help without hitting http', async () => {
+  it('prints help for no args, -h, and --help without touching the spool', async () => {
     const noArgs = await loadCli({ argv: ['node', 'iao'] })
     const shortHelp = await loadCli({ argv: ['node', 'iao', '-h'] })
     const longHelp = await loadCli({ argv: ['node', 'iao', '--help'] })
@@ -222,14 +242,14 @@ describe('CLI bundle', () => {
     expect(noArgs.stdout()).toContain('Usage:')
     expect(shortHelp.stdout()).toContain('iao send "Agent Name" "prompt"')
     expect(longHelp.stdout()).toContain('iao debug                                  Show diagnostic info about the bridge')
-    expect(noArgs.httpCalls).toHaveLength(0)
-    expect(shortHelp.httpCalls).toHaveLength(0)
-    expect(longHelp.httpCalls).toHaveLength(0)
+    expect(noArgs.rpcCalls).toHaveLength(0)
+    expect(shortHelp.rpcCalls).toHaveLength(0)
+    expect(longHelp.rpcCalls).toHaveLength(0)
   })
 
   it('lists linked agents and formats title plus command', async () => {
     const cli = await loadCli({
-      env: { IAO_PORT: '4312', IAO_TOKEN: 'test-token' },
+      env: { ...ENV },
       responses: [{ statusCode: 200, body: { self: { nodeId: 'self', title: 'Self' }, agents: [
         { id: 'a1', title: 'Alpha', command: 'claude' },
         { id: 'b1', title: 'Beta', command: 'codex' }
@@ -241,12 +261,12 @@ describe('CLI bundle', () => {
 
     expect(cli.stdout()).toMatch(/Alpha\s+· claude/)
     expect(cli.stdout()).toMatch(/Beta\s+· codex/)
-    expect(cli.httpCalls[0].options).toMatchObject({ method: 'GET', path: '/agents' })
+    expect(cli.rpcCalls[0]).toMatchObject({ method: 'GET', path: '/agents' })
   })
 
   it('prints the empty-list hint when no linked agents are available', async () => {
     const cli = await loadCli({
-      env: { IAO_PORT: '4312', IAO_TOKEN: 'test-token' },
+      env: { ...ENV },
       responses: [{ statusCode: 200, body: { self: { nodeId: 'self', title: 'Self' }, agents: [] } }],
       argv: ['node', 'iao', 'agents']
     })
@@ -258,7 +278,7 @@ describe('CLI bundle', () => {
 
   it('requires target and prompt for send', async () => {
     const cli = await loadCli({
-      env: { IAO_PORT: '4312', IAO_TOKEN: 'test-token' },
+      env: { ...ENV },
       argv: ['node', 'iao', 'send', 'Beta']
     })
 
@@ -269,7 +289,7 @@ describe('CLI bundle', () => {
 
   it('concatenates multi-word prompts and prints the delivery confirmation with the resolved title', async () => {
     const cli = await loadCli({
-      env: { IAO_PORT: '4312', IAO_TOKEN: 'test-token' },
+      env: { ...ENV },
       responses: [{
         statusCode: 200,
         body: {
@@ -282,18 +302,18 @@ describe('CLI bundle', () => {
 
     await cli.runMain()
 
-    expect(JSON.parse(cli.httpCalls[0].body)).toMatchObject({
+    expect(cli.rpcCalls[0].body).toMatchObject({
       target: 'Beta',
       prompt: 'hello from the bundle'
     })
     expect(cli.stdout()).toContain('Delivered to "Beta Agent". Run: iao inspect "Beta Agent" to read the reply.')
-    expect(cli.httpCalls[0].options).toMatchObject({ method: 'POST', path: '/send' })
+    expect(cli.rpcCalls[0]).toMatchObject({ method: 'POST', path: '/send' })
   })
 
   it('parses NDJSON from the bridge and emits send wait events in order', async () => {
     const events: unknown[] = []
     const cli = await loadCli({
-      env: { IAO_PORT: '4312', IAO_TOKEN: 'test-token' },
+      env: { ...ENV },
       responses: [{
         statusCode: 200,
         chunks: [
@@ -313,23 +333,18 @@ describe('CLI bundle', () => {
       { type: 'status', elapsedMs: 1500, bytes: 12, idleFor: 750, seenActivity: true },
       { type: 'result', target: { id: 'node-beta', title: 'Beta Agent' }, output: 'reply body', bytes: 10, timedOut: false, elapsedMs: 3500 }
     ])
-    expect(cli.httpCalls[0].options).toMatchObject({
-      method: 'POST',
-      path: '/send',
-      host: '127.0.0.1',
-      port: 4312
-    })
-    expect((cli.httpCalls[0].options.headers as Record<string, string>).accept).toBe('application/x-ndjson')
+    expect(cli.rpcCalls[0]).toMatchObject({ method: 'POST', path: '/send' })
+    expect(cli.rpcCalls[0].body).toMatchObject({ target: 'Beta', wait: true })
   })
 
   it('prints inspect output or the fallback message when the buffer is empty', async () => {
     const populated = await loadCli({
-      env: { IAO_PORT: '4312', IAO_TOKEN: 'test-token' },
+      env: { ...ENV },
       responses: [{ statusCode: 200, body: { target: { id: 'node-beta', title: 'Beta Agent' }, output: 'line one', bytes: 8 } }],
       argv: ['node', 'iao', 'inspect', 'Beta Agent']
     })
     const empty = await loadCli({
-      env: { IAO_PORT: '4312', IAO_TOKEN: 'test-token' },
+      env: { ...ENV },
       responses: [{ statusCode: 200, body: { target: { id: 'node-beta', title: 'Beta Agent' }, output: '', bytes: 0 } }],
       argv: ['node', 'iao', 'inspect', 'Beta Agent']
     })
@@ -341,10 +356,10 @@ describe('CLI bundle', () => {
     expect(empty.stdout()).toContain('(no output captured yet for "Beta Agent")')
   })
 
-  it('prints debug output with the self record, port, paths, and env state', async () => {
+  it('prints debug output with the self record, spool dir, paths, and env state', async () => {
     const cli = await loadCli({
       env: {
-        IAO_PORT: '4312',
+        IAO_RPC_DIR: '/tmp/iao-rpc-test',
         IAO_TOKEN: 'test-token',
         IAO_NODE_ID: 'node-self',
         IAO_CLI: '/custom/bin/iao'
@@ -353,7 +368,7 @@ describe('CLI bundle', () => {
         statusCode: 200,
         body: {
           self: { nodeId: 'node-self', title: 'Self Terminal' },
-          port: 4312,
+          spool: '/tmp/iao-rpc-test',
           cli: {
             bin: '/bundle/iao',
             script: '/bundle/cli.cjs',
@@ -370,7 +385,7 @@ describe('CLI bundle', () => {
 
     expect(cli.stdout()).toContain('current terminal : Self Terminal')
     expect(cli.stdout()).toContain('node id          : node-self')
-    expect(cli.stdout()).toContain('bridge port      : 127.0.0.1:4312')
+    expect(cli.stdout()).toContain('rpc spool dir    : /tmp/iao-rpc-test')
     expect(cli.stdout()).toContain('iao binary       : /custom/bin/iao')
     expect(cli.stdout()).toContain('node binary      : /fake/node')
     expect(cli.stdout()).toContain('cli script       : /bundle/cli.cjs')
@@ -381,20 +396,20 @@ describe('CLI bundle', () => {
     expect(cli.stdout()).toContain('env IAO_TOKEN    : (set, 10 chars)')
   })
 
-  it('exits 2 with a clear message when IAO_PORT or IAO_TOKEN is missing', async () => {
+  it('exits 2 with a clear message when IAO_RPC_DIR or IAO_TOKEN is missing', async () => {
     const cli = await loadCli({
-      env: { IAO_PORT: '4312' },
+      env: { IAO_RPC_DIR: '/tmp/iao-rpc-test' },
       argv: ['node', 'iao', 'agents']
     })
 
     await cli.runMain()
 
-    expect(cli.stderr()).toContain('iao: not inside an IAO terminal (missing IAO_PORT/IAO_TOKEN).')
+    expect(cli.stderr()).toContain('iao: not inside an IAO terminal (missing IAO_RPC_DIR/IAO_TOKEN).')
   })
 
   it('exits 1 for unknown commands', async () => {
     const cli = await loadCli({
-      env: { IAO_PORT: '4312', IAO_TOKEN: 'test-token' },
+      env: { ...ENV },
       argv: ['node', 'iao', 'what-is-this']
     })
 
@@ -403,14 +418,157 @@ describe('CLI bundle', () => {
     expect(cli.stderr()).toContain('iao: unknown command "what-is-this". Try: iao help')
   })
 
-  it('propagates HTTP errors from body.error or falls back to http <status>', async () => {
+  it('note list prints linked note titles', async () => {
+    const cli = await loadCli({
+      env: { ...ENV },
+      responses: [{ statusCode: 200, body: { notes: [{ id: 'n1', title: 'Alpha' }, { id: 'n2', title: 'Beta' }] } }],
+      argv: ['node', 'iao', 'note', 'list']
+    })
+
+    await cli.runMain()
+
+    expect(cli.rpcCalls[0]).toMatchObject({ method: 'GET', path: '/notes/list' })
+    expect(cli.stdout()).toContain('Alpha')
+    expect(cli.stdout()).toContain('Beta')
+  })
+
+  it('note list prints the empty hint when no notes are linked', async () => {
+    const cli = await loadCli({
+      env: { ...ENV },
+      responses: [{ statusCode: 200, body: { notes: [] } }],
+      argv: ['node', 'iao', 'note', 'list']
+    })
+    await cli.runMain()
+    expect(cli.stdout()).toContain('(no notes linked to this terminal')
+  })
+
+  it('note create posts the joined content and confirms with the resolved title', async () => {
+    const cli = await loadCli({
+      env: { ...ENV },
+      responses: [{ statusCode: 200, body: { note: { id: 'n1', title: 'My Title' } } }],
+      argv: ['node', 'iao', 'note', 'create', '# My Title', 'and body']
+    })
+
+    await cli.runMain()
+
+    expect(cli.rpcCalls[0]).toMatchObject({ method: 'POST', path: '/notes/create' })
+    expect(cli.rpcCalls[0].body).toEqual({ content: '# My Title and body' })
+    expect(cli.stdout()).toContain('Created note "My Title" (linked to this terminal).')
+  })
+
+  it('note read prints the body of a linked note', async () => {
+    const cli = await loadCli({
+      env: { ...ENV },
+      responses: [{ statusCode: 200, body: { note: { id: 'n1', title: 'Plan' }, content: 'hello\nworld' } }],
+      argv: ['node', 'iao', 'note', 'read', 'Plan']
+    })
+
+    await cli.runMain()
+
+    expect(cli.rpcCalls[0]).toMatchObject({ method: 'GET', path: '/notes/read?target=Plan' })
+    expect(cli.stdout()).toContain('hello\nworld')
+  })
+
+  it('note read peels trailing numeric args into a start/end line range', async () => {
+    const cli = await loadCli({
+      env: { ...ENV },
+      responses: [{ statusCode: 200, body: { note: { id: 'n1', title: 'Plan' }, content: 'line two\nline three' } }],
+      argv: ['node', 'iao', 'note', 'read', 'Plan', '2', '3']
+    })
+
+    await cli.runMain()
+
+    expect(cli.rpcCalls[0].path).toBe('/notes/read?target=Plan&start=2&end=3')
+  })
+
+  it('note write posts target and content', async () => {
+    const cli = await loadCli({
+      env: { ...ENV },
+      responses: [{ statusCode: 200, body: { note: { id: 'n1', title: 'Plan' }, bytes: 9 } }],
+      argv: ['node', 'iao', 'note', 'write', 'Plan', 'new body']
+    })
+
+    await cli.runMain()
+
+    expect(cli.rpcCalls[0]).toMatchObject({ method: 'POST', path: '/notes/write' })
+    expect(cli.rpcCalls[0].body).toEqual({ target: 'Plan', content: 'new body' })
+    expect(cli.stdout()).toContain('Wrote 9 bytes to "Plan".')
+  })
+
+  it('note edit posts target/old/new and reports replacement count', async () => {
+    const cli = await loadCli({
+      env: { ...ENV },
+      responses: [{ statusCode: 200, body: { note: { id: 'n1', title: 'Plan' }, replaced: 2 } }],
+      argv: ['node', 'iao', 'note', 'edit', 'Plan', 'foo', 'bar']
+    })
+
+    await cli.runMain()
+
+    expect(cli.rpcCalls[0]).toMatchObject({ method: 'POST', path: '/notes/edit' })
+    expect(cli.rpcCalls[0].body).toEqual({ target: 'Plan', old: 'foo', new: 'bar' })
+    expect(cli.stdout()).toContain('Replaced 2 occurrence(s) in "Plan".')
+  })
+
+  it('note rename posts the old and new names', async () => {
+    const cli = await loadCli({
+      env: { ...ENV },
+      responses: [{ statusCode: 200, body: { note: { id: 'n1', title: 'Roadmap' } } }],
+      argv: ['node', 'iao', 'note', 'rename', 'Plan', 'Roadmap']
+    })
+
+    await cli.runMain()
+
+    expect(cli.rpcCalls[0]).toMatchObject({ method: 'POST', path: '/notes/rename' })
+    expect(cli.rpcCalls[0].body).toEqual({ target: 'Plan', name: 'Roadmap' })
+    expect(cli.stdout()).toContain('Renamed note to "Roadmap".')
+  })
+
+  it('note delete posts the target name', async () => {
+    const cli = await loadCli({
+      env: { ...ENV },
+      responses: [{ statusCode: 200, body: { deleted: true, note: { id: 'n1', title: 'Plan' } } }],
+      argv: ['node', 'iao', 'note', 'delete', 'Plan']
+    })
+
+    await cli.runMain()
+
+    expect(cli.rpcCalls[0]).toMatchObject({ method: 'POST', path: '/notes/delete' })
+    expect(cli.rpcCalls[0].body).toEqual({ target: 'Plan' })
+    expect(cli.stdout()).toContain('Deleted note "Plan".')
+  })
+
+  it('note read surfaces the access-denied error from the bridge', async () => {
+    const cli = await loadCli({
+      env: { ...ENV },
+      responses: [{ statusCode: 403, body: { error: 'access denied: no note named "Plan" is linked to this terminal.' } }],
+      argv: ['node', 'iao', 'note', 'read', 'Plan']
+    })
+
+    await cli.runMain()
+
+    expect(cli.stderr()).toContain('iao: access denied: no note named "Plan" is linked to this terminal.')
+  })
+
+  it('rejects an unknown note subcommand', async () => {
+    const cli = await loadCli({
+      env: { ...ENV },
+      argv: ['node', 'iao', 'note', 'frobnicate']
+    })
+
+    await cli.runMain()
+
+    expect(cli.stderr()).toContain('iao: unknown note subcommand "frobnicate"')
+    expect(cli.rpcCalls).toHaveLength(0)
+  })
+
+  it('propagates bridge errors from body.error or falls back to http <status>', async () => {
     const bodyError = await loadCli({
-      env: { IAO_PORT: '4312', IAO_TOKEN: 'test-token' },
+      env: { ...ENV },
       responses: [{ statusCode: 503, body: { error: 'bridge unavailable' } }],
       argv: ['node', 'iao', 'agents']
     })
     const fallbackStatus = await loadCli({
-      env: { IAO_PORT: '4312', IAO_TOKEN: 'test-token' },
+      env: { ...ENV },
       responses: [{ statusCode: 500, body: {} }],
       argv: ['node', 'iao', 'inspect', 'Beta Agent']
     })

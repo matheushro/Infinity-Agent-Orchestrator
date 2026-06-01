@@ -17,6 +17,7 @@ import { TerminalStyleModal } from '@renderer/features/terminals/components/Term
 import { useTerminals } from '@renderer/features/terminals/hooks/useTerminals'
 import { useCanvasTexts } from '@renderer/features/canvas/hooks/useCanvasTexts'
 import { useNotes } from '@renderer/features/notes/hooks/useNotes'
+import { useNoteLinks } from '@renderer/features/notes/hooks/useNoteLinks'
 import { useEdges } from '@renderer/features/canvas/hooks/useEdges'
 import type { TerminalNodeData } from '@renderer/features/terminals/types'
 import type { ShellType } from '@renderer/features/terminals/types'
@@ -106,7 +107,9 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
       removeNote,
     } = useNotes(workspace.id)
     const nodeIds = useMemo(() => nodes.map((n) => n.id), [nodes])
+    const noteIds = useMemo(() => notes.map((n) => n.id), [notes])
     const { edges, addEdge, removeEdge } = useEdges(nodeIds)
+    const { noteLinks, addNoteLink, removeNoteLink } = useNoteLinks(nodeIds, noteIds)
 
     const [selectedIds, setSelectedIds] = useState<string[]>([])
     const [selectedTextIds, setSelectedTextIds] = useState<string[]>([])
@@ -175,7 +178,11 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
             t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
           if (editable) return
           if (selectedEdgeId) {
+            // selectedEdgeId may point at a terminal↔terminal edge or a
+            // note↔terminal link; both render in the same SVG layer. Attempt
+            // both removals — the non-matching one is a no-op.
             removeEdge(selectedEdgeId)
+            removeNoteLink(selectedEdgeId)
             setSelectedEdgeId(null)
           }
           if (selectedTextIds.length > 0) {
@@ -212,6 +219,7 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
       selectedTextIds,
       selectedNoteIds,
       removeEdge,
+      removeNoteLink,
       removeNode,
       removeText,
       removeNote,
@@ -234,7 +242,14 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
         setLinkSource(id)
         return
       }
-      if (linkSource !== id) addEdge(linkSource, id)
+      if (linkSource !== id) {
+        const sourceIsNote = noteIds.includes(linkSource)
+        const targetIsNote = noteIds.includes(id)
+        if (sourceIsNote && !targetIsNote) addNoteLink(linkSource, id)
+        else if (!sourceIsNote && targetIsNote) addNoteLink(id, linkSource)
+        else if (!sourceIsNote && !targetIsNote) addEdge(linkSource, id)
+        // note↔note has no meaning — silently ignored.
+      }
       setTool('select')
       setLinkSource(null)
     }
@@ -327,6 +342,7 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
           texts={texts}
           notes={notes}
           edges={edges}
+          noteLinks={noteLinks}
           selectedIds={selectedIds}
           selectedTextIds={selectedTextIds}
           selectedNoteIds={selectedNoteIds}

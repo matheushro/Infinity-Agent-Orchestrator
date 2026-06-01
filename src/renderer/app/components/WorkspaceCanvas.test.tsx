@@ -8,7 +8,7 @@ import type { WorkspaceCanvasHandle } from './WorkspaceCanvas'
 
 // ── Mocks ─────────────────────────────────────────────────────────────────
 
-const { mockUseTerminals, mockUseCanvasTexts, mockUseNotes, mockUseEdges } = vi.hoisted(() => ({
+const { mockUseTerminals, mockUseCanvasTexts, mockUseNotes, mockUseEdges, mockUseNoteLinks } = vi.hoisted(() => ({
   mockUseTerminals: {
     nodes: [] as TerminalNodeData[],
     createTerminal: vi.fn(),
@@ -35,6 +35,11 @@ const { mockUseTerminals, mockUseCanvasTexts, mockUseNotes, mockUseEdges } = vi.
     addEdge: vi.fn(),
     removeEdge: vi.fn(),
   },
+  mockUseNoteLinks: {
+    noteLinks: [],
+    addNoteLink: vi.fn(),
+    removeNoteLink: vi.fn(),
+  },
 }))
 
 vi.mock('@renderer/features/terminals/hooks/useTerminals', () => ({
@@ -51,6 +56,10 @@ vi.mock('@renderer/features/canvas/hooks/useCanvasTexts', () => ({
 
 vi.mock('@renderer/features/notes/hooks/useNotes', () => ({
   useNotes: vi.fn(() => ({ ...mockUseNotes })),
+}))
+
+vi.mock('@renderer/features/notes/hooks/useNoteLinks', () => ({
+  useNoteLinks: vi.fn(() => ({ ...mockUseNoteLinks })),
 }))
 
 vi.mock('@renderer/features/canvas/components/Canvas', () => ({

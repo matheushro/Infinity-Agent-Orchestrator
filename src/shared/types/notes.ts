@@ -18,3 +18,14 @@ export interface NoteRecord {
   created_at: number
   updated_at: number
 }
+
+/**
+ * Persisted many-to-many link between a note and a terminal. A terminal may
+ * only access (read/edit/delete) notes it is linked to through one of these
+ * records — the note↔terminal analogue of `EdgeRecord` (terminal↔terminal).
+ */
+export interface NoteLinkRecord {
+  id: string
+  note_id: string
+  terminal_id: string
+}

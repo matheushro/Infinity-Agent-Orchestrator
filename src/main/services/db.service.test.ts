@@ -7,6 +7,7 @@ const store = vi.hoisted(() => ({
   edges: new Map<string, Record<string, unknown>>(),
   canvasTexts: new Map<string, Record<string, unknown>>(),
   notes: new Map<string, Record<string, unknown>>(),
+  noteLinks: new Map<string, Record<string, unknown>>(),
   workspaces: new Map<string, Record<string, unknown>>(),
 }))
 
@@ -66,6 +67,13 @@ vi.mock('better-sqlite3', () => {
                   workspace_id,
                 }))
             }
+            if (sql.includes('FROM note_links')) {
+              let rows = Array.from(store.noteLinks.values())
+              if (sql.includes('WHERE terminal_id = ?')) {
+                rows = rows.filter(l => l.terminal_id === args[0])
+              }
+              return rows.sort((a, b) => (a.created_at as number) - (b.created_at as number))
+            }
             if (sql.includes('FROM notes')) {
               return Array.from(store.notes.values())
                 .filter(n => !sql.includes('workspace_id = ?') || n.workspace_id === args[0])
@@ -92,6 +100,18 @@ vi.mock('better-sqlite3', () => {
             }
             if (sql.startsWith('SELECT * FROM workspaces WHERE id = ?')) {
               return store.workspaces.get(args[0] as string) ?? null
+            }
+            if (sql.includes('FROM note_links WHERE note_id = ? AND terminal_id = ?')) {
+              for (const l of store.noteLinks.values()) {
+                if (l.note_id === args[0] && l.terminal_id === args[1]) return { 1: 1 }
+              }
+              return null
+            }
+            if (sql.includes('FROM notes WHERE id = ?')) {
+              return store.notes.get(args[0] as string) ?? null
+            }
+            if (sql.startsWith('SELECT * FROM terminals WHERE id = ?')) {
+              return store.terminals.get(args[0] as string) ?? null
             }
             return null
           },
@@ -151,6 +171,25 @@ vi.mock('better-sqlite3', () => {
                   store.terminals.set(key, { ...t, workspace_id: args[0] })
                 }
               }
+            } else if (sql.startsWith('INSERT INTO note_links')) {
+              const rec = args[0] as Record<string, unknown>
+              // ON CONFLICT(note_id, terminal_id) DO NOTHING
+              const dup = Array.from(store.noteLinks.values()).some(
+                l => l.note_id === rec.note_id && l.terminal_id === rec.terminal_id,
+              )
+              if (!dup) store.noteLinks.set(rec.id as string, { ...rec })
+            } else if (sql.includes('DELETE FROM note_links WHERE id = ?')) {
+              store.noteLinks.delete(args[0] as string)
+            } else if (sql.includes('DELETE FROM note_links WHERE note_id = ?')) {
+              const id = args[0] as string
+              for (const [key, l] of store.noteLinks) {
+                if (l.note_id === id) store.noteLinks.delete(key)
+              }
+            } else if (sql.includes('DELETE FROM note_links WHERE terminal_id = ?')) {
+              const id = args[0] as string
+              for (const [key, l] of store.noteLinks) {
+                if (l.terminal_id === id) store.noteLinks.delete(key)
+              }
             } else if (sql.includes('DELETE FROM edges WHERE source = ? OR target = ?')) {
               const id = args[0] as string
               for (const [key, edge] of store.edges) {
@@ -188,13 +227,21 @@ import {
   listNotes,
   upsertNote,
   removeNote,
+  getNote,
+  getTerminal,
+  listNoteLinks,
+  upsertNoteLink,
+  removeNoteLink,
+  isNoteLinkedToTerminal,
+  listNotesForTerminal,
+  linkNoteToTerminal,
   listWorkspaces,
   createWorkspace,
   deleteWorkspace,
   duplicateWorkspace,
 } from './db.service'
 import type { CanvasTextRecord } from '@shared/types/canvas'
-import type { NoteRecord } from '@shared/types/notes'
+import type { NoteRecord, NoteLinkRecord } from '@shared/types/notes'
 import type { TerminalRecord, EdgeRecord } from '@shared/types/terminal'
 import type { WorkspaceRecord } from '@shared/types/workspace'
 
@@ -271,6 +318,7 @@ beforeEach(() => {
   store.edges.clear()
   store.canvasTexts.clear()
   store.notes.clear()
+  store.noteLinks.clear()
   store.workspaces.clear()
   executedSql.length = 0
   initDb() // initializes the module-level `db` instance (mock: no-op schema ops)
@@ -749,5 +797,88 @@ describe('note persistence', () => {
     expect(copied).toHaveLength(1)
     expect(copied[0].title).toBe('Keep me')
     expect(copied[0].id).not.toBe('note-src')
+  })
+})
+
+// ===========================================================================
+// Note ↔ terminal links
+// ===========================================================================
+
+function makeNoteLink(overrides: Partial<NoteLinkRecord> = {}): NoteLinkRecord {
+  return {
+    id: `link-${++seq}`,
+    note_id: `note-${seq}`,
+    terminal_id: `term-${seq}`,
+    ...overrides,
+  }
+}
+
+describe('note links', () => {
+  it('persists and lists note links', () => {
+    upsertNoteLink(makeNoteLink({ id: 'l1', note_id: 'n1', terminal_id: 't1' }))
+    upsertNoteLink(makeNoteLink({ id: 'l2', note_id: 'n2', terminal_id: 't1' }))
+
+    const links = listNoteLinks()
+    expect(links).toHaveLength(2)
+    expect(links.map((l) => l.id).sort()).toEqual(['l1', 'l2'])
+  })
+
+  it('is idempotent for the same note/terminal pair (UNIQUE constraint)', () => {
+    upsertNoteLink(makeNoteLink({ id: 'l1', note_id: 'n1', terminal_id: 't1' }))
+    upsertNoteLink(makeNoteLink({ id: 'l2', note_id: 'n1', terminal_id: 't1' }))
+
+    expect(listNoteLinks()).toHaveLength(1)
+  })
+
+  it('linkNoteToTerminal generates an id and creates the row', () => {
+    const rec = linkNoteToTerminal('n1', 't1')
+    expect(rec.note_id).toBe('n1')
+    expect(rec.terminal_id).toBe('t1')
+    expect(isNoteLinkedToTerminal('n1', 't1')).toBe(true)
+    expect(isNoteLinkedToTerminal('n1', 't2')).toBe(false)
+  })
+
+  it('removes a note link by id', () => {
+    upsertNoteLink(makeNoteLink({ id: 'l1', note_id: 'n1', terminal_id: 't1' }))
+    removeNoteLink('l1')
+    expect(listNoteLinks()).toHaveLength(0)
+  })
+
+  it('listNotesForTerminal returns only the notes linked to a terminal', () => {
+    upsertNote(makeNote({ id: 'n1', title: 'Linked', created_at: 1 }))
+    upsertNote(makeNote({ id: 'n2', title: 'Other', created_at: 2 }))
+    linkNoteToTerminal('n1', 't1')
+
+    const notes = listNotesForTerminal('t1')
+    expect(notes.map((n) => n.id)).toEqual(['n1'])
+    expect(listNotesForTerminal('t2')).toEqual([])
+  })
+
+  it('removeNote also drops the note links pointing at it', () => {
+    upsertNote(makeNote({ id: 'n1' }))
+    linkNoteToTerminal('n1', 't1')
+    linkNoteToTerminal('n1', 't2')
+
+    removeNote('n1')
+
+    expect(listNoteLinks()).toHaveLength(0)
+  })
+
+  it('removeTerminal also drops the note links pointing at it', () => {
+    upsertTerminal(makeTerminal({ id: 't1' }))
+    upsertNote(makeNote({ id: 'n1' }))
+    linkNoteToTerminal('n1', 't1')
+
+    removeTerminal('t1')
+
+    expect(listNoteLinks()).toHaveLength(0)
+  })
+
+  it('getNote / getTerminal fetch a single row by id', () => {
+    upsertTerminal(makeTerminal({ id: 't1', title: 'Self' }))
+    upsertNote(makeNote({ id: 'n1', title: 'Doc' }))
+    expect(getNote('n1')?.title).toBe('Doc')
+    expect(getTerminal('t1')?.title).toBe('Self')
+    expect(getNote('missing')).toBeFalsy()
   })
 })

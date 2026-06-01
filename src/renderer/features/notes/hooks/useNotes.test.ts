@@ -3,7 +3,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { NoteRecord } from '@shared/types/notes'
 
 const { mockNoteRepository, mockCreateNoteId } = vi.hoisted(() => ({
-  mockNoteRepository: { list: vi.fn(), persist: vi.fn(), remove: vi.fn() },
+  mockNoteRepository: {
+    list: vi.fn(),
+    persist: vi.fn(),
+    remove: vi.fn(),
+    onChange: vi.fn(() => () => {}),
+  },
   mockCreateNoteId: vi.fn(),
 }))
 

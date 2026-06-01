@@ -3,7 +3,7 @@ import { app } from 'electron'
 import { join } from 'path'
 import Database from 'better-sqlite3'
 import type { CanvasTextRecord } from '@shared/types/canvas'
-import type { NoteRecord } from '@shared/types/notes'
+import type { NoteRecord, NoteLinkRecord } from '@shared/types/notes'
 import type { EdgeRecord, TerminalRecord } from '@shared/types/terminal'
 import type { WorkspaceRecord } from '@shared/types/workspace'
 
@@ -71,6 +71,19 @@ export function initDb(): void {
       workspace_id TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
+    )
+  `)
+
+  // Many-to-many note ↔ terminal access links. A terminal can only reach a note
+  // through one of these rows (mirrors how `edges` gate terminal↔terminal
+  // reachability). UNIQUE(note_id, terminal_id) makes linking idempotent.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS note_links (
+      id TEXT PRIMARY KEY,
+      note_id TEXT NOT NULL,
+      terminal_id TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      UNIQUE(note_id, terminal_id)
     )
   `)
 
@@ -239,7 +252,12 @@ export function upsertTerminal(record: TerminalRecord): void {
 
 export function removeTerminal(id: string): void {
   db.prepare('DELETE FROM edges WHERE source = ? OR target = ?').run(id, id)
+  db.prepare('DELETE FROM note_links WHERE terminal_id = ?').run(id)
   db.prepare('DELETE FROM terminals WHERE id = ?').run(id)
+}
+
+export function getTerminal(id: string): TerminalRecord | undefined {
+  return db.prepare('SELECT * FROM terminals WHERE id = ?').get(id) as TerminalRecord | undefined
 }
 
 // ── Edges ────────────────────────────────────────────────────────────────────
@@ -310,5 +328,63 @@ export function upsertNote(record: NoteRecord): void {
 }
 
 export function removeNote(id: string): void {
+  db.prepare('DELETE FROM note_links WHERE note_id = ?').run(id)
   db.prepare('DELETE FROM notes WHERE id = ?').run(id)
+}
+
+export function getNote(id: string): NoteRecord | undefined {
+  return db
+    .prepare(
+      'SELECT id, title, content, x, y, width, height, workspace_id, created_at, updated_at FROM notes WHERE id = ?',
+    )
+    .get(id) as NoteRecord | undefined
+}
+
+// ── Note ↔ terminal links ─────────────────────────────────────────────────────
+
+export function listNoteLinks(): NoteLinkRecord[] {
+  return db
+    .prepare('SELECT id, note_id, terminal_id FROM note_links ORDER BY created_at')
+    .all() as NoteLinkRecord[]
+}
+
+export function upsertNoteLink(record: NoteLinkRecord): void {
+  db.prepare(
+    `INSERT INTO note_links (id, note_id, terminal_id, created_at)
+     VALUES (@id, @note_id, @terminal_id, @created_at)
+     ON CONFLICT(note_id, terminal_id) DO NOTHING`,
+  ).run({ ...record, created_at: Date.now() })
+}
+
+export function removeNoteLink(id: string): void {
+  db.prepare('DELETE FROM note_links WHERE id = ?').run(id)
+}
+
+/** True if the note is reachable from the terminal through a link row. */
+export function isNoteLinkedToTerminal(noteId: string, terminalId: string): boolean {
+  return Boolean(
+    db.prepare('SELECT 1 FROM note_links WHERE note_id = ? AND terminal_id = ?').get(noteId, terminalId),
+  )
+}
+
+/** Notes a given terminal is allowed to access, ordered by creation time. */
+export function listNotesForTerminal(terminalId: string): NoteRecord[] {
+  const links = db
+    .prepare('SELECT note_id FROM note_links WHERE terminal_id = ?')
+    .all(terminalId) as { note_id: string }[]
+  const notes = links
+    .map((l) => getNote(l.note_id))
+    .filter((n): n is NoteRecord => Boolean(n))
+  return notes.sort((a, b) => a.created_at - b.created_at)
+}
+
+/** Create a link (idempotent) and return the record used for the insert. */
+export function linkNoteToTerminal(noteId: string, terminalId: string): NoteLinkRecord {
+  const record: NoteLinkRecord = {
+    id: crypto.randomUUID(),
+    note_id: noteId,
+    terminal_id: terminalId,
+  }
+  upsertNoteLink(record)
+  return record
 }

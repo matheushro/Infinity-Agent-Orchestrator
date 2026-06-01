@@ -10,6 +10,7 @@ import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { IClose } from '@renderer/components/ui'
 import type { NoteRecord } from '@shared/types/notes'
+import type { CanvasTool } from '@renderer/features/canvas/components/Canvas'
 import { toggleTaskAt } from '../lib/markdown'
 
 // Hoisted so the array identity is stable across renders — a fresh `[remarkGfm]`
@@ -21,6 +22,10 @@ interface NoteNodeProps {
   selected: boolean
   editing: boolean
   scale: number
+  /** Active canvas tool — drives link/delete-on-click behaviour. */
+  tool?: CanvasTool
+  /** Highlighted as the pending link source while the link tool is armed. */
+  linkSource?: string | null
   onSelect: (id: string) => void
   onEdit: (id: string) => void
   onDragStart: (id: string) => void
@@ -36,6 +41,8 @@ export const NoteNode = memo(function NoteNode({
   selected,
   editing,
   scale,
+  tool = 'select',
+  linkSource = null,
   onSelect,
   onEdit,
   onDragStart,
@@ -45,6 +52,9 @@ export const NoteNode = memo(function NoteNode({
   onEditingComplete,
   onContextMenu,
 }: NoteNodeProps): JSX.Element {
+  const isLinking = tool === 'link'
+  const isDelete = tool === 'delete'
+  const isLinkSource = linkSource === note.id
   const [draft, setDraft] = useState(note.content)
   const [editingTitle, setEditingTitle] = useState(false)
   const [draftTitle, setDraftTitle] = useState(note.title)
@@ -132,7 +142,7 @@ export const NoteNode = memo(function NoteNode({
       minHeight={120}
       scale={scale}
       dragHandleClassName="note-node-header"
-      disableDragging={editing}
+      disableDragging={editing || isLinking || isDelete}
       enableResizing={{
         top: true,
         right: true,
@@ -168,6 +178,13 @@ export const NoteNode = memo(function NoteNode({
       }
       onMouseDown={(event: React.MouseEvent) => {
         event.stopPropagation()
+        // In link/delete mode every click must reach the canvas router (which
+        // resolves it to a link pick or a removal), even if the note is already
+        // selected — so don't gate the callback on `selected` here.
+        if (isLinking || isDelete) {
+          onSelect(note.id)
+          return
+        }
         if (!selected) onSelect(note.id)
       }}
       onContextMenu={(event: React.MouseEvent) => {
@@ -183,7 +200,9 @@ export const NoteNode = memo(function NoteNode({
       }
       style={{
         background: 'var(--node-bg)',
-        border: '1px solid var(--line)',
+        border: isLinkSource ? '1px solid var(--accent)' : '1px solid var(--line)',
+        boxShadow: isLinkSource ? '0 0 0 2px color-mix(in oklch, var(--accent) 40%, transparent)' : undefined,
+        cursor: isLinking ? 'crosshair' : isDelete ? 'not-allowed' : undefined,
         zIndex: editing || selected ? 20 : 2,
       }}
     >

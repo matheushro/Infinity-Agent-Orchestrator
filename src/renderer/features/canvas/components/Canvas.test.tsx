@@ -583,7 +583,7 @@ describe('Canvas', () => {
 
     fireEvent.click(screen.getByTitle('Text (T)'))
     fireEvent.click(screen.getByTitle('Pan (H)'))
-    fireEvent.click(screen.getByTitle('Link terminals'))
+    fireEvent.click(screen.getByTitle('Link terminals & notes'))
     fireEvent.click(screen.getByTitle('Delete on click'))
 
     expect(onSetTool).toHaveBeenCalledWith('text')
@@ -596,7 +596,7 @@ describe('Canvas', () => {
     expect(onSetTool).toHaveBeenCalledWith('select')
 
     rerender(<Canvas {...props} tool="link" onSetTool={onSetTool} />)
-    fireEvent.click(screen.getByTitle('Link terminals'))
+    fireEvent.click(screen.getByTitle('Link terminals & notes'))
     rerender(<Canvas {...props} tool="delete" onSetTool={onSetTool} />)
     fireEvent.click(screen.getByTitle('Delete on click'))
 

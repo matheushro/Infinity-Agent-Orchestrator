@@ -5,7 +5,7 @@ import { TerminalNode } from '@renderer/features/terminals/components/TerminalNo
 import type { TerminalNodeData, TerminalStyle } from '@renderer/features/terminals/types'
 import { NoteNode } from '@renderer/features/notes/components/NoteNode'
 import type { CanvasTextRecord } from '@shared/types/canvas'
-import type { NoteRecord } from '@shared/types/notes'
+import type { NoteRecord, NoteLinkRecord } from '@shared/types/notes'
 import type { EdgeRecord } from '@shared/types/terminal'
 import type { CanvasTheme } from '../types'
 import {
@@ -86,6 +86,7 @@ interface CanvasProps {
   texts: CanvasTextRecord[]
   notes: NoteRecord[]
   edges: EdgeRecord[]
+  noteLinks: NoteLinkRecord[]
   selectedIds: string[]
   selectedTextIds: string[]
   selectedNoteIds: string[]
@@ -134,6 +135,7 @@ export function Canvas({
   texts,
   notes,
   edges,
+  noteLinks,
   selectedIds,
   selectedTextIds,
   selectedNoteIds,
@@ -356,6 +358,39 @@ export function Canvas({
       })
       .filter(<T,>(e: T | null): e is T => e !== null)
   }, [edges, nodes, selectedIds, selectedEdgeId])
+
+  // Note ↔ terminal access links. Drawn dashed to distinguish them from
+  // terminal↔terminal edges. Endpoints live in two different collections, so we
+  // build one combined position map keyed by id.
+  const noteLinkPaths = useMemo(() => {
+    const posById = new Map<string, { x: number; y: number; width: number; height: number }>()
+    for (const n of nodes) posById.set(n.id, n)
+    for (const note of notes) posById.set(note.id, note)
+    return (noteLinks ?? [])
+      .map((link) => {
+        const a = posById.get(link.terminal_id)
+        const b = posById.get(link.note_id)
+        if (!a || !b) return null
+        const { x1, y1, x2, y2, sourceDir, targetDir } = pickEdgeEndpoints(a, b)
+        const dist = Math.hypot(x2 - x1, y2 - y1)
+        const c = Math.min(180, Math.max(60, dist * 0.4))
+        const [cp1x, cp1y] = offsetByDirection(x1, y1, sourceDir, c)
+        const [cp2x, cp2y] = offsetByDirection(x2, y2, targetDir, c)
+        const endpointSelected =
+          selectedIds.includes(link.terminal_id) || selectedNoteIds.includes(link.note_id)
+        const linkSelected = selectedEdgeId === link.id
+        return {
+          id: link.id,
+          d: `M ${x1} ${y1} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${x2} ${y2}`,
+          highlighted: endpointSelected || linkSelected,
+          x1,
+          y1,
+          x2,
+          y2,
+        }
+      })
+      .filter(<T,>(e: T | null): e is T => e !== null)
+  }, [noteLinks, nodes, notes, selectedIds, selectedNoteIds, selectedEdgeId])
 
   // Group-drag bookkeeping: capture starts for all selected nodes when the
   // user begins dragging one of them, then move the others by the same delta.
@@ -757,6 +792,39 @@ export function Canvas({
               />
             </g>
           ))}
+          {noteLinkPaths.map((p) => (
+            <g key={p.id} transform={`translate(${-surface.minX},${-surface.minY})`} data-edge-id={p.id}>
+              <path
+                d={p.d}
+                className="edge-hit"
+                onMouseDown={(e) => {
+                  e.stopPropagation()
+                  onSelectEdge(p.id)
+                  onSelect(null, false)
+                  onSelectText(null)
+                  onSelectNote(null)
+                  onSelectManyTexts([])
+                }}
+              />
+              <path
+                d={p.d}
+                className={p.highlighted ? 'selected' : ''}
+                style={{ strokeDasharray: '6 4', opacity: 0.85 }}
+              />
+              <circle
+                className={'endpoint' + (p.highlighted ? ' selected' : '')}
+                cx={p.x1}
+                cy={p.y1}
+                r={2.5}
+              />
+              <circle
+                className={'endpoint' + (p.highlighted ? ' selected' : '')}
+                cx={p.x2}
+                cy={p.y2}
+                r={2.5}
+              />
+            </g>
+          ))}
           {marquee && (
             <g transform={`translate(${-surface.minX},${-surface.minY})`}>
               <rect
@@ -837,7 +905,17 @@ export function Canvas({
               selected={selectedNoteIds.includes(note.id)}
               editing={editingNoteId === note.id}
               scale={zoom}
+              tool={tool}
+              linkSource={linkSource}
               onSelect={(id) => {
+                if (tool === 'delete') {
+                  onRemoveNote(id)
+                  return
+                }
+                if (tool === 'link') {
+                  onLinkPick(id)
+                  return
+                }
                 onSelect(null, false)
                 onSelectEdge(null)
                 onSelectText(null)
@@ -902,7 +980,7 @@ export function Canvas({
           <ToolButton
             active={tool === 'link'}
             onClick={() => onSetTool(tool === 'link' ? 'select' : 'link')}
-            title="Link terminals"
+            title="Link terminals & notes"
           >
             <ILink size={14} />
           </ToolButton>
@@ -976,8 +1054,8 @@ export function Canvas({
           }}
         >
           {linkSource
-            ? 'Click the second terminal to connect — Esc to cancel'
-            : 'Pick the first terminal — Esc to cancel'}
+            ? 'Click another terminal (connect agents) or a note (grant access) — Esc to cancel'
+            : 'Pick a terminal or note to link — Esc to cancel'}
         </div>
       )}
       {tool === 'delete' && (

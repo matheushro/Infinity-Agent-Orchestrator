@@ -23,7 +23,14 @@ export function useNotes(workspaceId: string): UseNotesResult {
 
   useEffect(() => {
     if (!workspaceId) return
-    noteRepository.list(workspaceId).then(setNotes)
+    const refresh = (): void => {
+      noteRepository.list(workspaceId).then(setNotes)
+    }
+    refresh()
+    // An agent editing notes through the `iao note` CLI mutates SQLite directly
+    // in the main process; this event tells us to re-pull so the canvas reflects
+    // those changes in real time.
+    return noteRepository.onChange(refresh)
   }, [workspaceId])
 
   const createNote = useCallback(

@@ -54,13 +54,24 @@ describe('IpcChannels — completude e consistência', () => {
     expect(IpcChannels.dialogSelectFolder).toBe('dialog:select-folder')
   })
 
-  it('IpcChannels contém exatamente os 28 canais conhecidos (sem canais fantasma)', () => {
+  it('contém os canais de note-links', () => {
+    expect(IpcChannels.noteLinksList).toBe('note-links:list')
+    expect(IpcChannels.noteLinksUpsert).toBe('note-links:upsert')
+    expect(IpcChannels.noteLinksRemove).toBe('note-links:remove')
+  })
+
+  it('contém o canal notes:changed', () => {
+    expect(IpcChannels.notesChanged).toBe('notes:changed')
+  })
+
+  it('IpcChannels contém exatamente os 32 canais conhecidos (sem canais fantasma)', () => {
     const expected = [
       'pty:create', 'pty:input', 'pty:resize', 'pty:kill', 'pty:data', 'pty:exit',
       'db:list-active', 'db:upsert', 'db:remove',
       'edges:list', 'edges:upsert', 'edges:remove',
       'canvas-texts:list', 'canvas-texts:upsert', 'canvas-texts:remove',
-      'notes:list', 'notes:upsert', 'notes:remove',
+      'notes:list', 'notes:upsert', 'notes:remove', 'notes:changed',
+      'note-links:list', 'note-links:upsert', 'note-links:remove',
       'dialog:select-folder',
       'workspaces:list', 'workspaces:create', 'workspaces:delete',
       'workspaces:rename', 'workspaces:duplicate', 'workspaces:reorder',

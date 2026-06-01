@@ -1,17 +1,58 @@
-// iao bridge: local HTTP server that the in-terminal `iao` CLI talks to.
+// iao bridge: lets the in-terminal `iao` CLI talk to the main process.
 //
-// Per-pty bearer tokens identify the caller; only terminals connected to the
-// caller through an edge in SQLite are reachable. Nothing here is exposed
-// outside 127.0.0.1.
-import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'http'
+// Transport is the FILESYSTEM, not a socket. Coding agents (codex, claude) run
+// shell commands inside a sandbox that denies the `connect()` syscall entirely
+// — for AF_INET *and* AF_UNIX — returning EPERM, so neither a TCP nor a Unix
+// socket is reachable from the very agents the bridge exists to serve. What the
+// sandbox *does* allow is reading/writing files in its workspace + temp dirs
+// (that is how the agent edits code). So the CLI drops request files and reads
+// response files in a shared spool dir under the OS temp dir, and the (un-
+// sandboxed) main process watches that dir and answers.
+//
+// Internally the request logic is still an HTTP server over a Unix socket; a
+// thin in-process relay (request file → self HTTP call → response file) reuses
+// every handler, auth check and the streaming /send path unchanged. The main
+// process is not sandboxed, so its own loopback `connect()` works fine.
+//
+// Per-pty bearer tokens (carried inside each request file) still identify the
+// caller; only terminals connected through an edge in SQLite are reachable, and
+// the 0700 spool dir is owner-only.
+import { createServer, request as httpRequest, type Server, type IncomingMessage, type ServerResponse } from 'http'
 import { randomBytes } from 'crypto'
 import { join } from 'path'
+import { tmpdir } from 'os'
 import { EventEmitter } from 'events'
-import { app } from 'electron'
-import { mkdirSync, writeFileSync, chmodSync } from 'fs'
+import { app, BrowserWindow } from 'electron'
+import {
+  mkdirSync, writeFileSync, chmodSync, rmSync, renameSync,
+  appendFileSync, readFileSync, readdirSync, unlinkSync, watch, type FSWatcher
+} from 'fs'
+import { IpcChannels } from '@shared/types/ipc'
 import type { TerminalRecord } from '@shared/types/terminal'
+import type { NoteRecord } from '@shared/types/notes'
 import * as dbService from './db.service'
 import * as ptyService from './pty.service'
+
+// Default geometry for a note created through the CLI. Matches the renderer's
+// useNotes defaults so a CLI-created note looks identical to a UI-created one.
+const CLI_NOTE_WIDTH = 280
+const CLI_NOTE_HEIGHT = 200
+
+/**
+ * Notify every renderer that notes/links changed so the canvas re-lists them.
+ * Best-effort: in the test environment Electron's BrowserWindow is not present,
+ * so the optional chaining makes this a no-op instead of throwing.
+ */
+function broadcastNotesChanged(): void {
+  try {
+    const windows = BrowserWindow?.getAllWindows?.() ?? []
+    for (const win of windows) {
+      if (!win.isDestroyed()) win.webContents.send(IpcChannels.notesChanged)
+    }
+  } catch {
+    /* no renderer available (e.g. unit tests) */
+  }
+}
 
 // Activity bus: fires whenever a node's output buffer grows. The /send (wait)
 // handler subscribes to this instead of having the in-terminal CLI poll —
@@ -34,11 +75,18 @@ const MAX_BUFFER = 64 * 1024
 const outputByNode = new Map<string, string>()
 
 let server: Server | null = null
-let serverPort = 0
+let socketPath = ''
 let bundleDir = ''
 
+// Filesystem RPC spool: the dir the CLI drops `<id>.req` files into and reads
+// `<id>.res` files back from. Watched by the main process (startFileRpc).
+let rpcDir = ''
+let rpcWatcher: FSWatcher | null = null
+let rpcScanTimer: NodeJS.Timeout | null = null
+const rpcInFlight = new Set<string>()
+
 export interface IaoSessionEnv {
-  IAO_PORT: string
+  IAO_RPC_DIR: string
   IAO_TOKEN: string
   IAO_NODE_ID: string
   IAO_CLI: string
@@ -72,7 +120,7 @@ export function registerPtySession(ptyId: string, nodeId: string): IaoSessionEnv
 
   const { iaoBin, cliJs, dir } = ensureBundle()
   return {
-    IAO_PORT: String(serverPort),
+    IAO_RPC_DIR: rpcDir,
     IAO_TOKEN: token,
     IAO_NODE_ID: nodeId,
     IAO_CLI: iaoBin,
@@ -89,29 +137,210 @@ export function unregisterPtySession(ptyId: string): void {
   sessionsByToken.delete(entry.token)
 }
 
-export async function startIaoServer(): Promise<{ port: number }> {
-  if (server) return { port: serverPort }
+export async function startIaoServer(): Promise<{ socketPath: string }> {
+  if (server) return { socketPath }
   ensureBundle()
+  socketPath = makeSocketPath()
+  // Drop a stale socket left behind by a crashed previous run; otherwise
+  // listen() fails with EADDRINUSE.
+  try { rmSync(socketPath, { force: true }) } catch { /* best effort */ }
   server = createServer(handleRequest)
   await new Promise<void>((resolve, reject) => {
     server!.once('error', reject)
-    server!.listen(0, '127.0.0.1', () => {
-      const addr = server!.address()
-      serverPort = typeof addr === 'object' && addr ? addr.port : 0
-      resolve()
-    })
+    server!.listen(socketPath, () => resolve())
   })
-  return { port: serverPort }
+  // Owner-only: the socket is only ever reached by this same process (the file
+  // relay self-connects); agents never touch it.
+  try { chmodSync(socketPath, 0o600) } catch { /* best effort */ }
+  startFileRpc()
+  return { socketPath }
 }
 
 export async function stopIaoServer(): Promise<void> {
   if (!server) return
+  stopFileRpc()
   await new Promise<void>((resolve) => server!.close(() => resolve()))
+  try { rmSync(socketPath, { force: true }) } catch { /* best effort */ }
   server = null
-  serverPort = 0
+  socketPath = ''
   sessionsByToken.clear()
   sessionsByPty.clear()
   outputByNode.clear()
+}
+
+// A short path under the OS temp dir (AF_UNIX paths are capped near 108 bytes).
+// Per-pid + random suffix so concurrent app instances never collide.
+function makeSocketPath(): string {
+  return join(tmpdir(), `iao-${process.pid}-${randomBytes(4).toString('hex')}.sock`)
+}
+
+// ---------------------------------------------------------------------------
+// Filesystem RPC relay
+//
+// The agent's sandbox blocks connect() but allows file IO in the temp dir, so
+// the CLI talks to us purely through files in `rpcDir`:
+//   - CLI writes  `<id>.req`  : { token, method, path, body }
+//   - we answer   `<id>.res`  : NDJSON lines, each {"t":"response"|"event"|"end", ...}
+// We translate each request file into a self HTTP call over the Unix socket so
+// all the existing handlers (auth, routing, streaming /send) are reused as-is.
+// ---------------------------------------------------------------------------
+
+function startFileRpc(): void {
+  try {
+    rpcDir = join(tmpdir(), `iao-rpc-${process.pid}`)
+    mkdirSync(rpcDir, { recursive: true })
+    try { chmodSync(rpcDir, 0o700) } catch { /* best effort */ }
+    // Clear any stale spool files from a previous crashed run.
+    sweepRpcDir()
+    try { rpcWatcher = watch(rpcDir, () => scanRpcDir()) } catch { rpcWatcher = null }
+    // Backstop scan in case the watcher misses an event (or isn't available).
+    rpcScanTimer = setInterval(scanRpcDir, 250)
+    scanRpcDir()
+  } catch {
+    // Filesystem RPC unavailable (e.g. mocked fs in unit tests); the socket
+    // server still works for any in-process caller.
+  }
+}
+
+function stopFileRpc(): void {
+  try { rpcWatcher?.close() } catch { /* ignore */ }
+  rpcWatcher = null
+  if (rpcScanTimer) clearInterval(rpcScanTimer)
+  rpcScanTimer = null
+  sweepRpcDir()
+  rpcInFlight.clear()
+  rpcDir = ''
+}
+
+function sweepRpcDir(): void {
+  if (!rpcDir) return
+  try {
+    for (const name of readdirSync(rpcDir)) {
+      if (name.endsWith('.req') || name.endsWith('.res') || name.endsWith('.tmp')) {
+        try { unlinkSync(join(rpcDir, name)) } catch { /* ignore */ }
+      }
+    }
+  } catch { /* dir gone / unreadable */ }
+}
+
+function scanRpcDir(): void {
+  if (!rpcDir) return
+  let names: string[]
+  try { names = readdirSync(rpcDir) } catch { return }
+  for (const name of names) {
+    if (!name.endsWith('.req') || rpcInFlight.has(name)) continue
+    rpcInFlight.add(name)
+    handleReqFile(name)
+  }
+}
+
+interface RpcRequest {
+  token?: string
+  method?: string
+  path?: string
+  body?: unknown
+}
+
+function handleReqFile(name: string): void {
+  const id = name.slice(0, -'.req'.length)
+  const reqPath = join(rpcDir, name)
+  const resPath = join(rpcDir, `${id}.res`)
+  let raw: string
+  try { raw = readFileSync(reqPath, 'utf8') } catch { rpcInFlight.delete(name); return }
+  // Consume the request file immediately so it is processed exactly once.
+  try { unlinkSync(reqPath) } catch { /* ignore */ }
+
+  const done = (): void => { rpcInFlight.delete(name) }
+  let req: RpcRequest
+  try { req = JSON.parse(raw) as RpcRequest } catch {
+    writeBufferedRes(resPath, 400, { error: 'invalid request file' })
+    return done()
+  }
+  relayToServer(req, resPath, done)
+}
+
+function relayToServer(req: RpcRequest, resPath: string, done: () => void): void {
+  const payload = req.body != null ? Buffer.from(JSON.stringify(req.body), 'utf8') : null
+  const headers: Record<string, string> = {
+    authorization: `Bearer ${req.token ?? ''}`,
+    accept: 'application/x-ndjson'
+  }
+  if (payload) {
+    headers['content-type'] = 'application/json'
+    headers['content-length'] = String(payload.length)
+  }
+
+  let settled = false
+  const finishErr = (msg: string): void => {
+    if (settled) return
+    settled = true
+    writeBufferedRes(resPath, 502, { error: msg })
+    done()
+  }
+
+  const creq = httpRequest(
+    { socketPath, method: req.method || 'GET', path: req.path || '/', headers },
+    (cres) => {
+      const ct = String(cres.headers['content-type'] || '')
+      const status = cres.statusCode || 0
+      if (ct.includes('ndjson')) {
+        // Streaming /send: forward each NDJSON line as an event, then end.
+        let buf = ''
+        cres.setEncoding('utf8')
+        cres.on('data', (chunk: string) => {
+          buf += chunk
+          let idx: number
+          while ((idx = buf.indexOf('\n')) >= 0) {
+            const line = buf.slice(0, idx).trim()
+            buf = buf.slice(idx + 1)
+            if (line) appendRpcLine(resPath, { t: 'event', d: safeJson(line) })
+          }
+        })
+        cres.on('end', () => {
+          const tail = buf.trim()
+          if (tail) appendRpcLine(resPath, { t: 'event', d: safeJson(tail) })
+          appendRpcLine(resPath, { t: 'end', status })
+          settled = true
+          done()
+        })
+        cres.on('error', () => finishErr('relay stream error'))
+      } else {
+        const chunks: Buffer[] = []
+        cres.on('data', (c: Buffer) => chunks.push(c))
+        cres.on('end', () => {
+          const text = Buffer.concat(chunks).toString('utf8')
+          writeBufferedRes(resPath, status, text ? safeJson(text) : {})
+          settled = true
+          done()
+        })
+        cres.on('error', () => finishErr('relay read error'))
+      }
+    }
+  )
+  creq.on('error', (e: Error) => finishErr(`bridge relay failed: ${e.message}`))
+  if (payload) creq.write(payload)
+  creq.end()
+}
+
+function safeJson(line: string): unknown {
+  try { return JSON.parse(line) } catch { return { raw: line } }
+}
+
+// Buffered response: write both the response line and the end marker in one
+// atomic rename so the CLI never observes a half-written file.
+function writeBufferedRes(resPath: string, status: number, body: unknown): void {
+  const data =
+    JSON.stringify({ t: 'response', status, body }) + '\n' +
+    JSON.stringify({ t: 'end', status }) + '\n'
+  try {
+    const tmp = `${resPath}.tmp`
+    writeFileSync(tmp, data, { mode: 0o600 })
+    renameSync(tmp, resPath)
+  } catch { /* spool dir gone */ }
+}
+
+function appendRpcLine(resPath: string, obj: unknown): void {
+  try { appendFileSync(resPath, JSON.stringify(obj) + '\n', { mode: 0o600 }) } catch { /* ignore */ }
 }
 
 function ensureBundle(): { dir: string; iaoBin: string; cliJs: string } {
@@ -134,10 +363,12 @@ function ensureBundle(): { dir: string; iaoBin: string; cliJs: string } {
 // ---------------------------------------------------------------------------
 
 function handleRequest(req: IncomingMessage, res: ServerResponse): void {
-  // Hard-restrict to loopback. Node's listen('127.0.0.1') already does this at
-  // the bind level; the check below is defence in depth.
+  // Unix-domain socket connections carry no remote address — the 0600 socket
+  // file is the access boundary there. For any connection that does report an
+  // address (a stray TCP path), still hard-restrict to loopback as defence in
+  // depth.
   const remote = req.socket.remoteAddress || ''
-  if (!isLoopback(remote)) {
+  if (remote && !isLoopback(remote)) {
     return send(res, 403, { error: 'forbidden' })
   }
 
@@ -153,6 +384,38 @@ function handleRequest(req: IncomingMessage, res: ServerResponse): void {
     if (route === 'GET /agents') return handleAgents(session, res)
     if (route === 'GET /inspect') return handleInspect(session, url, res)
     if (route === 'GET /debug') return handleDebug(session, res)
+    if (route === 'GET /notes/list') return handleNoteList(session, res)
+    if (route === 'GET /notes/read') return handleNoteRead(session, url, res)
+    if (route === 'POST /notes/create') {
+      readBody(req)
+        .then((body) => handleNoteCreate(session, body, res))
+        .catch((err) => send(res, 500, { error: (err as Error).message }))
+      return
+    }
+    if (route === 'POST /notes/write') {
+      readBody(req)
+        .then((body) => handleNoteWrite(session, body, res))
+        .catch((err) => send(res, 500, { error: (err as Error).message }))
+      return
+    }
+    if (route === 'POST /notes/edit') {
+      readBody(req)
+        .then((body) => handleNoteEdit(session, body, res))
+        .catch((err) => send(res, 500, { error: (err as Error).message }))
+      return
+    }
+    if (route === 'POST /notes/rename') {
+      readBody(req)
+        .then((body) => handleNoteRename(session, body, res))
+        .catch((err) => send(res, 500, { error: (err as Error).message }))
+      return
+    }
+    if (route === 'POST /notes/delete') {
+      readBody(req)
+        .then((body) => handleNoteDelete(session, body, res))
+        .catch((err) => send(res, 500, { error: (err as Error).message }))
+      return
+    }
     if (route === 'POST /send') {
       readBody(req)
         .then((body) => {
@@ -399,7 +662,7 @@ function handleDebug(session: SessionEntry, res: ServerResponse): void {
   const agents = listLinkedAgents(session.nodeId)
   send(res, 200, {
     self,
-    port: serverPort,
+    spool: rpcDir,
     cli: {
       bin: join(bundleDir, 'iao'),
       script: join(bundleDir, 'cli.cjs'),
@@ -408,6 +671,166 @@ function handleDebug(session: SessionEntry, res: ServerResponse): void {
     linked: agents.map((a) => ({ id: a.id, title: a.title, command: a.command })),
     buffered_bytes: outputByNode.get(session.nodeId)?.length ?? 0
   })
+}
+
+// ---------------------------------------------------------------------------
+// Notes — a terminal can only reach notes explicitly linked to it.
+// ---------------------------------------------------------------------------
+
+function handleNoteCreate(
+  session: SessionEntry,
+  body: Record<string, unknown>,
+  res: ServerResponse
+): void {
+  const content = typeof body.content === 'string' ? body.content : ''
+  const terminal = dbService.getTerminal(session.nodeId)
+  if (!terminal) return send(res, 404, { error: 'current terminal not found' })
+
+  const now = Date.now()
+  const note: NoteRecord = {
+    id: `note-${now}-${randomBytes(4).toString('hex')}`,
+    title: deriveNoteTitle(content),
+    content,
+    // Drop the note just to the right of the creating terminal so it lands in
+    // view next to the agent that made it.
+    x: terminal.x + terminal.width + 60,
+    y: terminal.y,
+    width: CLI_NOTE_WIDTH,
+    height: CLI_NOTE_HEIGHT,
+    workspace_id: terminal.workspace_id,
+    created_at: now,
+    updated_at: now
+  }
+  dbService.upsertNote(note)
+  // `note create` automatically links the new note to the current terminal.
+  dbService.linkNoteToTerminal(note.id, session.nodeId)
+  broadcastNotesChanged()
+  send(res, 200, { note: { id: note.id, title: note.title } })
+}
+
+function handleNoteList(session: SessionEntry, res: ServerResponse): void {
+  const notes = dbService.listNotesForTerminal(session.nodeId)
+  send(res, 200, {
+    notes: notes.map((n) => ({ id: n.id, title: n.title, updated_at: n.updated_at }))
+  })
+}
+
+function handleNoteRead(session: SessionEntry, url: URL, res: ServerResponse): void {
+  const targetName = (url.searchParams.get('target') || '').trim()
+  if (!targetName) return send(res, 400, { error: 'note name required' })
+  const note = resolveLinkedNote(session.nodeId, targetName)
+  if (!note) return sendNoteDenied(res, targetName)
+
+  let content = note.content
+  const start = parseLine(url.searchParams.get('start'))
+  const end = parseLine(url.searchParams.get('end'))
+  if (start != null || end != null) {
+    const lines = content.split('\n')
+    const from = start != null ? Math.max(1, start) : 1
+    const to = end != null ? end : lines.length
+    content = lines.slice(from - 1, to).join('\n')
+  }
+  send(res, 200, { note: { id: note.id, title: note.title }, content })
+}
+
+function handleNoteWrite(
+  session: SessionEntry,
+  body: Record<string, unknown>,
+  res: ServerResponse
+): void {
+  const targetName = String(body.target ?? '').trim()
+  if (!targetName) return send(res, 400, { error: 'note name required' })
+  if (typeof body.content !== 'string') return send(res, 400, { error: 'content required' })
+  const note = resolveLinkedNote(session.nodeId, targetName)
+  if (!note) return sendNoteDenied(res, targetName)
+
+  dbService.upsertNote({ ...note, content: body.content })
+  broadcastNotesChanged()
+  send(res, 200, { note: { id: note.id, title: note.title }, bytes: body.content.length })
+}
+
+function handleNoteEdit(
+  session: SessionEntry,
+  body: Record<string, unknown>,
+  res: ServerResponse
+): void {
+  const targetName = String(body.target ?? '').trim()
+  const oldText = typeof body.old === 'string' ? body.old : ''
+  const newText = typeof body.new === 'string' ? body.new : ''
+  if (!targetName) return send(res, 400, { error: 'note name required' })
+  if (!oldText) return send(res, 400, { error: 'old text required' })
+  const note = resolveLinkedNote(session.nodeId, targetName)
+  if (!note) return sendNoteDenied(res, targetName)
+
+  if (!note.content.includes(oldText)) {
+    return send(res, 422, { error: `text not found in note "${note.title}"` })
+  }
+  const replaced = note.content.split(oldText).length - 1
+  const content = note.content.split(oldText).join(newText)
+  dbService.upsertNote({ ...note, content })
+  broadcastNotesChanged()
+  send(res, 200, { note: { id: note.id, title: note.title }, replaced })
+}
+
+function handleNoteRename(
+  session: SessionEntry,
+  body: Record<string, unknown>,
+  res: ServerResponse
+): void {
+  const targetName = String(body.target ?? '').trim()
+  const newName = String(body.name ?? '').trim()
+  if (!targetName) return send(res, 400, { error: 'current note name required' })
+  if (!newName) return send(res, 400, { error: 'new note name required' })
+  const note = resolveLinkedNote(session.nodeId, targetName)
+  if (!note) return sendNoteDenied(res, targetName)
+
+  dbService.upsertNote({ ...note, title: newName })
+  broadcastNotesChanged()
+  send(res, 200, { note: { id: note.id, title: newName } })
+}
+
+function handleNoteDelete(
+  session: SessionEntry,
+  body: Record<string, unknown>,
+  res: ServerResponse
+): void {
+  const targetName = String(body.target ?? '').trim()
+  if (!targetName) return send(res, 400, { error: 'note name required' })
+  const note = resolveLinkedNote(session.nodeId, targetName)
+  if (!note) return sendNoteDenied(res, targetName)
+
+  // removeNote also drops every link row for the note.
+  dbService.removeNote(note.id)
+  broadcastNotesChanged()
+  send(res, 200, { deleted: true, note: { id: note.id, title: note.title } })
+}
+
+function sendNoteDenied(res: ServerResponse, name: string): void {
+  send(res, 403, {
+    error: `access denied: no note named "${name}" is linked to this terminal. ` +
+      `Run 'iao note list' to see accessible notes, or link the note to this terminal on the canvas.`
+  })
+}
+
+function resolveLinkedNote(terminalId: string, name: string): NoteRecord | undefined {
+  const candidates = dbService.listNotesForTerminal(terminalId)
+  const lower = name.toLowerCase()
+  const exact = candidates.find((n) => n.title.toLowerCase() === lower)
+  if (exact) return exact
+  const partial = candidates.filter((n) => n.title.toLowerCase().includes(lower))
+  return partial.length === 1 ? partial[0] : undefined
+}
+
+function deriveNoteTitle(content: string): string {
+  const firstLine = content.split('\n').find((l) => l.trim()) || ''
+  const cleaned = firstLine.replace(/^#+\s*/, '').trim()
+  return cleaned ? cleaned.slice(0, 80) : 'Untitled note'
+}
+
+function parseLine(value: string | null): number | null {
+  if (value == null || value === '') return null
+  const n = parseInt(value, 10)
+  return Number.isFinite(n) ? n : null
 }
 
 // ---------------------------------------------------------------------------
@@ -521,15 +944,24 @@ ELECTRON_RUN_AS_NODE=1 exec "$IAO_NODE_BIN" "$IAO_NODE_CLI" "$@"
 `
 
 const CLI_JS_SOURCE = `#!/usr/bin/env node
-// iao CLI — talks to the local IAO bridge over 127.0.0.1.
-// All required configuration arrives via env vars set by the main process.
+// iao CLI — talks to the IAO bridge through the FILESYSTEM. Agent sandboxes
+// block the connect() syscall (TCP and unix sockets alike, EPERM), but allow
+// file IO in the temp dir — so we drop a request file in IAO_RPC_DIR and poll
+// for the response file the main process writes back. Config arrives via env.
 'use strict'
-const http = require('http')
+const fs = require('fs')
+const path = require('path')
 
-const PORT = process.env.IAO_PORT
+const RPC_DIR = process.env.IAO_RPC_DIR
 const TOKEN = process.env.IAO_TOKEN
 const NODE_ID = process.env.IAO_NODE_ID
 const CLI_PATH = process.env.IAO_CLI
+
+// Give up if the bridge writes nothing new for this long — bounds the hang when
+// the app is closed. The bridge heartbeats every ~2s during \`send\` waits, so
+// this never trips mid-reply.
+const RPC_IDLE_TIMEOUT_MS = 15000
+const POLL_MS = 20
 
 function die(msg, code) {
   process.stderr.write('iao: ' + msg + '\\n')
@@ -537,91 +969,73 @@ function die(msg, code) {
 }
 
 function ensureSession() {
-  if (!PORT || !TOKEN) die('not inside an IAO terminal (missing IAO_PORT/IAO_TOKEN).', 2)
+  if (!RPC_DIR || !TOKEN) die('not inside an IAO terminal (missing IAO_RPC_DIR/IAO_TOKEN).', 2)
 }
 
-function request(method, path, body) {
+function newId() {
+  return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10)
+}
+
+// Core RPC over files: write <id>.req, then tail <id>.res. Each response line is
+// one of {t:'response',status,body} | {t:'event',d} | {t:'end',status}.
+// \`onEvent\` (when given) fires per event line for streaming \`send\` waits.
+function rpcCall(method, reqPath, body, onEvent) {
   return new Promise((resolve, reject) => {
-    const data = body ? Buffer.from(JSON.stringify(body), 'utf8') : null
-    const req = http.request(
-      {
-        host: '127.0.0.1',
-        port: Number(PORT),
-        method,
-        path,
-        headers: Object.assign(
-          { authorization: 'Bearer ' + TOKEN },
-          data ? { 'content-type': 'application/json', 'content-length': data.length } : {}
-        )
-      },
-      (res) => {
-        const chunks = []
-        res.on('data', (c) => chunks.push(c))
-        res.on('end', () => {
-          const text = Buffer.concat(chunks).toString('utf8')
-          let parsed = null
-          try { parsed = text ? JSON.parse(text) : {} } catch (_) { parsed = { raw: text } }
-          resolve({ status: res.statusCode || 0, body: parsed })
-        })
+    const id = newId()
+    const resPath = path.join(RPC_DIR, id + '.res')
+    try {
+      const tmp = path.join(RPC_DIR, id + '.req.tmp')
+      const dst = path.join(RPC_DIR, id + '.req')
+      fs.writeFileSync(tmp, JSON.stringify({ token: TOKEN, method: method, path: reqPath, body: body || null }))
+      fs.renameSync(tmp, dst)
+    } catch (e) {
+      return reject(new Error('could not reach IAO bridge: ' + e.message))
+    }
+
+    let consumed = 0
+    let response = null
+    let lastProgress = Date.now()
+    const timer = setInterval(() => {
+      let txt = null
+      try { txt = fs.readFileSync(resPath, 'utf8') } catch (_) { txt = null }
+      if (txt != null) {
+        const lines = txt.split('\\n')
+        // Last element is the trailing partial line (or '' after a final \\n).
+        for (; consumed < lines.length - 1; consumed++) {
+          const line = lines[consumed].trim()
+          if (!line) continue
+          let obj
+          try { obj = JSON.parse(line) } catch (_) { continue }
+          lastProgress = Date.now()
+          if (obj.t === 'event') { if (onEvent) { try { onEvent(obj.d) } catch (_) {} } }
+          else if (obj.t === 'response') { response = { status: obj.status, body: obj.body } }
+          else if (obj.t === 'end') {
+            clearInterval(timer)
+            try { fs.unlinkSync(resPath) } catch (_) {}
+            return resolve(response || { status: obj.status || 0, body: {} })
+          }
+        }
       }
-    )
-    req.on('error', reject)
-    if (data) req.write(data)
-    req.end()
+      if (Date.now() - lastProgress > RPC_IDLE_TIMEOUT_MS) {
+        clearInterval(timer)
+        try { fs.unlinkSync(resPath) } catch (_) {}
+        reject(new Error('IAO bridge did not respond (is the app still running?)'))
+      }
+    }, POLL_MS)
   })
+}
+
+function request(method, reqPath, body) {
+  return rpcCall(method, reqPath, body, null)
 }
 
 // Stream NDJSON from POST /send (wait mode). \`onEvent\` is invoked once per
-// line; resolves with the final HTTP status when the response ends.
+// event; resolves with the final status when the response ends.
 function streamSendWait(body, onEvent) {
-  return new Promise((resolve, reject) => {
-    const data = Buffer.from(JSON.stringify(body), 'utf8')
-    const req = http.request(
-      {
-        host: '127.0.0.1',
-        port: Number(PORT),
-        method: 'POST',
-        path: '/send',
-        headers: {
-          authorization: 'Bearer ' + TOKEN,
-          'content-type': 'application/json',
-          'content-length': data.length,
-          accept: 'application/x-ndjson'
-        }
-      },
-      (res) => {
-        let buf = ''
-        res.setEncoding('utf8')
-        res.on('data', (chunk) => {
-          buf += chunk
-          let idx
-          while ((idx = buf.indexOf('\\n')) >= 0) {
-            const line = buf.slice(0, idx).trim()
-            buf = buf.slice(idx + 1)
-            if (!line) continue
-            let parsed
-            try { parsed = JSON.parse(line) } catch (_) { continue }
-            try { onEvent(parsed) } catch (_) { /* keep streaming */ }
-          }
-        })
-        res.on('end', () => {
-          const tail = buf.trim()
-          if (tail) {
-            try { onEvent(JSON.parse(tail)) } catch (_) { /* ignore */ }
-          }
-          resolve({ status: res.statusCode || 0 })
-        })
-        res.on('error', reject)
-      }
-    )
-    req.on('error', reject)
-    req.write(data)
-    req.end()
-  })
+  return rpcCall('POST', '/send', body, onEvent).then((r) => ({ status: r.status }))
 }
 
-// Single-shot non-streaming request to /send for the --no-wait path. Reuses
-// the same socket pattern but waits for a buffered JSON body.
+// Single-shot request to /send for the --no-wait path (buffered JSON reply).
 function postSend(body) {
   return request('POST', '/send', body)
 }
@@ -637,6 +1051,14 @@ function printAgents(list) {
   }
 }
 
+function printNotes(list) {
+  if (!list || list.length === 0) {
+    console.log('(no notes linked to this terminal — create one with: iao note create)')
+    return
+  }
+  for (const n of list) console.log(n.title)
+}
+
 function helpText() {
   return [
     'iao — Infinity Agent Orchestrator in-terminal CLI',
@@ -648,6 +1070,13 @@ function helpText() {
     '  iao send --timeout 300 "Agent" "prompt"    Cap the wait at 300s (default 120s)',
     '  iao send --quiet "Agent" "prompt"          Suppress progress lines on stderr',
     '  iao inspect "Agent Name"                   Read the current output buffer of a linked agent',
+    '  iao note create ["content"]                Create a note (auto-linked to this terminal)',
+    '  iao note list                              List notes linked to this terminal',
+    '  iao note read "Note Name" [start] [end]    Read a linked note (optionally a line range)',
+    '  iao note write "Note Name" "content"       Replace a linked note\\'s entire content',
+    '  iao note edit "Note Name" "old" "new"      Replace text within a linked note',
+    '  iao note rename "Old Name" "New Name"      Rename a linked note',
+    '  iao note delete "Note Name"                Delete a linked note (removes its links)',
     '  iao help                                   Show this help',
     '  iao debug                                  Show diagnostic info about the bridge',
     '',
@@ -656,6 +1085,7 @@ function helpText() {
     '    The wait happens entirely on the bridge — no sleep/inspect loop needed in your own session.',
     '  - \`iao inspect\` is still available for manual debug checks while another agent is working.',
     '  - Only agents connected to this terminal by an edge on the canvas are reachable.',
+    '  - \`iao note\` commands only reach notes linked to this terminal on the canvas.',
     '  - If \`iao\` is not on PATH, run "$IAO_CLI" with the same arguments.',
     ''
   ].join('\\n')
@@ -781,7 +1211,7 @@ async function main() {
       if (status !== 200) die((body && body.error) || ('http ' + status))
       console.log('current terminal : ' + (body.self.title || body.self.nodeId))
       console.log('node id          : ' + body.self.nodeId)
-      console.log('bridge port      : 127.0.0.1:' + body.port)
+      console.log('rpc spool dir    : ' + (RPC_DIR || body.spool))
       console.log('iao binary       : ' + (CLI_PATH || body.cli.bin))
       console.log('node binary      : ' + body.cli.nodeBin)
       console.log('cli script       : ' + body.cli.script)
@@ -790,6 +1220,89 @@ async function main() {
       for (const a of body.linked) console.log('  - ' + a.title + ' · ' + (a.command || '?'))
       console.log('env IAO_NODE_ID  : ' + (NODE_ID || '(unset)'))
       console.log('env IAO_TOKEN    : ' + (TOKEN ? '(set, ' + TOKEN.length + ' chars)' : '(unset)'))
+      return
+    }
+
+    case 'note': {
+      ensureSession()
+      const sub = rest[0]
+      const args = rest.slice(1)
+      switch (sub) {
+        case 'create': {
+          const content = args.join(' ')
+          const { status, body } = await request('POST', '/notes/create', { content })
+          if (status !== 200) die((body && body.error) || ('http ' + status))
+          console.log('Created note "' + body.note.title + '" (linked to this terminal).')
+          return
+        }
+        case 'list': {
+          const { status, body } = await request('GET', '/notes/list')
+          if (status !== 200) die((body && body.error) || ('http ' + status))
+          printNotes(body.notes)
+          return
+        }
+        case 'read': {
+          if (args.length < 1) die('usage: iao note read "Note Name" [start] [end]')
+          // Peel up to two trailing numeric tokens as the [start] [end] range,
+          // leaving the rest as the (possibly multi-word) note name.
+          const nums = []
+          const parts = args.slice()
+          while (parts.length > 1 && nums.length < 2 && /^[0-9]+$/.test(parts[parts.length - 1])) {
+            nums.unshift(parseInt(parts.pop(), 10))
+          }
+          const name = parts.join(' ')
+          let path = '/notes/read?target=' + encodeURIComponent(name)
+          if (nums.length === 1) path += '&start=' + nums[0]
+          else if (nums.length === 2) path += '&start=' + nums[0] + '&end=' + nums[1]
+          const { status, body } = await request('GET', path)
+          if (status !== 200) die((body && body.error) || ('http ' + status))
+          if (!body.content) {
+            console.log('(note "' + body.note.title + '" is empty)')
+          } else {
+            process.stdout.write(body.content)
+            if (!body.content.endsWith('\\n')) process.stdout.write('\\n')
+          }
+          return
+        }
+        case 'write': {
+          if (args.length < 2) die('usage: iao note write "Note Name" "content"')
+          const name = args[0]
+          const content = args.slice(1).join(' ')
+          const { status, body } = await request('POST', '/notes/write', { target: name, content })
+          if (status !== 200) die((body && body.error) || ('http ' + status))
+          console.log('Wrote ' + body.bytes + ' bytes to "' + body.note.title + '".')
+          return
+        }
+        case 'edit': {
+          if (args.length < 3) die('usage: iao note edit "Note Name" "old text" "new text"')
+          const name = args[0]
+          const oldText = args[1]
+          const newText = args.slice(2).join(' ')
+          const { status, body } = await request('POST', '/notes/edit', { target: name, old: oldText, new: newText })
+          if (status !== 200) die((body && body.error) || ('http ' + status))
+          console.log('Replaced ' + body.replaced + ' occurrence(s) in "' + body.note.title + '".')
+          return
+        }
+        case 'rename': {
+          if (args.length < 2) die('usage: iao note rename "Old Name" "New Name"')
+          const oldName = args[0]
+          const newName = args.slice(1).join(' ')
+          const { status, body } = await request('POST', '/notes/rename', { target: oldName, name: newName })
+          if (status !== 200) die((body && body.error) || ('http ' + status))
+          console.log('Renamed note to "' + body.note.title + '".')
+          return
+        }
+        case 'delete': {
+          if (args.length < 1) die('usage: iao note delete "Note Name"')
+          const name = args.join(' ')
+          const { status, body } = await request('POST', '/notes/delete', { target: name })
+          if (status !== 200) die((body && body.error) || ('http ' + status))
+          console.log('Deleted note "' + body.note.title + '".')
+          return
+        }
+        default:
+          die('unknown note subcommand "' + (sub || '') + '". Try: iao note list | create | read | write | edit | rename | delete')
+      }
       return
     }
 

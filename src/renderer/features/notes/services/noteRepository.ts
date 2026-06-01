@@ -13,4 +13,9 @@ export const noteRepository = {
   remove(id: string): void {
     void window.dbApi.removeNote(id)
   },
+
+  /** Subscribe to out-of-band note/link changes (e.g. the `iao note` CLI). */
+  onChange(cb: () => void): () => void {
+    return window.dbApi.onNotesChanged(cb)
+  },
 }
