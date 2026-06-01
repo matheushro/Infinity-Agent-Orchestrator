@@ -136,6 +136,13 @@ describe('Sidebar', () => {
     expect(screen.getByText('Beta Terminal')).toBeTruthy()
   })
 
+  it('renders terminal folders as shortened path labels', () => {
+    renderSidebar()
+    const alphaItem = screen.getByText('Alpha Shell').closest('.term-item')!
+    expect(alphaItem.textContent).toContain('.../AlphaApp')
+    expect(screen.queryByText('/home/me/AlphaApp')).toBeNull()
+  })
+
   it('calls onNewTerminal when the New terminal button is clicked', () => {
     const { props } = renderSidebar()
     fireEvent.click(screen.getByText('New terminal'))

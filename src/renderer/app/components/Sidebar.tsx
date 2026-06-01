@@ -67,6 +67,17 @@ function terminalGlyph(title: string): string {
   return trimmed[0].toUpperCase()
 }
 
+function terminalFolderLabel(cwd: string): string {
+  const trimmed = cwd.trim().replace(/[\\/]+$/, '')
+  const folderName = trimmed.split(/[\\/]+/).filter(Boolean).pop()
+  return folderName ? `.../${folderName}` : '.../'
+}
+
+function terminalFolderName(cwd: string): string {
+  const trimmed = cwd.trim().replace(/[\\/]+$/, '')
+  return trimmed.split(/[\\/]+/).filter(Boolean).pop() ?? ''
+}
+
 function orderTerminalNodes(
   nodes: TerminalNodeData[],
   orderedIds: string[] | undefined,
@@ -156,6 +167,7 @@ function CollapsedRail({
         {allNodes.map((t) => {
           const active = selectedTerminalId === t.id
           const ptyStatus = getStatus(t.id)
+          const folderLabel = terminalFolderLabel(t.cwd)
           return (
             <button
               key={t.id}
@@ -177,7 +189,7 @@ function CollapsedRail({
                 color: active ? 'var(--fg)' : 'var(--fg-2)',
                 border: active ? '1px solid var(--accent)' : '1px solid var(--line-2)',
               }}
-              title={`${t.title} · ${t.cwd} — ${STATUS_LABEL[ptyStatus]}`}
+              title={`${t.title} · ${folderLabel} — ${STATUS_LABEL[ptyStatus]}`}
             >
               {terminalGlyph(t.title)}
               <span
@@ -889,6 +901,9 @@ function TerminalItem({
   onDragHandlePointerDown: (e: React.PointerEvent) => void
   onContextMenu: (x: number, y: number) => void
 }): JSX.Element {
+  const folderLabel = terminalFolderLabel(terminal.cwd)
+  const folderName = terminalFolderName(terminal.cwd)
+
   return (
     <div
       className={'term-item ' + (selected ? 'active' : '')}
@@ -915,10 +930,12 @@ function TerminalItem({
           {terminal.title}
         </div>
         <div
-          className="text-[10.5px] truncate font-mono mt-0.5"
+          className="text-[10.5px] font-mono mt-0.5 flex min-w-0"
           style={{ color: 'var(--fg-3)' }}
+          title={folderLabel}
         >
-          {terminal.cwd}
+          <span className="shrink-0">.../</span>
+          <span className="truncate">{folderName}</span>
         </div>
       </div>
       <button
