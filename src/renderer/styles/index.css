@@ -187,8 +187,47 @@ body {
 .note-markdown ol { list-style: decimal; }
 .note-markdown li { margin: 0.2em 0; }
 .note-markdown li.task-list-item,
-.note-markdown li:has(> input[type='checkbox']) { list-style: none; margin-left: -1.2em; }
-.note-markdown input[type='checkbox'] { margin-right: 0.5em; cursor: pointer; vertical-align: middle; }
+.note-markdown li:has(> input[type='checkbox']) {
+  list-style: none;
+  margin-left: -1.4em;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5em;
+}
+.note-markdown input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  /* Nudge down so the box sits on the first text line's cap-height. */
+  margin-top: 0.18em;
+  border: 1.5px solid var(--fg-3);
+  border-radius: 4px;
+  background: var(--node-bg);
+  cursor: pointer;
+  position: relative;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.note-markdown input[type='checkbox']:hover { border-color: var(--accent); }
+.note-markdown input[type='checkbox']:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+/* Checkmark drawn with a rotated border; uses the node background so it stays
+   high-contrast against the accent fill in both light and dark themes. */
+.note-markdown input[type='checkbox']:checked::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border: solid var(--node-bg);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
 .note-markdown code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.88em;
