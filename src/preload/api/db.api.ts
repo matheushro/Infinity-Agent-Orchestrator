@@ -7,6 +7,8 @@ export const dbApi: DbApi = {
   listActive: (workspaceId?: string) => ipcRenderer.invoke(IpcChannels.dbListActive, workspaceId),
   upsert: (record) => ipcRenderer.invoke(IpcChannels.dbUpsert, record),
   remove: (id) => ipcRenderer.invoke(IpcChannels.dbRemove, id),
+  reorderTerminals: (workspaceId, orderedIds) =>
+    ipcRenderer.invoke(IpcChannels.dbReorderTerminals, workspaceId, orderedIds),
   listEdges: () => ipcRenderer.invoke(IpcChannels.edgesList),
   upsertEdge: (record) => ipcRenderer.invoke(IpcChannels.edgesUpsert, record),
   removeEdge: (id) => ipcRenderer.invoke(IpcChannels.edgesRemove, id),

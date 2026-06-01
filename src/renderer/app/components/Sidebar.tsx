@@ -6,6 +6,7 @@ import type { TerminalNodeData } from '@renderer/features/terminals/types'
 import type { WorkspaceRecord } from '@shared/types/workspace'
 import { usePtyActivity, type PtyStatus } from '@renderer/features/workspaces/context/PtyActivityContext'
 import { TerminalContextMenu } from '@renderer/features/terminals/components/TerminalContextMenu'
+import { terminalRepository } from '@renderer/features/terminals/services/terminalRepository'
 import {
   IChevDown,
   IChevRight,
@@ -14,7 +15,6 @@ import {
   IPlus,
   ISidebarClose,
   ISidebarOpen,
-  ITarget,
 } from '@renderer/components/ui'
 
 interface SidebarProps {
@@ -36,6 +36,11 @@ interface SidebarProps {
   onTerminalDelete: (workspaceId: string, terminalId: string) => void
   onTerminalLink: (workspaceId: string, terminalId: string) => void
   onTerminalStyle: (workspaceId: string, terminalId: string) => void
+}
+
+interface SidebarStateProps extends SidebarProps {
+  terminalOrderByWorkspace: Record<string, string[]>
+  onReorderTerminals: (workspaceId: string, orderedIds: string[]) => void
 }
 
 const STATUS_COLOR: Record<PtyStatus, string> = {
@@ -62,8 +67,38 @@ function terminalGlyph(title: string): string {
   return trimmed[0].toUpperCase()
 }
 
+function orderTerminalNodes(
+  nodes: TerminalNodeData[],
+  orderedIds: string[] | undefined,
+): TerminalNodeData[] {
+  if (!orderedIds?.length) return nodes
+
+  const byId = new Map(nodes.map((node) => [node.id, node]))
+  const ordered = orderedIds.flatMap((id) => {
+    const node = byId.get(id)
+    return node ? [node] : []
+  })
+  const remaining = nodes.filter((node) => !orderedIds.includes(node.id))
+  return [...ordered, ...remaining]
+}
+
 export function Sidebar(props: SidebarProps): JSX.Element {
-  return props.collapsed ? <CollapsedRail {...props} /> : <ExpandedSidebar {...props} />
+  const [terminalOrderByWorkspace, setTerminalOrderByWorkspace] = useState<Record<string, string[]>>(
+    {},
+  )
+
+  const onReorderTerminals = useCallback((workspaceId: string, orderedIds: string[]): void => {
+    setTerminalOrderByWorkspace((prev) => ({ ...prev, [workspaceId]: orderedIds }))
+    terminalRepository.reorder(workspaceId, orderedIds)
+  }, [])
+
+  const stateProps: SidebarStateProps = {
+    ...props,
+    terminalOrderByWorkspace,
+    onReorderTerminals,
+  }
+
+  return props.collapsed ? <CollapsedRail {...stateProps} /> : <ExpandedSidebar {...stateProps} />
 }
 
 // ── Collapsed rail ─────────────────────────────────────────────────────────
@@ -72,14 +107,17 @@ function CollapsedRail({
   workspaces,
   activeWorkspaceId,
   nodesByWorkspace,
+  terminalOrderByWorkspace,
   selectedTerminalId,
   onCollapsedChange,
   onSelectTerminal,
   onSwitchWorkspace,
   onNewTerminal,
-}: SidebarProps): JSX.Element {
+}: SidebarStateProps): JSX.Element {
   const { getStatus } = usePtyActivity()
-  const allNodes = workspaces.flatMap((w) => nodesByWorkspace[w.id] ?? [])
+  const allNodes = workspaces.flatMap((w) =>
+    orderTerminalNodes(nodesByWorkspace[w.id] ?? [], terminalOrderByWorkspace[w.id]),
+  )
 
   return (
     <aside
@@ -187,6 +225,15 @@ interface DragState {
   dropIndex: number
 }
 
+interface TerminalDragState {
+  workspaceId: string
+  id: string
+  name: string
+  pointerX: number
+  pointerY: number
+  dropIndex: number
+}
+
 function ExpandedSidebar({
   workspaces,
   activeWorkspaceId,
@@ -199,13 +246,15 @@ function ExpandedSidebar({
   onDeleteWorkspace,
   onDuplicateWorkspace,
   onReorderWorkspaces,
+  onReorderTerminals,
   onSwitchWorkspace,
   onSelectTerminal,
   onOpenSettings,
   onTerminalDelete,
   onTerminalLink,
   onTerminalStyle,
-}: SidebarProps): JSX.Element {
+  terminalOrderByWorkspace,
+}: SidebarStateProps): JSX.Element {
   const { getStatus } = usePtyActivity()
   const [newWsMode, setNewWsMode] = useState(false)
   const [newWsName, setNewWsName] = useState('')
@@ -217,7 +266,9 @@ function ExpandedSidebar({
   // id of the workspace whose name is being inline-edited
   const [renamingWsId, setRenamingWsId] = useState<string | null>(null)
   const [drag, setDrag] = useState<DragState | null>(null)
+  const [terminalDrag, setTerminalDrag] = useState<TerminalDragState | null>(null)
   const wsRowRefs = useRef<Map<string, HTMLDivElement>>(new Map())
+  const terminalRowRefs = useRef<Map<string, HTMLDivElement>>(new Map())
   const wsListRef = useRef<HTMLDivElement>(null)
 
   // Compute the drop index given the cursor's viewport Y by inspecting each
@@ -234,6 +285,19 @@ function ExpandedSidebar({
       return workspaces.length
     },
     [workspaces],
+  )
+
+  const computeTerminalDropIndex = useCallback(
+    (workspaceId: string, nodes: TerminalNodeData[], clientY: number): number => {
+      for (let i = 0; i < nodes.length; i++) {
+        const el = terminalRowRefs.current.get(nodes[i].id)
+        if (!el) continue
+        const rect = el.getBoundingClientRect()
+        if (clientY < rect.top + rect.height / 2) return i
+      }
+      return nodes.length
+    },
+    [],
   )
 
   function startWorkspaceDrag(ws: WorkspaceRecord, e: React.PointerEvent): void {
@@ -274,6 +338,55 @@ function ExpandedSidebar({
       next.splice(fromIndex, 1)
       next.splice(dropIndex > fromIndex ? dropIndex - 1 : dropIndex, 0, ws.id)
       onReorderWorkspaces(next)
+    }
+
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
+  function startTerminalDrag(
+    workspaceId: string,
+    terminal: TerminalNodeData,
+    orderedNodes: TerminalNodeData[],
+    e: React.PointerEvent,
+  ): void {
+    if (e.button !== 0) return
+    e.preventDefault()
+    e.stopPropagation()
+    const startX = e.clientX
+    const startY = e.clientY
+    let active = false
+
+    function onMove(ev: PointerEvent): void {
+      if (!active) {
+        if (Math.abs(ev.clientY - startY) < 4 && Math.abs(ev.clientX - startX) < 4) return
+        active = true
+      }
+      setTerminalDrag({
+        workspaceId,
+        id: terminal.id,
+        name: terminal.title,
+        pointerX: ev.clientX,
+        pointerY: ev.clientY,
+        dropIndex: computeTerminalDropIndex(workspaceId, orderedNodes, ev.clientY),
+      })
+    }
+
+    function onUp(ev: PointerEvent): void {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      if (!active) {
+        setTerminalDrag(null)
+        return
+      }
+      const dropIndex = computeTerminalDropIndex(workspaceId, orderedNodes, ev.clientY)
+      const fromIndex = orderedNodes.findIndex((n) => n.id === terminal.id)
+      setTerminalDrag(null)
+      if (fromIndex < 0 || dropIndex === fromIndex || dropIndex === fromIndex + 1) return
+      const next = orderedNodes.map((n) => n.id)
+      next.splice(fromIndex, 1)
+      next.splice(dropIndex > fromIndex ? dropIndex - 1 : dropIndex, 0, terminal.id)
+      onReorderTerminals(workspaceId, next)
     }
 
     window.addEventListener('pointermove', onMove)
@@ -360,7 +473,10 @@ function ExpandedSidebar({
       {/* Workspace list */}
       <div ref={wsListRef} className="flex-1 overflow-y-auto nice-scroll px-2 pb-2">
         {workspaces.map((ws, idx) => {
-          const nodes = nodesByWorkspace[ws.id] ?? []
+          const nodes = orderTerminalNodes(
+            nodesByWorkspace[ws.id] ?? [],
+            terminalOrderByWorkspace[ws.id],
+          )
           const isActiveWs = ws.id === activeWorkspaceId
           const isOpen = openWorkspaces[ws.id] !== false
           const isDragging = drag?.id === ws.id
@@ -397,6 +513,11 @@ function ExpandedSidebar({
                   onWorkspaceContextMenu={(x, y) => setWsCtxMenu({ workspaceId: ws.id, x, y })}
                   onTerminalContextMenu={(terminal, x, y) => setTermCtxMenu({ terminal, x, y })}
                   onDragHandlePointerDown={(e) => startWorkspaceDrag(ws, e)}
+                  onTerminalDragHandlePointerDown={(terminal, e) =>
+                    startTerminalDrag(ws.id, terminal, nodes, e)
+                  }
+                  terminalDrag={terminalDrag?.workspaceId === ws.id ? terminalDrag : null}
+                  terminalRowRefs={terminalRowRefs}
                   getStatus={getStatus}
                 />
               </div>
@@ -500,6 +621,9 @@ function ExpandedSidebar({
 
       {/* Drag preview floating with the cursor */}
       {drag && <DragPreview name={drag.name} x={drag.pointerX} y={drag.pointerY} />}
+      {terminalDrag && (
+        <DragPreview name={terminalDrag.name} x={terminalDrag.pointerX} y={terminalDrag.pointerY} />
+      )}
 
       {/* Workspace right-click menu */}
       {wsCtxMenu && (
@@ -544,6 +668,9 @@ function WorkspaceSection({
   onWorkspaceContextMenu,
   onTerminalContextMenu,
   onDragHandlePointerDown,
+  onTerminalDragHandlePointerDown,
+  terminalDrag,
+  terminalRowRefs,
   getStatus,
 }: {
   workspace: WorkspaceRecord
@@ -561,6 +688,9 @@ function WorkspaceSection({
   onWorkspaceContextMenu: (x: number, y: number) => void
   onTerminalContextMenu: (terminal: TerminalNodeData, x: number, y: number) => void
   onDragHandlePointerDown: (e: React.PointerEvent) => void
+  onTerminalDragHandlePointerDown: (terminal: TerminalNodeData, e: React.PointerEvent) => void
+  terminalDrag: TerminalDragState | null
+  terminalRowRefs: React.MutableRefObject<Map<string, HTMLDivElement>>
   getStatus: (nodeId: string) => PtyStatus
 }): JSX.Element {
   const anyBusy = nodes.some((n) => getStatus(n.id) === 'busy')
@@ -695,23 +825,39 @@ function WorkspaceSection({
       {/* Terminal list */}
       {isOpen && (
         <div className="pl-1 mt-0.5">
-          {nodes.map((t) => (
-            <TerminalItem
-              key={t.id}
-              terminal={t}
-              selected={selectedTerminalId === t.id}
-              ptyStatus={getStatus(t.id)}
-              onSelect={() => {
-                onSwitchWorkspace(t.workspace_id)
-                onSelectTerminal(t.workspace_id, t.id)
-              }}
-              onFocus={() => {
-                onSwitchWorkspace(t.workspace_id)
-                onSelectTerminal(t.workspace_id, t.id)
-              }}
-              onContextMenu={(x, y) => onTerminalContextMenu(t, x, y)}
-            />
-          ))}
+          {nodes.map((t, idx) => {
+            const isDragging = terminalDrag?.id === t.id
+            return (
+              <div key={t.id}>
+                {terminalDrag && terminalDrag.id !== t.id && terminalDrag.dropIndex === idx && (
+                  <DropIndicator />
+                )}
+                <div
+                  ref={(el) => {
+                    if (el) terminalRowRefs.current.set(t.id, el)
+                    else terminalRowRefs.current.delete(t.id)
+                  }}
+                  style={{
+                    opacity: isDragging ? 0.35 : 1,
+                    transition: 'opacity 120ms ease',
+                  }}
+                >
+                  <TerminalItem
+                    terminal={t}
+                    selected={selectedTerminalId === t.id}
+                    ptyStatus={getStatus(t.id)}
+                    onSelect={() => {
+                      onSwitchWorkspace(t.workspace_id)
+                      onSelectTerminal(t.workspace_id, t.id)
+                    }}
+                    onDragHandlePointerDown={(e) => onTerminalDragHandlePointerDown(t, e)}
+                    onContextMenu={(x, y) => onTerminalContextMenu(t, x, y)}
+                  />
+                </div>
+              </div>
+            )
+          })}
+          {terminalDrag && terminalDrag.dropIndex === nodes.length && <DropIndicator />}
           {nodes.length === 0 && (
             <div
               className="px-3 py-2 text-[11.5px]"
@@ -733,14 +879,14 @@ function TerminalItem({
   selected,
   ptyStatus,
   onSelect,
-  onFocus,
+  onDragHandlePointerDown,
   onContextMenu,
 }: {
   terminal: TerminalNodeData
   selected: boolean
   ptyStatus: PtyStatus
   onSelect: () => void
-  onFocus: () => void
+  onDragHandlePointerDown: (e: React.PointerEvent) => void
   onContextMenu: (x: number, y: number) => void
 }): JSX.Element {
   return (
@@ -776,14 +922,28 @@ function TerminalItem({
         </div>
       </div>
       <button
-        className="icon-btn !w-6 !h-6"
-        onClick={(e) => {
-          e.stopPropagation()
-          onFocus()
+        className="term-drag-handle flex items-center justify-center"
+        style={{
+          width: 24,
+          height: 24,
+          cursor: 'grab',
+          color: 'var(--fg-3)',
+          touchAction: 'none',
+          flexShrink: 0,
         }}
-        title="Center on canvas"
+        onPointerDown={onDragHandlePointerDown}
+        onClick={(e) => e.stopPropagation()}
+        title="Drag to reorder"
+        aria-label="Drag to reorder terminal"
       >
-        <ITarget size={12} />
+        <svg width={10} height={14} viewBox="0 0 10 14" fill="currentColor">
+          <circle cx={2} cy={3} r={1} />
+          <circle cx={8} cy={3} r={1} />
+          <circle cx={2} cy={7} r={1} />
+          <circle cx={8} cy={7} r={1} />
+          <circle cx={2} cy={11} r={1} />
+          <circle cx={8} cy={11} r={1} />
+        </svg>
       </button>
     </div>
   )
@@ -940,4 +1100,3 @@ function DragPreview({ name, x, y }: { name: string; x: number; y: number }): JS
     document.body,
   )
 }
-

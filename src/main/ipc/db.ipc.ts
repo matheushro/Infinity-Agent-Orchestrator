@@ -14,6 +14,9 @@ export function registerDbIpc(): void {
     dbService.upsertTerminal(record),
   )
   ipcMain.handle(IpcChannels.dbRemove, (_event, id: string) => dbService.removeTerminal(id))
+  ipcMain.handle(IpcChannels.dbReorderTerminals, (_event, workspaceId: string, orderedIds: string[]) =>
+    dbService.reorderTerminals(workspaceId, orderedIds),
+  )
   ipcMain.handle(IpcChannels.edgesList, () => dbService.listEdges())
   ipcMain.handle(IpcChannels.edgesUpsert, (_event, record: EdgeRecord) =>
     dbService.upsertEdge(record),

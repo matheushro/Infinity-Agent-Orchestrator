@@ -27,6 +27,9 @@ vi.mock('better-sqlite3', () => {
   return {
     default: class MockDatabase {
       pragma() { /* WAL mode — no-op in mock */ }
+      transaction<T extends unknown[]>(fn: (...args: T) => unknown) {
+        return (...args: T) => fn(...args)
+      }
       exec(sql: string) {
         executedSql.push(sql)
         if (/DELETE\s+FROM\s+terminals\s+WHERE\s+workspace_id\s+NOT\s+IN\s+\(\s*SELECT\s+id\s+FROM\s+workspaces\s*\)/i.test(sql)) {
@@ -46,7 +49,10 @@ vi.mock('better-sqlite3', () => {
               if (sql.includes('workspace_id = ?') && args[0]) {
                 rows = rows.filter(t => t.workspace_id === args[0])
               }
-              return rows.sort((a, b) => (a.created_at as number) - (b.created_at as number))
+              return rows.sort((a, b) =>
+                ((a.position as number | undefined) ?? 0) - ((b.position as number | undefined) ?? 0)
+                || (a.created_at as number) - (b.created_at as number),
+              )
             }
             if (sql.includes('FROM edges')) {
               return Array.from(store.edges.values())
@@ -97,6 +103,19 @@ vi.mock('better-sqlite3', () => {
                 if (p > max) max = p
               }
               return { m: max }
+            }
+            if (sql.includes('MAX(position)') && sql.includes('FROM terminals')) {
+              let max = -1
+              for (const t of store.terminals.values()) {
+                if (t.workspace_id !== args[0]) continue
+                const p = typeof t.position === 'number' ? t.position : -1
+                if (p > max) max = p
+              }
+              return { m: max }
+            }
+            if (sql.startsWith('SELECT position FROM terminals WHERE id = ?')) {
+              const terminal = store.terminals.get(args[0] as string)
+              return terminal ? { position: terminal.position } : null
             }
             if (sql.startsWith('SELECT * FROM workspaces WHERE id = ?')) {
               return store.workspaces.get(args[0] as string) ?? null
@@ -171,6 +190,12 @@ vi.mock('better-sqlite3', () => {
                   store.terminals.set(key, { ...t, workspace_id: args[0] })
                 }
               }
+            } else if (sql.includes('UPDATE terminals SET position = ? WHERE id = ? AND workspace_id = ?')) {
+              const [position, id, workspaceId] = args as [number, string, string]
+              const terminal = store.terminals.get(id)
+              if (terminal?.workspace_id === workspaceId) {
+                store.terminals.set(id, { ...terminal, position })
+              }
             } else if (sql.startsWith('INSERT INTO note_links')) {
               const rec = args[0] as Record<string, unknown>
               // ON CONFLICT(note_id, terminal_id) DO NOTHING
@@ -217,6 +242,7 @@ import {
   initDb,
   listActiveTerminals,
   upsertTerminal,
+  reorderTerminals,
   removeTerminal,
   listEdges,
   upsertEdge,
@@ -410,6 +436,15 @@ describe('listActiveTerminals', () => {
     expect(ids).toContain('ord-2')
     // both inserted sequentially; created_at will be >= so order is stable
     expect(ids.indexOf('ord-1')).toBeLessThanOrEqual(ids.indexOf('ord-2'))
+  })
+
+  it('returns records ordered by persisted sidebar position', () => {
+    upsertTerminal(makeTerminal({ id: 'ord-1', workspace_id: 'default' }))
+    upsertTerminal(makeTerminal({ id: 'ord-2', workspace_id: 'default' }))
+
+    reorderTerminals('default', ['ord-2', 'ord-1'])
+
+    expect(listActiveTerminals('default').map(r => r.id)).toEqual(['ord-2', 'ord-1'])
   })
 
   it('does not return a terminal after it has been removed', () => {

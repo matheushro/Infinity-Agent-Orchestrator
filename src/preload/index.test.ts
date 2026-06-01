@@ -54,6 +54,7 @@ describe('preload/index', () => {
     expect(typeof api.listActive).toBe('function')
     expect(typeof api.upsert).toBe('function')
     expect(typeof api.remove).toBe('function')
+    expect(typeof api.reorderTerminals).toBe('function')
     expect(typeof api.listEdges).toBe('function')
     expect(typeof api.upsertEdge).toBe('function')
     expect(typeof api.removeEdge).toBe('function')

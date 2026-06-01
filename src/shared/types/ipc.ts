@@ -11,6 +11,7 @@ export const IpcChannels = {
   dbListActive: 'db:list-active',
   dbUpsert: 'db:upsert',
   dbRemove: 'db:remove',
+  dbReorderTerminals: 'db:reorder-terminals',
   edgesList: 'edges:list',
   edgesUpsert: 'edges:upsert',
   edgesRemove: 'edges:remove',

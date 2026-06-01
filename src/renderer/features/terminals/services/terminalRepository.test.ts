@@ -7,6 +7,7 @@ const mockDbApi = {
   listActive: vi.fn(),
   upsert: vi.fn(),
   remove: vi.fn(),
+  reorderTerminals: vi.fn(),
   edgesList: vi.fn(),
   edgesUpsert: vi.fn(),
   edgesRemove: vi.fn(),
@@ -24,6 +25,7 @@ const record: TerminalRecord = {
   y: 20,
   width: 800,
   height: 600,
+  workspace_id: 'ws-1',
 }
 
 const node: TerminalNodeData = {
@@ -36,6 +38,7 @@ const node: TerminalNodeData = {
   y: 20,
   width: 800,
   height: 600,
+  workspace_id: 'ws-1',
 }
 
 beforeEach(() => {
@@ -46,9 +49,9 @@ describe('terminalRepository.listActive', () => {
   it('calls window.dbApi.listActive and maps TerminalRecord → TerminalNodeData', async () => {
     mockDbApi.listActive.mockResolvedValue([record])
 
-    const result = await terminalRepository.listActive()
+    const result = await terminalRepository.listActive('ws-1')
 
-    expect(mockDbApi.listActive).toHaveBeenCalledOnce()
+    expect(mockDbApi.listActive).toHaveBeenCalledWith('ws-1')
     expect(result).toHaveLength(1)
     expect(result[0]).toEqual<TerminalNodeData>({
       id: record.id,
@@ -60,13 +63,14 @@ describe('terminalRepository.listActive', () => {
       y: record.y,
       width: record.width,
       height: record.height,
+      workspace_id: 'ws-1',
     })
   })
 
   it('returns empty array when dbApi returns no rows', async () => {
     mockDbApi.listActive.mockResolvedValue([])
 
-    const result = await terminalRepository.listActive()
+    const result = await terminalRepository.listActive('ws-1')
 
     expect(result).toEqual([])
   })
@@ -75,7 +79,7 @@ describe('terminalRepository.listActive', () => {
     const second: TerminalRecord = { ...record, id: 'rec-2', title: 'Second', x: 100 }
     mockDbApi.listActive.mockResolvedValue([record, second])
 
-    const result = await terminalRepository.listActive()
+    const result = await terminalRepository.listActive('ws-1')
 
     expect(result).toHaveLength(2)
     expect(result[0].id).toBe('rec-1')
@@ -99,6 +103,7 @@ describe('terminalRepository.persist', () => {
       y: node.y,
       width: node.width,
       height: node.height,
+      workspace_id: 'ws-1',
     })
   })
 })
@@ -109,5 +114,14 @@ describe('terminalRepository.remove', () => {
 
     expect(mockDbApi.remove).toHaveBeenCalledOnce()
     expect(mockDbApi.remove).toHaveBeenCalledWith('rec-1')
+  })
+})
+
+describe('terminalRepository.reorder', () => {
+  it('calls window.dbApi.reorderTerminals with workspace id and ordered ids', () => {
+    terminalRepository.reorder('ws-1', ['rec-2', 'rec-1'])
+
+    expect(mockDbApi.reorderTerminals).toHaveBeenCalledOnce()
+    expect(mockDbApi.reorderTerminals).toHaveBeenCalledWith('ws-1', ['rec-2', 'rec-1'])
   })
 })

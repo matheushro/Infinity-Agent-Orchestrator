@@ -50,4 +50,9 @@ export const terminalRepository = {
   remove(id: string): void {
     void window.dbApi.remove(id)
   },
+
+  /** Persist sidebar ordering for a workspace without changing canvas layout. */
+  reorder(workspaceId: string, orderedIds: string[]): void {
+    void window.dbApi.reorderTerminals(workspaceId, orderedIds)
+  },
 }

@@ -21,6 +21,7 @@ export interface DbApi {
   listActive(workspaceId?: string): Promise<TerminalRecord[]>
   upsert(record: TerminalRecord): Promise<void>
   remove(id: string): Promise<void>
+  reorderTerminals(workspaceId: string, orderedIds: string[]): Promise<void>
   listEdges(): Promise<EdgeRecord[]>
   upsertEdge(record: EdgeRecord): Promise<void>
   removeEdge(id: string): Promise<void>

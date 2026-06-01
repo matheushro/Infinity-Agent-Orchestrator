@@ -7,6 +7,10 @@ import type { WorkspaceRecord } from '@shared/types/workspace'
 import { PtyActivityProvider, usePtyActivity } from '@renderer/features/workspaces/context/PtyActivityContext'
 import { Sidebar } from './Sidebar'
 
+const mockDbApi = {
+  reorderTerminals: vi.fn(),
+}
+
 const WS_1: WorkspaceRecord = { id: 'ws-1', name: 'Main', created_at: 1000 }
 const WS_2: WorkspaceRecord = { id: 'ws-2', name: 'Side', created_at: 2000 }
 
@@ -23,6 +27,13 @@ const term2: TerminalNodeData = {
   shell: 'default', title: 'Beta Terminal',
   cwd: '/home/me/Beta', command: 'claude',
   workspace_id: 'ws-2',
+}
+const term3: TerminalNodeData = {
+  id: 'gamma',
+  x: 40, y: 40, width: 320, height: 220,
+  shell: 'default', title: 'Gamma Shell',
+  cwd: '/home/me/GammaApp', command: 'codex',
+  workspace_id: 'ws-1',
 }
 
 function StatusSetter({ nodeId, status }: { nodeId: string; status: 'idle' | 'busy' | 'offline' }): null {
@@ -102,6 +113,10 @@ function renderSidebarWithStatus(
 
 beforeEach(() => {
   vi.clearAllMocks()
+  Object.defineProperty(window, 'dbApi', {
+    configurable: true,
+    value: mockDbApi,
+  })
 })
 
 afterEach(() => {
@@ -194,6 +209,62 @@ describe('Sidebar', () => {
     const activeItem = Array.from(items).find((el) => el.classList.contains('active'))
     expect(activeItem).toBeTruthy()
     expect(activeItem?.textContent).toContain('Alpha Shell')
+  })
+
+  it('does not render a center-on-canvas button for terminal rows', () => {
+    renderSidebar()
+    expect(screen.queryByTitle('Center on canvas')).toBeNull()
+  })
+
+  it('reorders terminal rows in the sidebar without mutating the source node order', () => {
+    const nodes = [term1, term3]
+    const { props } = renderSidebar({
+      workspaces: [WS_1],
+      nodesByWorkspace: { 'ws-1': nodes },
+    })
+
+    const alphaItem = screen.getByText('Alpha Shell').closest('.term-item')!
+    const gammaItem = screen.getByText('Gamma Shell').closest('.term-item')!
+    const alphaRow = alphaItem.parentElement!
+    const gammaRow = gammaItem.parentElement!
+    vi.spyOn(alphaRow, 'getBoundingClientRect').mockReturnValue({
+      top: 0,
+      bottom: 30,
+      left: 0,
+      right: 220,
+      width: 220,
+      height: 30,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    })
+    vi.spyOn(gammaRow, 'getBoundingClientRect').mockReturnValue({
+      top: 30,
+      bottom: 60,
+      left: 0,
+      right: 220,
+      width: 220,
+      height: 30,
+      x: 0,
+      y: 30,
+      toJSON: () => ({}),
+    })
+
+    fireEvent.pointerDown(screen.getAllByLabelText('Drag to reorder terminal')[0], {
+      button: 0,
+      clientX: 10,
+      clientY: 10,
+    })
+    fireEvent.pointerMove(window, { clientX: 10, clientY: 100 })
+    fireEvent.pointerUp(window, { clientX: 10, clientY: 100 })
+
+    const renderedTitles = Array.from(document.querySelectorAll('.term-item')).map((item) =>
+      item.textContent,
+    )
+    expect(renderedTitles[0]).toContain('Gamma Shell')
+    expect(renderedTitles[1]).toContain('Alpha Shell')
+    expect(props.nodesByWorkspace['ws-1']).toEqual(nodes)
+    expect(mockDbApi.reorderTerminals).toHaveBeenCalledWith('ws-1', ['gamma', 'alpha'])
   })
 
   it('pressing Escape inside the new-workspace input cancels without calling onCreateWorkspace', () => {

@@ -14,6 +14,7 @@ vi.mock('../services/db.service', () => ({
   listActiveTerminals: vi.fn(() => []),
   upsertTerminal: vi.fn(),
   removeTerminal: vi.fn(),
+  reorderTerminals: vi.fn(),
   listEdges: vi.fn(() => []),
   upsertEdge: vi.fn(),
   removeEdge: vi.fn(),
@@ -56,6 +57,11 @@ describe('db.ipc', () => {
   it('db:remove calls removeTerminal(id)', async () => {
     await ipcHandlers.get(IpcChannels.dbRemove)!({}, 't1')
     expect(dbService.removeTerminal).toHaveBeenCalledWith('t1')
+  })
+
+  it('db:reorder-terminals calls reorderTerminals(workspaceId, orderedIds)', async () => {
+    await ipcHandlers.get(IpcChannels.dbReorderTerminals)!({}, 'ws-1', ['t2', 't1'])
+    expect(dbService.reorderTerminals).toHaveBeenCalledWith('ws-1', ['t2', 't1'])
   })
 
   it('edges:list calls listEdges and returns its result', async () => {

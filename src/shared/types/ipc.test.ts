@@ -38,6 +38,10 @@ describe('IpcChannels — completude e consistência', () => {
     expect(IpcChannels.dbRemove).toBe('db:remove')
   })
 
+  it('contém o canal db:reorder-terminals', () => {
+    expect(IpcChannels.dbReorderTerminals).toBe('db:reorder-terminals')
+  })
+
   it('contém o canal edges:list', () => {
     expect(IpcChannels.edgesList).toBe('edges:list')
   })
@@ -64,10 +68,10 @@ describe('IpcChannels — completude e consistência', () => {
     expect(IpcChannels.notesChanged).toBe('notes:changed')
   })
 
-  it('IpcChannels contém exatamente os 32 canais conhecidos (sem canais fantasma)', () => {
+  it('IpcChannels contém exatamente os 33 canais conhecidos (sem canais fantasma)', () => {
     const expected = [
       'pty:create', 'pty:input', 'pty:resize', 'pty:kill', 'pty:data', 'pty:exit',
-      'db:list-active', 'db:upsert', 'db:remove',
+      'db:list-active', 'db:upsert', 'db:remove', 'db:reorder-terminals',
       'edges:list', 'edges:upsert', 'edges:remove',
       'canvas-texts:list', 'canvas-texts:upsert', 'canvas-texts:remove',
       'notes:list', 'notes:upsert', 'notes:remove', 'notes:changed',
@@ -105,6 +109,7 @@ describe('IpcChannels — completude e consistência', () => {
     expect(IpcChannels.dbListActive).toBeTruthy()
     expect(IpcChannels.dbUpsert).toBeTruthy()
     expect(IpcChannels.dbRemove).toBeTruthy()
+    expect(IpcChannels.dbReorderTerminals).toBeTruthy()
     expect(IpcChannels.edgesList).toBeTruthy()
     expect(IpcChannels.edgesUpsert).toBeTruthy()
     expect(IpcChannels.edgesRemove).toBeTruthy()

@@ -66,7 +66,7 @@ describe('PtyApi — contrato de window.ptyApi', () => {
 describe('DbApi — contrato de window.dbApi', () => {
   const mockRecord: TerminalRecord = {
     id: 'n1', title: 'T', cwd: '/tmp', command: '', shell: 'bash',
-    x: 0, y: 0, width: 800, height: 600
+    x: 0, y: 0, width: 800, height: 600, workspace_id: 'ws-1'
   }
   const mockEdge: EdgeRecord = { id: 'e1', source: 'n1', target: 'n2' }
 
@@ -74,6 +74,7 @@ describe('DbApi — contrato de window.dbApi', () => {
     listActive: vi.fn().mockResolvedValue([mockRecord]),
     upsert: vi.fn().mockResolvedValue(undefined),
     remove: vi.fn().mockResolvedValue(undefined),
+    reorderTerminals: vi.fn().mockResolvedValue(undefined),
     listEdges: vi.fn().mockResolvedValue([mockEdge]),
     upsertEdge: vi.fn().mockResolvedValue(undefined),
     removeEdge: vi.fn().mockResolvedValue(undefined)
@@ -93,6 +94,11 @@ describe('DbApi — contrato de window.dbApi', () => {
     await expect(mockDbApi.remove('n1')).resolves.toBeUndefined()
   })
 
+  it('reorderTerminals(workspaceId, orderedIds): Promise<void>', async () => {
+    await expect(mockDbApi.reorderTerminals('ws-1', ['n2', 'n1'])).resolves.toBeUndefined()
+    expect(mockDbApi.reorderTerminals).toHaveBeenCalledWith('ws-1', ['n2', 'n1'])
+  })
+
   it('listEdges(): Promise<EdgeRecord[]>', async () => {
     const result = await mockDbApi.listEdges()
     expect(Array.isArray(result)).toBe(true)
@@ -108,9 +114,17 @@ describe('DbApi — contrato de window.dbApi', () => {
     await expect(mockDbApi.removeEdge('e1')).resolves.toBeUndefined()
   })
 
-  it('DbApi tem exatamente 6 métodos (listActive, upsert, remove, listEdges, upsertEdge, removeEdge)', () => {
+  it('DbApi tem exatamente 7 métodos básicos incluindo reorderTerminals', () => {
     const methods = Object.keys(mockDbApi)
-    expect(methods.sort()).toEqual(['listActive', 'listEdges', 'remove', 'removeEdge', 'upsert', 'upsertEdge'])
+    expect(methods.sort()).toEqual([
+      'listActive',
+      'listEdges',
+      'remove',
+      'removeEdge',
+      'reorderTerminals',
+      'upsert',
+      'upsertEdge',
+    ])
   })
 })
 

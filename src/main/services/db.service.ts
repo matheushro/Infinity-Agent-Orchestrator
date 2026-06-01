@@ -42,7 +42,8 @@ export function initDb(): void {
       height REAL NOT NULL,
       active INTEGER NOT NULL DEFAULT 1,
       created_at INTEGER NOT NULL,
-      workspace_id TEXT NOT NULL DEFAULT ''
+      workspace_id TEXT NOT NULL DEFAULT '',
+      position INTEGER NOT NULL DEFAULT 0
     )
   `)
 
@@ -101,6 +102,13 @@ export function initDb(): void {
   // Migration: add workspace_id to terminals if it was created before workspaces existed.
   try {
     db.exec(`ALTER TABLE terminals ADD COLUMN workspace_id TEXT NOT NULL DEFAULT ''`)
+  } catch {
+    // column already exists — no-op
+  }
+
+  // Migration: add sidebar ordering for terminals.
+  try {
+    db.exec(`ALTER TABLE terminals ADD COLUMN position INTEGER NOT NULL DEFAULT 0`)
   } catch {
     // column already exists — no-op
   }
@@ -185,8 +193,8 @@ export function duplicateWorkspace(sourceId: string): WorkspaceRecord {
     .prepare('SELECT * FROM terminals WHERE active = 1 AND workspace_id = ?')
     .all(sourceId) as Array<TerminalRecord & { active: number; created_at: number }>
   const insert = db.prepare(
-    `INSERT INTO terminals (id, title, cwd, command, shell, x, y, width, height, active, created_at, workspace_id)
-     VALUES (@id, @title, @cwd, @command, @shell, @x, @y, @width, @height, 1, @created_at, @workspace_id)`,
+    `INSERT INTO terminals (id, title, cwd, command, shell, x, y, width, height, active, created_at, workspace_id, position)
+     VALUES (@id, @title, @cwd, @command, @shell, @x, @y, @width, @height, 1, @created_at, @workspace_id, @position)`,
   )
   const now = Date.now()
   for (const t of terminals) {
@@ -230,24 +238,37 @@ export function listActiveTerminals(workspaceId?: string): TerminalRecord[] {
   if (workspaceId) {
     return db
       .prepare(
-        'SELECT * FROM terminals WHERE active = 1 AND workspace_id = ? ORDER BY created_at',
+        'SELECT * FROM terminals WHERE active = 1 AND workspace_id = ? ORDER BY position, created_at',
       )
       .all(workspaceId) as TerminalRecord[]
   }
   return db
-    .prepare('SELECT * FROM terminals WHERE active = 1 ORDER BY created_at')
+    .prepare('SELECT * FROM terminals WHERE active = 1 ORDER BY workspace_id, position, created_at')
     .all() as TerminalRecord[]
 }
 
 export function upsertTerminal(record: TerminalRecord): void {
+  const existing = db
+    .prepare('SELECT position FROM terminals WHERE id = ?')
+    .get(record.id) as { position: number } | undefined
+  const position = existing?.position ?? nextTerminalPosition(record.workspace_id)
+
   db.prepare(
-    `INSERT INTO terminals (id, title, cwd, command, shell, x, y, width, height, active, created_at, workspace_id)
-     VALUES (@id, @title, @cwd, @command, @shell, @x, @y, @width, @height, 1, @created_at, @workspace_id)
+    `INSERT INTO terminals (id, title, cwd, command, shell, x, y, width, height, active, created_at, workspace_id, position)
+     VALUES (@id, @title, @cwd, @command, @shell, @x, @y, @width, @height, 1, @created_at, @workspace_id, @position)
      ON CONFLICT(id) DO UPDATE SET
        title = @title, cwd = @cwd, command = @command, shell = @shell,
        x = @x, y = @y, width = @width, height = @height, active = 1,
        workspace_id = @workspace_id`,
-  ).run({ ...record, created_at: Date.now() })
+  ).run({ ...record, created_at: Date.now(), position })
+}
+
+export function reorderTerminals(workspaceId: string, orderedIds: string[]): void {
+  const update = db.prepare('UPDATE terminals SET position = ? WHERE id = ? AND workspace_id = ?')
+  const tx = db.transaction((ids: string[]) => {
+    ids.forEach((id, idx) => update.run(idx, id, workspaceId))
+  })
+  tx(orderedIds)
 }
 
 export function removeTerminal(id: string): void {
@@ -258,6 +279,13 @@ export function removeTerminal(id: string): void {
 
 export function getTerminal(id: string): TerminalRecord | undefined {
   return db.prepare('SELECT * FROM terminals WHERE id = ?').get(id) as TerminalRecord | undefined
+}
+
+function nextTerminalPosition(workspaceId: string): number {
+  const row = db
+    .prepare('SELECT COALESCE(MAX(position), -1) AS m FROM terminals WHERE workspace_id = ?')
+    .get(workspaceId) as { m: number }
+  return row.m + 1
 }
 
 // ── Edges ────────────────────────────────────────────────────────────────────
