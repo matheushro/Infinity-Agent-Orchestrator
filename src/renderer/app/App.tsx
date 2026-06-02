@@ -13,6 +13,7 @@ import type { ShellType } from '@renderer/features/terminals/types'
 import type { CanvasTheme } from '@renderer/features/canvas/types'
 
 export default function App(): JSX.Element {
+  const [maxWorkspaces, setMaxWorkspaces] = useLocalStorage<number>('maxWorkspaces', 5)
   const {
     workspaces,
     activeId,
@@ -22,7 +23,7 @@ export default function App(): JSX.Element {
     deleteWorkspace,
     duplicateWorkspace,
     reorderWorkspaces,
-  } = useWorkspaces()
+  } = useWorkspaces(maxWorkspaces)
   const { getStyle, setStyle, removeStyle } = useTerminalStyles()
   const [defaultShell, setDefaultShell] = useLocalStorage<ShellType>('defaultShell', 'default')
   const [defaultProjectFolder, setDefaultProjectFolder] = useLocalStorage<string>(
@@ -77,6 +78,7 @@ export default function App(): JSX.Element {
           nodesByWorkspace={nodesByWorkspace}
           selectedTerminalId={selectedTerminalId}
           collapsed={sidebarCollapsed}
+          maxWorkspaces={maxWorkspaces}
           onCollapsedChange={setSidebarCollapsed}
           onNewTerminal={() => {
             canvasRefs.current.get(activeId)?.openNewTerminalModal()
@@ -99,6 +101,9 @@ export default function App(): JSX.Element {
           onTerminalStyle={(workspaceId, terminalId) => {
             setActiveId(workspaceId)
             canvasRefs.current.get(workspaceId)?.openStyleEditor(terminalId)
+          }}
+          onTerminalOpenInVSCode={(_workspaceId, terminal) => {
+            window.windowApi.openInVSCode(terminal.cwd)
           }}
         />
 
@@ -129,6 +134,7 @@ export default function App(): JSX.Element {
                   pendingFocus?.workspaceId === ws.id ? pendingFocus.terminalId : null
                 }
                 onFocusConsumed={() => setPendingFocus(null)}
+                onTerminalSelected={(terminalId) => setSelectedTerminalId(terminalId)}
               />
             ))}
           </div>
@@ -139,9 +145,11 @@ export default function App(): JSX.Element {
             theme={theme}
             defaultShell={defaultShell}
             defaultProjectFolder={defaultProjectFolder}
+            maxWorkspaces={maxWorkspaces}
             onThemeChange={setTheme}
             onDefaultShellChange={setDefaultShell}
             onDefaultProjectFolderChange={setDefaultProjectFolder}
+            onMaxWorkspacesChange={setMaxWorkspaces}
             onClose={() => setSettingsOpen(false)}
           />
         )}

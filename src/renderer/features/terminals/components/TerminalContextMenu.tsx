@@ -14,6 +14,7 @@ interface TerminalContextMenuProps {
   onLink: () => void
   onDelete: () => void
   onStyle: () => void
+  onOpenInVSCode: () => void
 }
 
 export function TerminalContextMenu({
@@ -24,6 +25,7 @@ export function TerminalContextMenu({
   onLink,
   onDelete,
   onStyle,
+  onOpenInVSCode,
 }: TerminalContextMenuProps): JSX.Element {
   useEffect(() => {
     function onKey(e: KeyboardEvent): void {
@@ -42,7 +44,8 @@ export function TerminalContextMenu({
 
   const items: Array<{ icon: ReactNode; label: string; onClick: () => void; danger?: boolean }> = [
     { icon: <IRefresh size={13} />, label: 'Restart terminal', onClick: onRestart },
-    { icon: <ILink size={13} />, label: 'Link to another terminal', onClick: onLink },
+    { icon: <ILink size={13} />, label: 'Link to terminal/note', onClick: onLink },
+    { icon: <VSCodeIcon />, label: 'Open on VS Code', onClick: onOpenInVSCode },
     { icon: <IPalette size={13} />, label: 'Customize style…', onClick: onStyle },
     { icon: <ITrash size={13} />, label: 'Delete terminal', onClick: onDelete, danger: true },
   ]
@@ -97,5 +100,24 @@ export function TerminalContextMenu({
       </div>
     </>,
     document.body,
+  )
+}
+
+function VSCodeIcon(): JSX.Element {
+  return (
+    <svg width={13} height={13} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M16.5 3.5 7.2 12l9.3 8.5 3.5-1.4V4.9l-3.5-1.4Z"
+        stroke="currentColor"
+        strokeWidth={1.8}
+        strokeLinejoin="round"
+      />
+      <path
+        d="M7.2 12 4 9.6 2.7 10.3v3.4L4 14.4 7.2 12Z"
+        stroke="currentColor"
+        strokeWidth={1.8}
+        strokeLinejoin="round"
+      />
+    </svg>
   )
 }

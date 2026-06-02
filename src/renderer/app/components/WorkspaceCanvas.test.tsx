@@ -99,6 +99,7 @@ const defaultProps = {
   onNodesChange: vi.fn(),
   pendingFocusId: null,
   onFocusConsumed: vi.fn(),
+  onTerminalSelected: vi.fn(),
 }
 
 import { WorkspaceCanvas } from './WorkspaceCanvas'
@@ -109,6 +110,7 @@ beforeEach(() => {
   mockUseCanvasTexts.texts = []
   mockUseNotes.notes = []
   mockUseEdges.edges = []
+  mockUseNoteLinks.noteLinks = []
 })
 
 afterEach(() => {
@@ -264,6 +266,21 @@ describe('WorkspaceCanvas', () => {
     void container
   })
 
+  it('notifies the parent when a terminal is selected from the canvas', async () => {
+    const { Canvas } = await import('@renderer/features/canvas/components/Canvas')
+    const canvasMock = vi.mocked(Canvas)
+    const onTerminalSelected = vi.fn()
+
+    render(<WorkspaceCanvas {...defaultProps} onTerminalSelected={onTerminalSelected} />)
+
+    const lastCall = canvasMock.mock.calls[canvasMock.mock.calls.length - 1]
+    const { onSelect } = lastCall[0]
+
+    act(() => { onSelect('node-1', false) })
+
+    expect(onTerminalSelected).toHaveBeenCalledWith('node-1')
+  })
+
   it('10.11 Delete key on a focused input does NOT remove the node', async () => {
     render(<WorkspaceCanvas {...defaultProps} />)
     const input = document.createElement('input')
@@ -292,6 +309,49 @@ describe('WorkspaceCanvas', () => {
     await waitFor(() => {
       expect(removeEdge).toHaveBeenCalledWith('edge-1')
     })
+  })
+
+  it('Delete key removes a selected note link through the shared edge selection', async () => {
+    const { Canvas } = await import('@renderer/features/canvas/components/Canvas')
+    const canvasMock = vi.mocked(Canvas)
+    const removeNoteLink = vi.fn()
+    const { useNoteLinks } = await import('@renderer/features/notes/hooks/useNoteLinks')
+    vi.mocked(useNoteLinks).mockReturnValue({ ...mockUseNoteLinks, removeNoteLink })
+
+    render(<WorkspaceCanvas {...defaultProps} />)
+
+    const lastCall = canvasMock.mock.calls[canvasMock.mock.calls.length - 1]
+    const { onSelectEdge } = lastCall[0]
+
+    act(() => { onSelectEdge('note-link-1') })
+    fireEvent.keyDown(window, { key: 'Delete' })
+
+    await waitFor(() => {
+      expect(removeNoteLink).toHaveBeenCalledWith('note-link-1')
+    })
+  })
+
+  it('opens a link context menu and deletes the selected link immediately', async () => {
+    const { Canvas } = await import('@renderer/features/canvas/components/Canvas')
+    const canvasMock = vi.mocked(Canvas)
+    const removeEdge = vi.fn()
+    const removeNoteLink = vi.fn()
+    const { useEdges } = await import('@renderer/features/canvas/hooks/useEdges')
+    const { useNoteLinks } = await import('@renderer/features/notes/hooks/useNoteLinks')
+    vi.mocked(useEdges).mockReturnValue({ ...mockUseEdges, removeEdge })
+    vi.mocked(useNoteLinks).mockReturnValue({ ...mockUseNoteLinks, removeNoteLink })
+
+    render(<WorkspaceCanvas {...defaultProps} />)
+
+    const lastCall = canvasMock.mock.calls[canvasMock.mock.calls.length - 1]
+    const { onEdgeContextMenu } = lastCall[0]
+
+    act(() => { onEdgeContextMenu('edge-1', 120, 80) })
+    fireEvent.click(screen.getByRole('button', { name: /delete link/i }))
+
+    expect(removeEdge).toHaveBeenCalledWith('edge-1')
+    expect(removeNoteLink).toHaveBeenCalledWith('edge-1')
+    expect(screen.queryByRole('button', { name: /delete link/i })).toBeNull()
   })
 
   it('10.13 Delete key removes selected texts and terminals together', async () => {

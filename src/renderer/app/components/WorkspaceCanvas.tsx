@@ -19,6 +19,7 @@ import { useCanvasTexts } from '@renderer/features/canvas/hooks/useCanvasTexts'
 import { useNotes } from '@renderer/features/notes/hooks/useNotes'
 import { useNoteLinks } from '@renderer/features/notes/hooks/useNoteLinks'
 import { useEdges } from '@renderer/features/canvas/hooks/useEdges'
+import { ITrash } from '@renderer/components/ui'
 import type { TerminalNodeData } from '@renderer/features/terminals/types'
 import type { ShellType } from '@renderer/features/terminals/types'
 import type { CanvasTheme } from '@renderer/features/canvas/types'
@@ -38,6 +39,12 @@ interface TextContextMenuState {
 
 interface NoteContextMenuState {
   noteId: string
+  x: number
+  y: number
+}
+
+interface EdgeContextMenuState {
+  edgeId: string
   x: number
   y: number
 }
@@ -63,6 +70,7 @@ interface WorkspaceCanvasProps {
   /** If set, focus this terminal node after mount / workspace switch. */
   pendingFocusId: string | null
   onFocusConsumed: () => void
+  onTerminalSelected: (terminalId: string | null) => void
 }
 
 export interface WorkspaceCanvasHandle {
@@ -86,6 +94,7 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
       onNodesChange,
       pendingFocusId,
       onFocusConsumed,
+      onTerminalSelected,
     },
     ref,
   ) {
@@ -131,6 +140,7 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
     const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null)
     const [textCtxMenu, setTextCtxMenu] = useState<TextContextMenuState | null>(null)
     const [noteCtxMenu, setNoteCtxMenu] = useState<NoteContextMenuState | null>(null)
+    const [edgeCtxMenu, setEdgeCtxMenu] = useState<EdgeContextMenuState | null>(null)
     const [canvasMenu, setCanvasMenu] = useState<CanvasMenuState | null>(null)
     const [styleEditorFor, setStyleEditorFor] = useState<string | null>(null)
     // Per-terminal restart counter; bumping a node's value rebuilds its pty/xterm
@@ -263,6 +273,7 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
     }
 
     const selectNode = useCallback((id: string | null, additive: boolean): void => {
+      onTerminalSelected(id)
       if (id === null) {
         setSelectedIds([])
         return
@@ -278,7 +289,7 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
         if (prev.length === 1 && prev[0] === id) return prev
         return [id]
       })
-    }, [])
+    }, [onTerminalSelected])
 
     function selectEdge(id: string | null): void {
       setSelectedEdgeId(id)
@@ -287,6 +298,14 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
         setSelectedTextIds([])
         setSelectedNoteIds([])
       }
+    }
+
+    function deleteEdge(id: string): void {
+      // A selected SVG link may be either a terminal↔terminal edge or a
+      // note↔terminal access link. The non-matching removal is a no-op.
+      removeEdge(id)
+      removeNoteLink(id)
+      setSelectedEdgeId((prev) => (prev === id ? null : prev))
     }
 
     function selectText(id: string | null): void {
@@ -444,6 +463,7 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
             removeNode(id)
             removeTerminalStyle(id)
           }}
+          onDeleteEdge={deleteEdge}
           onLinkPick={handleLinkPick}
           onSetTool={(t) => {
             setTool(t)
@@ -451,6 +471,7 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
           }}
           onNodeContextMenu={(nodeId, x, y) => setCtxMenu({ nodeId, x, y })}
           onTextContextMenu={(textId, x, y) => setTextCtxMenu({ textId, x, y })}
+          onEdgeContextMenu={(edgeId, x, y) => setEdgeCtxMenu({ edgeId, x, y })}
           onCanvasContextMenu={(worldX, worldY, clientX, clientY) =>
             setCanvasMenu({ worldX, worldY, clientX, clientY })
           }
@@ -491,6 +512,11 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
               setCtxMenu(null)
             }}
             onLink={() => startLinkFrom(ctxMenu.nodeId)}
+            onOpenInVSCode={() => {
+              const node = nodes.find((n) => n.id === ctxMenu.nodeId)
+              if (node) window.windowApi.openInVSCode(node.cwd)
+              setCtxMenu(null)
+            }}
             onDelete={() => {
               const id = ctxMenu.nodeId
               setSelectedIds((prev) => prev.filter((p) => p !== id))
@@ -529,6 +555,10 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
               setEditingNoteId(noteCtxMenu.noteId)
               setNoteCtxMenu(null)
             }}
+            onLink={() => {
+              startLinkFrom(noteCtxMenu.noteId)
+              setNoteCtxMenu(null)
+            }}
             onDelete={() => {
               const id = noteCtxMenu.noteId
               removeNote(id)
@@ -561,6 +591,18 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
           />
         )}
 
+        {edgeCtxMenu && (
+          <EdgeContextMenu
+            x={edgeCtxMenu.x}
+            y={edgeCtxMenu.y}
+            onClose={() => setEdgeCtxMenu(null)}
+            onDelete={() => {
+              deleteEdge(edgeCtxMenu.edgeId)
+              setEdgeCtxMenu(null)
+            }}
+          />
+        )}
+
         {styleEditorNode && (
           <TerminalStyleModal
             terminalTitle={styleEditorNode.title}
@@ -574,6 +616,58 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
     )
   },
 )
+
+function EdgeContextMenu({
+  x,
+  y,
+  onClose,
+  onDelete,
+}: {
+  x: number
+  y: number
+  onClose: () => void
+  onDelete: () => void
+}): JSX.Element {
+  return (
+    <>
+      <div
+        className="fixed inset-0 z-[100]"
+        onMouseDown={onClose}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          onClose()
+        }}
+      />
+      <div
+        className="fixed z-[101] min-w-[180px] py-1 rounded-[10px]"
+        style={{
+          left: x,
+          top: y,
+          background: 'color-mix(in oklch, var(--bg-2) 96%, transparent)',
+          backdropFilter: 'blur(10px)',
+          border: '1px solid var(--line)',
+          boxShadow: '0 12px 32px -8px rgb(var(--shadow-color) / 0.32)',
+          color: 'var(--fg)',
+        }}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <button
+          className="ctx-item flex w-full items-center gap-2.5 px-3 py-2 text-[12.5px]"
+          style={{ color: 'oklch(0.68 0.18 25)' }}
+          onClick={onDelete}
+        >
+          <span
+            className="inline-flex items-center justify-center"
+            style={{ width: 18, height: 18 }}
+          >
+            <ITrash size={13} />
+          </span>
+          Delete link
+        </button>
+      </div>
+    </>
+  )
+}
 
 function CanvasContextMenu({
   x,
@@ -633,12 +727,14 @@ function NoteContextMenu({
   y,
   onClose,
   onEdit,
+  onLink,
   onDelete,
 }: {
   x: number
   y: number
   onClose: () => void
   onEdit: () => void
+  onLink: () => void
   onDelete: () => void
 }): JSX.Element {
   return (
@@ -669,6 +765,12 @@ function NoteContextMenu({
           onClick={onEdit}
         >
           Edit note
+        </button>
+        <button
+          className="ctx-item flex w-full items-center gap-2.5 px-3 py-2 text-[12.5px]"
+          onClick={onLink}
+        >
+          Link to terminal
         </button>
         <button
           className="ctx-item flex w-full items-center gap-2.5 px-3 py-2 text-[12.5px]"

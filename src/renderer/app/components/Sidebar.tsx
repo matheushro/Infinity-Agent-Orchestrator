@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { TerminalNodeData } from '@renderer/features/terminals/types'
 import type { WorkspaceRecord } from '@shared/types/workspace'
+import { AGENTS } from '@shared/agents'
 import { usePtyActivity, type PtyStatus } from '@renderer/features/workspaces/context/PtyActivityContext'
 import { TerminalContextMenu } from '@renderer/features/terminals/components/TerminalContextMenu'
 import { terminalRepository } from '@renderer/features/terminals/services/terminalRepository'
@@ -23,6 +24,7 @@ interface SidebarProps {
   nodesByWorkspace: Record<string, TerminalNodeData[]>
   selectedTerminalId: string | null
   collapsed: boolean
+  maxWorkspaces: number
   onCollapsedChange: (next: boolean) => void
   onNewTerminal: () => void
   onCreateWorkspace: (name: string) => void
@@ -36,6 +38,7 @@ interface SidebarProps {
   onTerminalDelete: (workspaceId: string, terminalId: string) => void
   onTerminalLink: (workspaceId: string, terminalId: string) => void
   onTerminalStyle: (workspaceId: string, terminalId: string) => void
+  onTerminalOpenInVSCode: (workspaceId: string, terminal: TerminalNodeData) => void
 }
 
 interface SidebarStateProps extends SidebarProps {
@@ -120,6 +123,7 @@ function CollapsedRail({
   nodesByWorkspace,
   terminalOrderByWorkspace,
   selectedTerminalId,
+  maxWorkspaces: _maxWorkspaces,
   onCollapsedChange,
   onSelectTerminal,
   onSwitchWorkspace,
@@ -168,6 +172,7 @@ function CollapsedRail({
           const active = selectedTerminalId === t.id
           const ptyStatus = getStatus(t.id)
           const folderLabel = terminalFolderLabel(t.cwd)
+          const agent = AGENTS[t.command]
           return (
             <button
               key={t.id}
@@ -189,7 +194,7 @@ function CollapsedRail({
                 color: active ? 'var(--fg)' : 'var(--fg-2)',
                 border: active ? '1px solid var(--accent)' : '1px solid var(--line-2)',
               }}
-              title={`${t.title} · ${folderLabel} — ${STATUS_LABEL[ptyStatus]}`}
+              title={`${t.title} · ${agent.label} · ${folderLabel} — ${STATUS_LABEL[ptyStatus]}`}
             >
               {terminalGlyph(t.title)}
               <span
@@ -251,6 +256,7 @@ function ExpandedSidebar({
   activeWorkspaceId,
   nodesByWorkspace,
   selectedTerminalId,
+  maxWorkspaces,
   onCollapsedChange,
   onNewTerminal,
   onCreateWorkspace,
@@ -265,6 +271,7 @@ function ExpandedSidebar({
   onTerminalDelete,
   onTerminalLink,
   onTerminalStyle,
+  onTerminalOpenInVSCode,
   terminalOrderByWorkspace,
 }: SidebarStateProps): JSX.Element {
   const { getStatus } = usePtyActivity()
@@ -479,7 +486,7 @@ function ExpandedSidebar({
         >
           Workspaces
         </span>
-        <span className="chip">{workspaces.length}/5</span>
+        <span className="chip">{workspaces.length}/{maxWorkspaces}</span>
       </div>
 
       {/* Workspace list */}
@@ -539,7 +546,7 @@ function ExpandedSidebar({
         {drag && drag.dropIndex === workspaces.length && <DropIndicator />}
 
         {/* New workspace button / form */}
-        {workspaces.length < 5 && (
+        {workspaces.length < maxWorkspaces && (
           <div className="mt-2 px-1">
             {newWsMode ? (
               <div className="flex items-center gap-1.5">
@@ -616,6 +623,7 @@ function ExpandedSidebar({
           x={termCtxMenu.x}
           y={termCtxMenu.y}
           onClose={() => setTermCtxMenu(null)}
+          onRestart={() => setTermCtxMenu(null)}
           onLink={() => {
             onTerminalLink(termCtxMenu.terminal.workspace_id, termCtxMenu.terminal.id)
             setTermCtxMenu(null)
@@ -626,6 +634,10 @@ function ExpandedSidebar({
           }}
           onStyle={() => {
             onTerminalStyle(termCtxMenu.terminal.workspace_id, termCtxMenu.terminal.id)
+            setTermCtxMenu(null)
+          }}
+          onOpenInVSCode={() => {
+            onTerminalOpenInVSCode(termCtxMenu.terminal.workspace_id, termCtxMenu.terminal)
             setTermCtxMenu(null)
           }}
         />
@@ -642,7 +654,8 @@ function ExpandedSidebar({
         <WorkspaceContextMenu
           x={wsCtxMenu.x}
           y={wsCtxMenu.y}
-          canDuplicate={workspaces.length < 5}
+          canDuplicate={workspaces.length < maxWorkspaces}
+          maxWorkspaces={maxWorkspaces}
           onClose={() => setWsCtxMenu(null)}
           onRename={() => {
             setRenamingWsId(wsCtxMenu.workspaceId)
@@ -903,6 +916,7 @@ function TerminalItem({
 }): JSX.Element {
   const folderLabel = terminalFolderLabel(terminal.cwd)
   const folderName = terminalFolderName(terminal.cwd)
+  const agent = AGENTS[terminal.command]
 
   return (
     <div
@@ -928,6 +942,9 @@ function TerminalItem({
       <div className="flex-1 min-w-0">
         <div className="text-[12.5px] truncate" style={{ color: 'inherit' }}>
           {terminal.title}
+        </div>
+        <div className="text-[10.5px] mt-0.5 truncate" style={{ color: 'var(--fg-2)' }}>
+          {agent.icon} {agent.label}
         </div>
         <div
           className="text-[10.5px] font-mono mt-0.5 flex min-w-0"
@@ -972,6 +989,7 @@ function WorkspaceContextMenu({
   x,
   y,
   canDuplicate,
+  maxWorkspaces,
   onClose,
   onRename,
   onDelete,
@@ -980,6 +998,7 @@ function WorkspaceContextMenu({
   x: number
   y: number
   canDuplicate: boolean
+  maxWorkspaces: number
   onClose: () => void
   onRename: () => void
   onDelete: () => void
@@ -1035,7 +1054,7 @@ function WorkspaceContextMenu({
           style={{ color: canDuplicate ? 'var(--fg)' : 'var(--fg-3)', cursor: canDuplicate ? 'pointer' : 'not-allowed' }}
           onClick={() => { if (canDuplicate) { onDuplicate(); onClose() } }}
           disabled={!canDuplicate}
-          title={canDuplicate ? undefined : 'Workspace limit reached (5)'}
+          title={canDuplicate ? undefined : `Workspace limit reached (${maxWorkspaces})`}
         >
           <WsIcon d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
           Duplicate

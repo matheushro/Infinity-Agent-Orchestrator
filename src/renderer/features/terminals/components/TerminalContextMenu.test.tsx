@@ -11,6 +11,7 @@ function renderMenu() {
   const onLink = vi.fn()
   const onDelete = vi.fn()
   const onStyle = vi.fn()
+  const onOpenInVSCode = vi.fn()
 
   render(
     <TerminalContextMenu
@@ -21,14 +22,15 @@ function renderMenu() {
       onLink={onLink}
       onDelete={onDelete}
       onStyle={onStyle}
+      onOpenInVSCode={onOpenInVSCode}
     />,
   )
 
-  const linkButton = screen.getByRole('button', { name: 'Link to another terminal' })
+  const linkButton = screen.getByRole('button', { name: 'Link to terminal/note' })
   const menu = linkButton.parentElement as HTMLElement
   const overlay = menu.previousElementSibling as HTMLElement
 
-  return { onClose, onRestart, onLink, onDelete, onStyle, menu, overlay }
+  return { onClose, onRestart, onLink, onDelete, onStyle, onOpenInVSCode, menu, overlay }
 }
 
 beforeEach(() => {
@@ -47,14 +49,16 @@ describe('TerminalContextMenu', () => {
     expect(menu).toHaveStyle({ left: '248px', top: '392px' })
     expect(menu.className).toContain('fixed')
     expect(screen.getByRole('button', { name: 'Restart terminal' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Link to another terminal' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Link to terminal/note' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open on VS Code' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Customize style…' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Delete terminal' })).toBeInTheDocument()
   })
 
   it.each([
     ['Restart terminal', 'onRestart'],
-    ['Link to another terminal', 'onLink'],
+    ['Link to terminal/note', 'onLink'],
+    ['Open on VS Code', 'onOpenInVSCode'],
     ['Customize style…', 'onStyle'],
     ['Delete terminal', 'onDelete'],
   ] as const)('clicking %s triggers its callback and closes', (label, callbackName) => {

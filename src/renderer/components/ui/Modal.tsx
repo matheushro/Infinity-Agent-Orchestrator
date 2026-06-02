@@ -25,7 +25,10 @@ export function Modal({
   className = '',
 }: ModalProps): JSX.Element {
   const panelRef = useRef<HTMLDivElement>(null)
+  const onCloseRef = useRef(onClose)
   const titleId = useId()
+
+  onCloseRef.current = onClose
 
   useEffect(() => {
     const panel = panelRef.current
@@ -45,7 +48,7 @@ export function Modal({
 
     const handleKeyDown = (e: globalThis.KeyboardEvent): void => {
       if (e.key !== 'Escape') return
-      onClose()
+      onCloseRef.current()
     }
 
     window.addEventListener('keydown', handleKeyDown)
@@ -53,7 +56,7 @@ export function Modal({
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [onClose])
+  }, [])
 
   const handlePanelKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>): void => {
     if (e.key !== 'Tab') return

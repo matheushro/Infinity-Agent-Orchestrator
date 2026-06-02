@@ -238,6 +238,7 @@ function makeProps(overrides: Record<string, unknown> = {}) {
     texts: [],
     notes: [],
     edges: [],
+    noteLinks: [],
     selectedIds: [],
     selectedTextIds: [],
     selectedNoteIds: [],
@@ -272,10 +273,12 @@ function makeProps(overrides: Record<string, unknown> = {}) {
     onMoveNode: vi.fn(),
     onUpdateNode: vi.fn(),
     onRemoveNode: vi.fn(),
+    onDeleteEdge: vi.fn(),
     onLinkPick: vi.fn(),
     onSetTool: vi.fn(),
     onNodeContextMenu: vi.fn(),
     onTextContextMenu: vi.fn(),
+    onEdgeContextMenu: vi.fn(),
     onCanvasContextMenu: vi.fn(),
     getTerminalStyle: vi.fn(() => baseStyle),
     getRestartSignal: vi.fn(() => 0),
@@ -377,6 +380,59 @@ describe('Canvas', () => {
     expect(edgeAc?.querySelector('path.selected')).toBeTruthy()
     expect(edgeAb?.querySelectorAll('circle.selected')).toHaveLength(2)
     expect(edgeAc?.querySelectorAll('circle.selected')).toHaveLength(2)
+  })
+
+  it('selects an edge on click, opens its context menu on right click, and deletes it with the delete tool', async () => {
+    const onSelectEdge = vi.fn()
+    const onEdgeContextMenu = vi.fn()
+    const onDeleteEdge = vi.fn()
+    const { container, rerender, props } = renderCanvas({
+      nodes: [nodeA, nodeB],
+      edges: [{ id: 'edge-ab', source: 'a', target: 'b' }],
+      onSelectEdge,
+      onEdgeContextMenu,
+      onDeleteEdge,
+    })
+
+    await waitFor(() => expect(container.querySelector('[data-edge-id="edge-ab"]')).toBeTruthy())
+    const edgeHit = container.querySelector('[data-edge-id="edge-ab"] path.edge-hit') as SVGPathElement
+
+    fireEvent.mouseDown(edgeHit, { button: 0 })
+
+    expect(onSelectEdge).toHaveBeenCalledWith('edge-ab')
+
+    fireEvent.contextMenu(edgeHit, { clientX: 240, clientY: 160, button: 2 })
+
+    expect(onEdgeContextMenu).toHaveBeenCalledWith('edge-ab', 240, 160)
+
+    rerender(
+      <Canvas
+        {...props}
+        nodes={[nodeA, nodeB]}
+        edges={[{ id: 'edge-ab', source: 'a', target: 'b' }]}
+        tool="delete"
+        onDeleteEdge={onDeleteEdge}
+      />,
+    )
+
+    const deleteEdgeHit = container.querySelector('[data-edge-id="edge-ab"] path.edge-hit') as SVGPathElement
+    fireEvent.mouseDown(deleteEdgeHit, { button: 0 })
+
+    expect(onDeleteEdge).toHaveBeenCalledWith('edge-ab')
+  })
+
+  it('deletes the selected edge immediately when the toolbar trash button is clicked', async () => {
+    const onDeleteEdge = vi.fn()
+    renderCanvas({
+      nodes: [nodeA, nodeB],
+      edges: [{ id: 'edge-ab', source: 'a', target: 'b' }],
+      selectedEdgeId: 'edge-ab',
+      onDeleteEdge,
+    })
+
+    fireEvent.click(screen.getByTitle('Delete on click'))
+
+    expect(onDeleteEdge).toHaveBeenCalledWith('edge-ab')
   })
 
   it('routes the edge between overlapping nodes through their closest sides, not the right-of-A to left-of-B default', async () => {

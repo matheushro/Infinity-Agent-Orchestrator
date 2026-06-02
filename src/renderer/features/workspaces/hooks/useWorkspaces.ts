@@ -14,7 +14,7 @@ export interface UseWorkspacesResult {
   reorderWorkspaces: (orderedIds: string[]) => Promise<void>
 }
 
-export function useWorkspaces(): UseWorkspacesResult {
+export function useWorkspaces(maxWorkspaces = 5): UseWorkspacesResult {
   const [workspaces, setWorkspaces] = useState<WorkspaceRecord[]>([])
   const [activeId, setActiveId] = useLocalStorage<string>('activeWorkspaceId', '')
 
@@ -31,7 +31,7 @@ export function useWorkspaces(): UseWorkspacesResult {
 
   const createWorkspace = useCallback(
     async (name: string) => {
-      if (workspaces.length >= 5) return
+      if (workspaces.length >= maxWorkspaces) return
       const record: WorkspaceRecord = {
         id: crypto.randomUUID(),
         name: name.trim() || 'Workspace',
@@ -41,7 +41,7 @@ export function useWorkspaces(): UseWorkspacesResult {
       setWorkspaces((prev) => [...prev, record])
       setActiveId(record.id)
     },
-    [workspaces.length],
+    [maxWorkspaces, workspaces.length],
   )
 
   const renameWorkspace = useCallback(async (id: string, name: string) => {
@@ -68,12 +68,12 @@ export function useWorkspaces(): UseWorkspacesResult {
 
   const duplicateWorkspace = useCallback(
     async (id: string) => {
-      if (workspaces.length >= 5) return
+      if (workspaces.length >= maxWorkspaces) return
       const record = await window.workspaceApi.duplicate(id)
       setWorkspaces((prev) => [...prev, record])
       setActiveId(record.id)
     },
-    [workspaces.length],
+    [maxWorkspaces, workspaces.length],
   )
 
   const reorderWorkspaces = useCallback(async (orderedIds: string[]) => {

@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { Rnd } from 'react-rnd'
 import { IClose } from '@renderer/components/ui'
+import { AGENTS } from '@shared/agents'
 import { useTerminalSession } from '../hooks/useTerminalSession'
 import type { TerminalNodeData, TerminalStyle } from '../types'
 import type { CanvasTool } from '@renderer/features/canvas/components/Canvas'
@@ -62,6 +63,7 @@ export function TerminalNode({
   const isLinkSource = linkSource === node.id
   const resolvedTheme = style.theme === 'auto' ? globalTheme : style.theme
   const isDark = resolvedTheme === 'dark'
+  const agent = AGENTS[node.command]
 
   return (
     <Rnd
@@ -176,6 +178,16 @@ export function TerminalNode({
                   title="Double-click to rename"
                 >
                   {node.title}
+                </span>
+                <span
+                  className="text-[11px] shrink-0 rounded-[5px] px-1.5 py-0.5"
+                  style={{
+                    color: 'var(--fg-2)',
+                    background: 'color-mix(in oklch, var(--fg) 7%, transparent)',
+                  }}
+                  title={agent.label}
+                >
+                  {agent.icon} {agent.label}
                 </span>
                 <span style={{ color: 'var(--fg-3)' }}>·</span>
                 <span

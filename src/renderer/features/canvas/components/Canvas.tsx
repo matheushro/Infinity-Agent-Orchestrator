@@ -140,10 +140,12 @@ interface CanvasProps {
   onMoveNode: (id: string, patch: Partial<TerminalNodeData>) => void
   onUpdateNode: (id: string, patch: Partial<TerminalNodeData>) => void
   onRemoveNode: (id: string) => void
+  onDeleteEdge: (id: string) => void
   onLinkPick: (id: string) => void
   onSetTool: (t: CanvasTool) => void
   onNodeContextMenu: (id: string, x: number, y: number) => void
   onTextContextMenu: (id: string, x: number, y: number) => void
+  onEdgeContextMenu: (id: string, x: number, y: number) => void
   onCanvasContextMenu: (worldX: number, worldY: number, clientX: number, clientY: number) => void
   getTerminalStyle: (id: string) => TerminalStyle
   getRestartSignal: (id: string) => number
@@ -190,10 +192,12 @@ export function Canvas({
   onMoveNode,
   onUpdateNode,
   onRemoveNode,
+  onDeleteEdge,
   onLinkPick,
   onSetTool,
   onNodeContextMenu,
   onTextContextMenu,
+  onEdgeContextMenu,
   onCanvasContextMenu,
   getTerminalStyle,
   getRestartSignal,
@@ -836,14 +840,28 @@ export function Canvas({
               <path
                 d={p.d}
                 className="edge-hit"
-      onMouseDown={(e) => {
-        e.stopPropagation()
-        onSelectEdge(p.id)
-        onSelect(null, false)
-        onSelectText(null)
-        onSelectNote(null)
-        onSelectManyTexts([])
-      }}
+                onMouseDown={(e) => {
+                  e.stopPropagation()
+                  if (tool === 'delete') {
+                    onDeleteEdge(p.id)
+                    return
+                  }
+                  onSelectEdge(p.id)
+                  onSelect(null, false)
+                  onSelectText(null)
+                  onSelectNote(null)
+                  onSelectManyTexts([])
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  onSelectEdge(p.id)
+                  onSelect(null, false)
+                  onSelectText(null)
+                  onSelectNote(null)
+                  onSelectManyTexts([])
+                  onEdgeContextMenu(p.id, e.clientX, e.clientY)
+                }}
               />
               <path d={p.d} className={p.highlighted ? 'selected' : ''} />
               <circle
@@ -867,11 +885,25 @@ export function Canvas({
                 className="edge-hit"
                 onMouseDown={(e) => {
                   e.stopPropagation()
+                  if (tool === 'delete') {
+                    onDeleteEdge(p.id)
+                    return
+                  }
                   onSelectEdge(p.id)
                   onSelect(null, false)
                   onSelectText(null)
                   onSelectNote(null)
                   onSelectManyTexts([])
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  onSelectEdge(p.id)
+                  onSelect(null, false)
+                  onSelectText(null)
+                  onSelectNote(null)
+                  onSelectManyTexts([])
+                  onEdgeContextMenu(p.id, e.clientX, e.clientY)
                 }}
               />
               <path
@@ -1093,7 +1125,13 @@ export function Canvas({
           <span className="sep" />
           <ToolButton
             active={tool === 'delete'}
-            onClick={() => onSetTool(tool === 'delete' ? 'select' : 'delete')}
+            onClick={() => {
+              if (selectedEdgeId) {
+                onDeleteEdge(selectedEdgeId)
+                return
+              }
+              onSetTool(tool === 'delete' ? 'select' : 'delete')
+            }}
             title="Delete on click"
             danger
           >
@@ -1173,7 +1211,7 @@ export function Canvas({
             color: 'var(--fg)',
           }}
         >
-          Click any terminal to delete — Esc to cancel
+          Click any terminal, note, or link to delete — Esc to cancel
         </div>
       )}
       {(tool === 'draw-terminal' || tool === 'draw-note') && (

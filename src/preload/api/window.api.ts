@@ -7,6 +7,8 @@ export const windowApi: WindowApi = {
   isFullScreen: () => ipcRenderer.invoke(IpcChannels.windowIsFullScreen),
   setFullScreen: (value: boolean) =>
     ipcRenderer.invoke(IpcChannels.windowSetFullScreen, value),
+  openInVSCode: (folder: string) =>
+    ipcRenderer.invoke(IpcChannels.windowOpenInVSCode, folder),
   onFullScreenChange(cb) {
     const handler = (_event: IpcRendererEvent, value: boolean): void => cb(Boolean(value))
     ipcRenderer.on(IpcChannels.windowFullScreenChanged, handler)

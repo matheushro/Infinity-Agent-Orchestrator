@@ -51,6 +51,7 @@ function renderSidebar(overrides: Partial<ComponentProps<typeof Sidebar>> = {}) 
     nodesByWorkspace: { 'ws-1': [term1], 'ws-2': [term2] },
     selectedTerminalId: 'alpha',
     collapsed: false,
+    maxWorkspaces: 5,
     onCollapsedChange: vi.fn(),
     onNewTerminal: vi.fn(),
     onCreateWorkspace: vi.fn(),
@@ -64,6 +65,7 @@ function renderSidebar(overrides: Partial<ComponentProps<typeof Sidebar>> = {}) 
     onTerminalDelete: vi.fn(),
     onTerminalLink: vi.fn(),
     onTerminalStyle: vi.fn(),
+    onTerminalOpenInVSCode: vi.fn(),
     ...overrides,
   }
 
@@ -87,6 +89,7 @@ function renderSidebarWithStatus(
     nodesByWorkspace: { 'ws-1': [term1] },
     selectedTerminalId: 'alpha',
     collapsed: false,
+    maxWorkspaces: 5,
     onCollapsedChange: vi.fn(),
     onNewTerminal: vi.fn(),
     onCreateWorkspace: vi.fn(),
@@ -100,6 +103,7 @@ function renderSidebarWithStatus(
     onTerminalDelete: vi.fn(),
     onTerminalLink: vi.fn(),
     onTerminalStyle: vi.fn(),
+    onTerminalOpenInVSCode: vi.fn(),
     ...overrides,
   }
 
@@ -136,6 +140,11 @@ describe('Sidebar', () => {
     expect(screen.getByText('Beta Terminal')).toBeTruthy()
   })
 
+  it('renders each terminal agent in the sidebar', () => {
+    renderSidebar()
+    expect(screen.getAllByText(/Claude Code/).length).toBeGreaterThan(0)
+  })
+
   it('renders terminal folders as shortened path labels', () => {
     renderSidebar()
     const alphaItem = screen.getByText('Alpha Shell').closest('.term-item')!
@@ -168,19 +177,21 @@ describe('Sidebar', () => {
     expect(props.onOpenSettings).toHaveBeenCalledTimes(1)
   })
 
-  it('shows New workspace button when workspaces < 5', () => {
+  it('shows New workspace button when workspaces are below the configured limit', () => {
     renderSidebar()
     expect(screen.getByText('New workspace')).toBeTruthy()
+    expect(screen.getByText('2/5')).toBeTruthy()
   })
 
-  it('hides New workspace button when at max (5) workspaces', () => {
-    const fiveWorkspaces: WorkspaceRecord[] = Array.from({ length: 5 }, (_, i) => ({
+  it('hides New workspace button when at the configured workspace limit', () => {
+    const threeWorkspaces: WorkspaceRecord[] = Array.from({ length: 3 }, (_, i) => ({
       id: `ws-${i}`,
       name: `WS ${i}`,
       created_at: i * 1000,
     }))
-    renderSidebar({ workspaces: fiveWorkspaces, nodesByWorkspace: {} })
+    renderSidebar({ workspaces: threeWorkspaces, nodesByWorkspace: {}, maxWorkspaces: 3 })
     expect(screen.queryByText('New workspace')).toBeNull()
+    expect(screen.getByText('3/3')).toBeTruthy()
   })
 
   it('entering new workspace mode and confirming calls onCreateWorkspace', () => {
@@ -326,7 +337,8 @@ describe('Sidebar', () => {
       const termItem = screen.getByText('Alpha Shell').closest('.term-item')!
       fireEvent.contextMenu(termItem)
       expect(screen.getByText('Delete terminal')).toBeTruthy()
-      expect(screen.getByText('Link to another terminal')).toBeTruthy()
+      expect(screen.getByText('Link to terminal/note')).toBeTruthy()
+      expect(screen.getByText('Open on VS Code')).toBeTruthy()
       expect(screen.getByText('Customize style…')).toBeTruthy()
     })
 
@@ -338,12 +350,20 @@ describe('Sidebar', () => {
       expect(props.onTerminalDelete).toHaveBeenCalledWith('ws-1', 'alpha')
     })
 
-    it('clicking Link to another terminal calls onTerminalLink', () => {
+    it('clicking Link to terminal/note calls onTerminalLink', () => {
       const { props } = renderSidebar()
       const termItem = screen.getByText('Alpha Shell').closest('.term-item')!
       fireEvent.contextMenu(termItem)
-      fireEvent.click(screen.getByText('Link to another terminal'))
+      fireEvent.click(screen.getByText('Link to terminal/note'))
       expect(props.onTerminalLink).toHaveBeenCalledWith('ws-1', 'alpha')
+    })
+
+    it('clicking Open on VS Code calls onTerminalOpenInVSCode', () => {
+      const { props } = renderSidebar()
+      const termItem = screen.getByText('Alpha Shell').closest('.term-item')!
+      fireEvent.contextMenu(termItem)
+      fireEvent.click(screen.getByText('Open on VS Code'))
+      expect(props.onTerminalOpenInVSCode).toHaveBeenCalledWith('ws-1', term1)
     })
 
     it('clicking Customize style calls onTerminalStyle', () => {

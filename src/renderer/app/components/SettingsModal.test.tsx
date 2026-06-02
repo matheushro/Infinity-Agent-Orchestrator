@@ -8,9 +8,11 @@ const defaultProps = {
   theme: 'dark' as const,
   defaultShell: 'default' as const,
   defaultProjectFolder: '',
+  maxWorkspaces: 5,
   onThemeChange: vi.fn(),
   onDefaultShellChange: vi.fn(),
   onDefaultProjectFolderChange: vi.fn(),
+  onMaxWorkspacesChange: vi.fn(),
   onClose: vi.fn(),
 }
 
@@ -68,5 +70,49 @@ describe('SettingsModal', () => {
     fireEvent.click(screen.getByRole('option', { name: 'zsh' }))
 
     expect(defaultProps.onDefaultShellChange).toHaveBeenCalledWith('zsh')
+  })
+
+  it('commits the workspace limit on blur', () => {
+    render(<SettingsModal {...defaultProps} />)
+
+    const input = screen.getByLabelText('Workspace limit')
+
+    fireEvent.change(input, { target: { value: '9' } })
+
+    expect(defaultProps.onMaxWorkspacesChange).not.toHaveBeenCalled()
+
+    fireEvent.blur(input)
+
+    expect(defaultProps.onMaxWorkspacesChange).toHaveBeenCalledWith(9)
+  })
+
+  it('commits the workspace limit on enter', () => {
+    render(<SettingsModal {...defaultProps} />)
+
+    const input = screen.getByLabelText('Workspace limit')
+
+    fireEvent.change(input, { target: { value: '9' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(defaultProps.onMaxWorkspacesChange).toHaveBeenCalledWith(9)
+  })
+
+  it('keeps focus while editing the workspace limit input', () => {
+    render(<SettingsModal {...defaultProps} />)
+
+    const input = screen.getByLabelText('Workspace limit') as HTMLInputElement
+
+    input.focus()
+    fireEvent.change(input, { target: { value: '' } })
+
+    expect(input.value).toBe('')
+    expect(input).toHaveFocus()
+    expect(defaultProps.onMaxWorkspacesChange).not.toHaveBeenCalled()
+
+    fireEvent.change(input, { target: { value: '12' } })
+
+    expect(input.value).toBe('12')
+    expect(input).toHaveFocus()
+    expect(defaultProps.onMaxWorkspacesChange).not.toHaveBeenCalled()
   })
 })

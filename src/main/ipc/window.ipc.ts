@@ -1,6 +1,7 @@
 // IPC handlers for top-level window controls (fullscreen toggle, etc.).
 import { ipcMain, BrowserWindow } from 'electron'
 import { IpcChannels } from '@shared/types/ipc'
+import { openFolderInVSCode } from '@main/services/window.service'
 
 function focusedWindow(): BrowserWindow | null {
   return BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null
@@ -16,6 +17,10 @@ export function registerWindowIpc(): void {
     if (!win) return false
     win.setFullScreen(Boolean(value))
     return win.isFullScreen()
+  })
+
+  ipcMain.handle(IpcChannels.windowOpenInVSCode, (_event, folder: string) => {
+    return openFolderInVSCode(folder)
   })
 
   // Mirror native enter/leave full-screen events back to renderers so the UI

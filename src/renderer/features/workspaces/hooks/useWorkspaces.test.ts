@@ -132,21 +132,21 @@ describe('useWorkspaces', () => {
     expect(result.current.activeId).toBe('uuid-new')
   })
 
-  it('5.8 createWorkspace is a no-op when workspaces.length >= 5', async () => {
-    const fiveWs: WorkspaceRecord[] = Array.from({ length: 5 }, (_, i) => ({
+  it('5.8 createWorkspace is a no-op when workspaces.length reaches the configured limit', async () => {
+    const threeWs: WorkspaceRecord[] = Array.from({ length: 3 }, (_, i) => ({
       id: `ws-${i}`, name: `WS ${i}`, created_at: i,
     }))
-    mockWorkspaceApi.list.mockResolvedValue(fiveWs)
+    mockWorkspaceApi.list.mockResolvedValue(threeWs)
 
-    const { result } = renderHook(() => useWorkspaces())
-    await waitFor(() => expect(result.current.workspaces).toHaveLength(5))
+    const { result } = renderHook(() => useWorkspaces(3))
+    await waitFor(() => expect(result.current.workspaces).toHaveLength(3))
 
     await act(async () => {
       await result.current.createWorkspace('Over Limit')
     })
 
     expect(mockWorkspaceApi.create).not.toHaveBeenCalled()
-    expect(result.current.workspaces).toHaveLength(5)
+    expect(result.current.workspaces).toHaveLength(3)
   })
 
   it('5.9 createWorkspace trims the name; uses "Workspace" when the name is blank', async () => {
@@ -229,14 +229,14 @@ describe('useWorkspaces', () => {
     expect(result.current.activeId).toBe('ws-dup')
   })
 
-  it('5.15 duplicateWorkspace is a no-op when workspaces.length >= 5', async () => {
-    const fiveWs: WorkspaceRecord[] = Array.from({ length: 5 }, (_, i) => ({
+  it('5.15 duplicateWorkspace is a no-op when workspaces.length reaches the configured limit', async () => {
+    const twoWs: WorkspaceRecord[] = Array.from({ length: 2 }, (_, i) => ({
       id: `ws-${i}`, name: `WS ${i}`, created_at: i,
     }))
-    mockWorkspaceApi.list.mockResolvedValue(fiveWs)
+    mockWorkspaceApi.list.mockResolvedValue(twoWs)
 
-    const { result } = renderHook(() => useWorkspaces())
-    await waitFor(() => expect(result.current.workspaces).toHaveLength(5))
+    const { result } = renderHook(() => useWorkspaces(2))
+    await waitFor(() => expect(result.current.workspaces).toHaveLength(2))
 
     await act(async () => {
       await result.current.duplicateWorkspace('ws-0')

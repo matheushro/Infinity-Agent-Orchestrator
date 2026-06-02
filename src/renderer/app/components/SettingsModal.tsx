@@ -1,5 +1,6 @@
 // App settings modal: global theme, terminal defaults, and project folder.
 // Triggered by the gear icon in the sidebar footer.
+import { useEffect, useState } from 'react'
 import { Button, Modal, Select } from '@renderer/components/ui'
 import type { CanvasTheme } from '@renderer/features/canvas/types'
 import type { ShellType } from '@renderer/features/terminals/types'
@@ -8,9 +9,11 @@ interface SettingsModalProps {
   theme: CanvasTheme
   defaultShell: ShellType
   defaultProjectFolder: string
+  maxWorkspaces: number
   onThemeChange: (theme: CanvasTheme) => void
   onDefaultShellChange: (shell: ShellType) => void
   onDefaultProjectFolderChange: (folder: string) => void
+  onMaxWorkspacesChange: (limit: number) => void
   onClose: () => void
 }
 
@@ -18,14 +21,33 @@ export function SettingsModal({
   theme,
   defaultShell,
   defaultProjectFolder,
+  maxWorkspaces,
   onThemeChange,
   onDefaultShellChange,
   onDefaultProjectFolderChange,
+  onMaxWorkspacesChange,
   onClose,
 }: SettingsModalProps): JSX.Element {
+  const [workspaceLimitDraft, setWorkspaceLimitDraft] = useState(String(maxWorkspaces))
+
+  useEffect(() => {
+    setWorkspaceLimitDraft(String(maxWorkspaces))
+  }, [maxWorkspaces])
+
   async function pickDefaultProjectFolder(): Promise<void> {
     const selected = await window.dialogApi.selectFolder(defaultProjectFolder)
     if (selected) onDefaultProjectFolderChange(selected)
+  }
+
+  function commitWorkspaceLimit(value: string): void {
+    const parsed = Number.parseInt(value, 10)
+    if (Number.isNaN(parsed)) {
+      setWorkspaceLimitDraft(String(maxWorkspaces))
+      return
+    }
+    const next = Math.max(1, Math.min(99, parsed))
+    setWorkspaceLimitDraft(String(next))
+    onMaxWorkspacesChange(next)
   }
 
   return (
@@ -91,6 +113,31 @@ export function SettingsModal({
               { value: 'bash', label: 'bash' },
               { value: 'zsh', label: 'zsh' },
             ]}
+          />
+        </Field>
+
+        <Field
+          label="Workspace limit"
+          hint="Maximum number of workspaces allowed in the sidebar"
+        >
+          <input
+            type="number"
+            min={1}
+            max={99}
+            value={workspaceLimitDraft}
+            onChange={(e) => {
+              setWorkspaceLimitDraft(e.target.value)
+            }}
+            onBlur={(e) => commitWorkspaceLimit(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                commitWorkspaceLimit(e.currentTarget.value)
+                e.currentTarget.blur()
+              }
+            }}
+            className="w-24 rounded-[8px] px-2.5 h-8 text-[12.5px] outline-none"
+            style={FIELD_STYLE}
+            aria-label="Workspace limit"
           />
         </Field>
       </div>

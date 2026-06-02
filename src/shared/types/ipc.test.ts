@@ -68,7 +68,7 @@ describe('IpcChannels — completude e consistência', () => {
     expect(IpcChannels.notesChanged).toBe('notes:changed')
   })
 
-  it('IpcChannels contém exatamente os 33 canais conhecidos (sem canais fantasma)', () => {
+  it('IpcChannels contém exatamente os 34 canais conhecidos (sem canais fantasma)', () => {
     const expected = [
       'pty:create', 'pty:input', 'pty:resize', 'pty:kill', 'pty:data', 'pty:exit',
       'db:list-active', 'db:upsert', 'db:remove', 'db:reorder-terminals',
@@ -80,6 +80,7 @@ describe('IpcChannels — completude e consistência', () => {
       'workspaces:list', 'workspaces:create', 'workspaces:delete',
       'workspaces:rename', 'workspaces:duplicate', 'workspaces:reorder',
       'window:is-full-screen', 'window:set-full-screen', 'window:full-screen-changed',
+      'window:open-in-vscode',
     ]
     const actual = Object.values(IpcChannels) as string[]
     expect(actual.sort()).toEqual(expected.sort())

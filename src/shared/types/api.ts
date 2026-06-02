@@ -59,5 +59,6 @@ export interface DialogApi {
 export interface WindowApi {
   isFullScreen(): Promise<boolean>
   setFullScreen(value: boolean): Promise<boolean>
+  openInVSCode(folder: string): Promise<boolean>
   onFullScreenChange(cb: (value: boolean) => void): () => void
 }
