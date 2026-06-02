@@ -162,6 +162,35 @@ describe('useTerminals — createTerminal', () => {
     expect(result.current.nodes[0].y).toBe(200)
   })
 
+  it('uses provided width/height (drag-to-create) and defaults otherwise', async () => {
+    const { result } = renderHook(() => useTerminals('ws-1'))
+    await waitFor(() => expect(mockTerminalRepository.listActive).toHaveBeenCalled())
+
+    act(() => {
+      result.current.createTerminal('/home/user/project', 'claude', '', 'bash', {
+        x: 100,
+        y: 200,
+        width: 320,
+        height: 240,
+      })
+    })
+
+    expect(result.current.nodes[0].width).toBe(320)
+    expect(result.current.nodes[0].height).toBe(240)
+  })
+
+  it('falls back to default width/height when position has no size', async () => {
+    const { result } = renderHook(() => useTerminals('ws-1'))
+    await waitFor(() => expect(mockTerminalRepository.listActive).toHaveBeenCalled())
+
+    act(() => {
+      result.current.createTerminal('/home/user/project', 'claude', '', 'bash', { x: 1, y: 2 })
+    })
+
+    expect(result.current.nodes[0].width).toBe(600)
+    expect(result.current.nodes[0].height).toBe(380)
+  })
+
   it('uses cascade positioning when no position is given', async () => {
     const { result } = renderHook(() => useTerminals('ws-1'))
     await waitFor(() => expect(mockTerminalRepository.listActive).toHaveBeenCalled())

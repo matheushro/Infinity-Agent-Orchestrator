@@ -13,7 +13,7 @@ export interface UseTerminalsResult {
     command: CommandKey,
     name: string,
     shell: ShellType,
-    position?: { x: number; y: number }
+    position?: { x: number; y: number; width?: number; height?: number }
   ) => string
   /** In-memory transient update used during drag/resize — no DB write. */
   moveNode: (id: string, patch: Partial<TerminalNodeData>) => void
@@ -37,7 +37,7 @@ export function useTerminals(workspaceId: string): UseTerminalsResult {
       command: CommandKey,
       name: string,
       shell: ShellType,
-      position?: { x: number; y: number }
+      position?: { x: number; y: number; width?: number; height?: number }
     ) => {
       // The id and the persist side-effect must live outside the setNodes
       // updater: React StrictMode runs updaters twice, which would generate
@@ -49,8 +49,8 @@ export function useTerminals(workspaceId: string): UseTerminalsResult {
           id,
           x: position ? position.x : 40 + ((prev.length * 30) % 300),
           y: position ? position.y : 40 + ((prev.length * 30) % 300),
-          width: 600,
-          height: 380,
+          width: position?.width ?? 600,
+          height: position?.height ?? 380,
           shell,
           title: name || `${COMMANDS[command].label} · ${folderName}`,
           cwd: folder,

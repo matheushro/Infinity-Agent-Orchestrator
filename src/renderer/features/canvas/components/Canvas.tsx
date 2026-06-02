@@ -16,7 +16,9 @@ import {
   IMap,
   IMinus,
   INote,
+  INoteFrame,
   IPlus,
+  ITerminalFrame,
   IText,
   ITrash,
 } from '@renderer/components/ui'
@@ -24,7 +26,20 @@ import { usePanZoom } from '../hooks/usePanZoom'
 import { CanvasText } from './CanvasText'
 import { Minimap } from './Minimap'
 
-export type CanvasTool = 'select' | 'pan' | 'link' | 'delete' | 'text' | 'note'
+export type CanvasTool =
+  | 'select'
+  | 'pan'
+  | 'link'
+  | 'delete'
+  | 'text'
+  | 'note'
+  | 'draw-terminal'
+  | 'draw-note'
+
+// Minimum world-space footprint for a drag-to-create rectangle. Dragging less
+// than this is treated as an accidental click and cancels the creation.
+export const MIN_DRAW_WIDTH = 280
+export const MIN_DRAW_HEIGHT = 180
 
 type SideDir = 'left' | 'right' | 'top' | 'bottom'
 
@@ -111,6 +126,11 @@ interface CanvasProps {
   onRemoveText: (id: string) => void
   onSelectNote: (id: string | null) => void
   onCreateNote: (position: { x: number; y: number }) => void
+  /** Drag-to-create: a rectangle drawn in world space for a terminal or a note. */
+  onDrawCreate: (
+    type: 'terminal' | 'note',
+    rect: { x: number; y: number; width: number; height: number },
+  ) => void
   onEditNote: (id: string | null) => void
   onMoveNote: (id: string, patch: Partial<NoteRecord>) => void
   onUpdateNote: (id: string, patch: Partial<NoteRecord>) => void
@@ -160,6 +180,7 @@ export function Canvas({
   onRemoveText,
   onSelectNote,
   onCreateNote,
+  onDrawCreate,
   onEditNote,
   onMoveNote,
   onUpdateNote,
@@ -194,6 +215,15 @@ export function Canvas({
     y1: number
   } | null>(null)
   const marqueeRef = useRef<{ startX: number; startY: number } | null>(null)
+  // Drag-to-create preview rectangle (world coords), shown while the user drags
+  // with a draw-* tool active.
+  const [drawRect, setDrawRect] = useState<{
+    x0: number
+    y0: number
+    x1: number
+    y1: number
+  } | null>(null)
+  const drawRef = useRef<{ startX: number; startY: number } | null>(null)
   const rightClickStateRef = useRef<{ startX: number; startY: number; isDragging: boolean } | null>(
     null
   )
@@ -569,6 +599,38 @@ export function Canvas({
     window.addEventListener('mouseup', onUp)
   }
 
+  function startDraw(e: React.MouseEvent, type: 'terminal' | 'note'): void {
+    const w = clientToWorld(e.clientX, e.clientY)
+    drawRef.current = { startX: w.x, startY: w.y }
+    setDrawRect({ x0: w.x, y0: w.y, x1: w.x, y1: w.y })
+    function onMove(ev: MouseEvent): void {
+      const d = drawRef.current
+      if (!d) return
+      const wp = clientToWorld(ev.clientX, ev.clientY)
+      setDrawRect({ x0: d.startX, y0: d.startY, x1: wp.x, y1: wp.y })
+    }
+    function onUp(ev: MouseEvent): void {
+      const d = drawRef.current
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      drawRef.current = null
+      setDrawRect(null)
+      // Always return to the select tool after a single draw gesture.
+      onSetTool('select')
+      if (!d) return
+      const wp = clientToWorld(ev.clientX, ev.clientY)
+      const x = Math.min(d.startX, wp.x)
+      const y = Math.min(d.startY, wp.y)
+      const width = Math.abs(wp.x - d.startX)
+      const height = Math.abs(wp.y - d.startY)
+      // Below the minimum footprint: treat as an accidental click, create nothing.
+      if (width < MIN_DRAW_WIDTH || height < MIN_DRAW_HEIGHT) return
+      onDrawCreate(type, { x, y, width, height })
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
+
   function handleCanvasMouseDown(e: React.MouseEvent): void {
     // Shift + left click: pan even over terminal nodes
     const isShiftLeftClick = e.shiftKey && e.button === 0
@@ -619,6 +681,12 @@ export function Canvas({
 
     // Left-click
     if (e.button !== 0) return
+
+    // Drag-to-create: begin drawing the element's rectangle.
+    if (tool === 'draw-terminal' || tool === 'draw-note') {
+      startDraw(e, tool === 'draw-terminal' ? 'terminal' : 'note')
+      return
+    }
 
     if (tool === 'text' || tool === 'note') {
       return
@@ -738,7 +806,7 @@ export function Canvas({
       onDoubleClick={handleCanvasDoubleClick}
       style={{
         cursor:
-          tool === 'link'
+          tool === 'link' || tool === 'draw-terminal' || tool === 'draw-note'
             ? 'crosshair'
             : tool === 'delete'
               ? 'not-allowed'
@@ -839,6 +907,28 @@ export function Canvas({
               />
             </g>
           )}
+          {drawRect &&
+            (() => {
+              const w = Math.abs(drawRect.x1 - drawRect.x0)
+              const h = Math.abs(drawRect.y1 - drawRect.y0)
+              const valid = w >= MIN_DRAW_WIDTH && h >= MIN_DRAW_HEIGHT
+              const color = valid ? 'var(--accent)' : 'var(--fg-3)'
+              return (
+                <g transform={`translate(${-surface.minX},${-surface.minY})`}>
+                  <rect
+                    data-testid="draw-preview"
+                    x={Math.min(drawRect.x0, drawRect.x1)}
+                    y={Math.min(drawRect.y0, drawRect.y1)}
+                    width={w}
+                    height={h}
+                    fill={`color-mix(in oklch, ${color} 12%, transparent)`}
+                    stroke={color}
+                    strokeDasharray="6 4"
+                    strokeWidth={1.5}
+                  />
+                </g>
+              )
+            })()}
         </svg>
 
         <div style={{ position: 'absolute', left: -surface.minX, top: -surface.minY }}>
@@ -978,6 +1068,22 @@ export function Canvas({
           </ToolButton>
           <span className="sep" />
           <ToolButton
+            active={tool === 'draw-terminal'}
+            onClick={() => onSetTool(tool === 'draw-terminal' ? 'select' : 'draw-terminal')}
+            title="Draw terminal — drag on the canvas to set its size"
+          >
+            <ITerminalFrame size={14} />
+          </ToolButton>
+          <span className="sep" />
+          <ToolButton
+            active={tool === 'draw-note'}
+            onClick={() => onSetTool(tool === 'draw-note' ? 'select' : 'draw-note')}
+            title="Draw note — drag on the canvas to set its size"
+          >
+            <INoteFrame size={14} />
+          </ToolButton>
+          <span className="sep" />
+          <ToolButton
             active={tool === 'link'}
             onClick={() => onSetTool(tool === 'link' ? 'select' : 'link')}
             title="Link terminals & notes"
@@ -1068,6 +1174,18 @@ export function Canvas({
           }}
         >
           Click any terminal to delete — Esc to cancel
+        </div>
+      )}
+      {(tool === 'draw-terminal' || tool === 'draw-note') && (
+        <div
+          className="pointer-events-none absolute top-3 left-1/2 z-30 -translate-x-1/2 px-3 py-1.5 rounded-[8px] text-[12px]"
+          style={{
+            background: 'color-mix(in oklch, var(--bg-2) 92%, transparent)',
+            border: '1px solid var(--accent)',
+            color: 'var(--fg)',
+          }}
+        >
+          {`Click and drag to draw the ${tool === 'draw-terminal' ? 'terminal' : 'note'} — Esc to cancel`}
         </div>
       )}
     </div>

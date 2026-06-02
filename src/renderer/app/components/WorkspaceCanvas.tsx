@@ -122,9 +122,12 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
     const [tool, setTool] = useState<CanvasTool>('select')
     const [linkSource, setLinkSource] = useState<string | null>(null)
     const [modalOpen, setModalOpen] = useState(false)
-    const [pendingCreatePos, setPendingCreatePos] = useState<{ x: number; y: number } | null>(
-      null,
-    )
+    const [pendingCreatePos, setPendingCreatePos] = useState<{
+      x: number
+      y: number
+      width?: number
+      height?: number
+    } | null>(null)
     const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null)
     const [textCtxMenu, setTextCtxMenu] = useState<TextContextMenuState | null>(null)
     const [noteCtxMenu, setNoteCtxMenu] = useState<NoteContextMenuState | null>(null)
@@ -168,7 +171,12 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
             setLinkSource(null)
             return
           }
-          if (tool === 'text' || tool === 'note') {
+          if (
+            tool === 'text' ||
+            tool === 'note' ||
+            tool === 'draw-terminal' ||
+            tool === 'draw-note'
+          ) {
             setTool('select')
           }
         }
@@ -394,6 +402,25 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
           onSelectNote={selectNote}
           onCreateNote={(position) => {
             const id = createNote(position)
+            setSelectedIds([])
+            setSelectedEdgeId(null)
+            setSelectedTextIds([])
+            setSelectedNoteIds([id])
+            setEditingNoteId(id)
+          }}
+          onDrawCreate={(type, rect) => {
+            if (type === 'terminal') {
+              // Defer creation to the modal; carry the drawn footprint through.
+              setPendingCreatePos(rect)
+              setModalOpen(true)
+              return
+            }
+            // Notes have no creation modal — create immediately at the drawn rect
+            // and drop straight into edit mode, matching click-to-create notes.
+            const id = createNote(
+              { x: rect.x, y: rect.y },
+              { width: rect.width, height: rect.height },
+            )
             setSelectedIds([])
             setSelectedEdgeId(null)
             setSelectedTextIds([])

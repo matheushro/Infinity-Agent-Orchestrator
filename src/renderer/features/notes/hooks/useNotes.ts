@@ -12,7 +12,10 @@ export const DEFAULT_NOTE_TITLE = 'Untitled note'
 
 export interface UseNotesResult {
   notes: NoteRecord[]
-  createNote: (position: { x: number; y: number }) => string
+  createNote: (
+    position: { x: number; y: number },
+    size?: { width: number; height: number },
+  ) => string
   moveNote: (id: string, patch: Partial<NoteRecord>) => void
   updateNote: (id: string, patch: Partial<NoteRecord>) => void
   removeNote: (id: string) => void
@@ -34,7 +37,7 @@ export function useNotes(workspaceId: string): UseNotesResult {
   }, [workspaceId])
 
   const createNote = useCallback(
-    (position: { x: number; y: number }) => {
+    (position: { x: number; y: number }, size?: { width: number; height: number }) => {
       const id = createNoteId()
       const now = Date.now()
       const note: NoteRecord = {
@@ -43,8 +46,8 @@ export function useNotes(workspaceId: string): UseNotesResult {
         content: '',
         x: position.x,
         y: position.y,
-        width: DEFAULT_NOTE_WIDTH,
-        height: DEFAULT_NOTE_HEIGHT,
+        width: size?.width ?? DEFAULT_NOTE_WIDTH,
+        height: size?.height ?? DEFAULT_NOTE_HEIGHT,
         workspace_id: workspaceId,
         created_at: now,
         updated_at: now,

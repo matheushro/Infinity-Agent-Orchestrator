@@ -262,6 +262,7 @@ function makeProps(overrides: Record<string, unknown> = {}) {
     onRemoveText: vi.fn(),
     onSelectNote: vi.fn(),
     onCreateNote: vi.fn(),
+    onDrawCreate: vi.fn(),
     onEditNote: vi.fn(),
     onMoveNote: vi.fn(),
     onUpdateNote: vi.fn(),
@@ -493,6 +494,64 @@ describe('Canvas', () => {
     expect(onSelectText).toHaveBeenCalledWith(null)
     expect(onSelectEdge).toHaveBeenCalledWith(null)
     expect(onSetTool).toHaveBeenCalledWith('select')
+  })
+
+  it('draws a terminal rectangle in world coords and reports it on mouse up', async () => {
+    const onDrawCreate = vi.fn()
+    const onSetTool = vi.fn()
+    const { root, container } = renderCanvas({
+      tool: 'draw-terminal',
+      onDrawCreate,
+      onSetTool,
+    })
+
+    // start at world (20, 30)
+    fireEvent.mouseDown(root, { button: 0, clientX: 120, clientY: 80 })
+    fireEvent.mouseMove(root, { clientX: 300, clientY: 200 })
+    // a preview rectangle is shown while dragging
+    expect(container.querySelector('[data-testid="draw-preview"]')).toBeTruthy()
+    // release at world (320, 230): width 300, height 200 — both above the minimum
+    fireEvent.mouseUp(root, { clientX: 420, clientY: 280 })
+
+    expect(onDrawCreate).toHaveBeenCalledWith('terminal', {
+      x: 20,
+      y: 30,
+      width: 300,
+      height: 200,
+    })
+    expect(onSetTool).toHaveBeenCalledWith('select')
+    // preview is cleared after release
+    expect(container.querySelector('[data-testid="draw-preview"]')).toBeNull()
+  })
+
+  it('cancels drag-to-create when the rectangle is smaller than the minimum footprint', async () => {
+    const onDrawCreate = vi.fn()
+    const onSetTool = vi.fn()
+    const { root } = renderCanvas({
+      tool: 'draw-note',
+      onDrawCreate,
+      onSetTool,
+    })
+
+    fireEvent.mouseDown(root, { button: 0, clientX: 120, clientY: 80 })
+    fireEvent.mouseMove(root, { clientX: 200, clientY: 160 })
+    // world delta is 80x80 — below the 280x180 minimum
+    fireEvent.mouseUp(root, { clientX: 200, clientY: 160 })
+
+    expect(onDrawCreate).not.toHaveBeenCalled()
+    // tool still resets to select after the aborted gesture
+    expect(onSetTool).toHaveBeenCalledWith('select')
+  })
+
+  it('exposes draw-terminal and draw-note tools through the toolbar', () => {
+    const onSetTool = vi.fn()
+    renderCanvas({ onSetTool })
+
+    fireEvent.click(screen.getByTitle('Draw terminal — drag on the canvas to set its size'))
+    fireEvent.click(screen.getByTitle('Draw note — drag on the canvas to set its size'))
+
+    expect(onSetTool).toHaveBeenCalledWith('draw-terminal')
+    expect(onSetTool).toHaveBeenCalledWith('draw-note')
   })
 
   it('selects both terminals and texts when dragging a marquee over both', async () => {

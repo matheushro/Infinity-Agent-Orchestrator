@@ -76,6 +76,22 @@ describe('useNotes', () => {
     )
   })
 
+  it('creates a note with a provided size (drag-to-create)', async () => {
+    const { result } = renderHook(() => useNotes('ws-1'))
+    await waitFor(() => expect(mockNoteRepository.list).toHaveBeenCalled())
+
+    act(() => {
+      result.current.createNote({ x: 80, y: 70 }, { width: 420, height: 260 })
+    })
+
+    expect(result.current.notes[0]).toMatchObject({
+      x: 80,
+      y: 70,
+      width: 420,
+      height: 260,
+    })
+  })
+
   it('moves a note in memory without persisting during drag', async () => {
     mockNoteRepository.list.mockResolvedValue([baseNote])
     const { result } = renderHook(() => useNotes('ws-1'))
