@@ -1,167 +1,162 @@
 ---
 name: iao
-description: Communicate with other AI agents running in linked terminals inside the Infinity Agent Orchestrator (IAO) canvas. Use this skill whenever you need another agent to read or work on something, or whenever you want to check on what a linked agent is currently doing.
+description: Communicate with other AI agents running in linked terminals inside the Infinity Agent Orchestrator (IAO) canvas. Use this skill whenever you need another agent to read or work on something, or whenever you want to check on what a linked agent is currently doing. Also read and write connected notes.
 user-invocable: false
 ---
 
-# Working inside the Infinity Agent Orchestrator
+# Infinity Agent Orchestrator Communication
 
-You are running inside a terminal that lives on the canvas of **Infinity Agent
-Orchestrator (IAO)** — a desktop app that hosts multiple coding agents side by side and
-lets them talk to each other.
+You're running inside Infinity Agent Orchestrator (IAO), a spatial workspace containing other coding agents and markdown notes.
 
-Each terminal on the canvas is one agent. Two terminals can be **linked** by drawing an
-edge between them on the canvas; you can only talk to terminals you are explicitly linked
-to. The `iao` CLI is the channel you use to send a prompt to a linked agent and to read
-that agent's terminal output back.
+Connected agents can exchange prompts and responses through the `iao` CLI.
 
-The CLI is only available **inside IAO terminals**. It does not exist on the host system.
+Connected notes can be read and written through the `iao` CLI.
 
 ## Commands
 
-```bash
-iao agents                                  # List the agents this terminal is linked to
-iao send "Agent Name" "prompt"              # Send a prompt and wait for the reply (default)
-iao send --no-wait "Agent" "prompt"         # Fire-and-forget delivery (legacy behaviour)
-iao send --timeout 300 "Agent" "prompt"     # Cap the wait at 300s (default 120s)
-iao send --quiet "Agent" "prompt"           # Hide progress lines on stderr
-iao inspect "Agent Name"                    # Read the current terminal output (manual / debug)
-iao note create ["content"]                 # Create a note (auto-linked to this terminal)
-iao note list                               # List notes linked to this terminal
-iao note read "Note Name" [start] [end]     # Read a linked note (optionally a line range)
-iao note write "Note Name" "content"        # Replace a linked note's entire content
-iao note edit "Note Name" "old" "new"       # Replace text within a linked note
-iao note rename "Old Name" "New Name"       # Rename a linked note
-iao note delete "Note Name"                 # Delete a linked note (and its links)
-iao help                                    # Show built-in help
-iao debug                                   # Show diagnostic info (spool dir, env, linked agents)
-```
+- `iao agents` — list connected agents
+- `iao send "Agent Name" "prompt"` — send a prompt to a connected agent and wait for the response
+- `iao inspect "Agent Name"` — read the current terminal output of an agent
 
-If `iao` is not on `PATH` (some custom shells strip it), use the absolute path exported
-in the environment instead:
+### Notes
+
+- `iao note create ["content"]` — create a new note linked to this terminal
+- `iao note list` — list notes linked to this terminal
+- `iao note read "Note Name"` — read the full note
+- `iao note read "Note Name" 10 20` — read a line range
+- `iao note write "Note Name" "content"` — replace a note entirely
+- `iao note edit "Note Name" "old text" "new text"` — replace text inside a note
+- `iao note rename "Old Name" "New Name"` — rename a note
+- `iao note delete "Note Name"` — delete a note
+
+The iao CLI is pre-installed and available on PATH inside IAO terminals.
+
+If `iao` is not found on PATH, use:
 
 ```bash
-"$IAO_CLI" agents
-"$IAO_CLI" send "Agent Name" "prompt"
-"$IAO_CLI" inspect "Agent Name"
+"$IAO_CLI"
 ```
 
-## How to talk to another agent
+instead.
 
-### 1. Discover who you can talk to
+## Connected Agents
+
+Always run:
 
 ```bash
 iao agents
 ```
 
-This prints **only the agents linked to this terminal**. Copy the names exactly as
-shown — `send` and `inspect` resolve targets by title.
-
-If the list is empty, you have no linked agents. Tell the user that you cannot reach
-anyone else from this terminal and ask them to connect this terminal to the target on the
-canvas.
-
-### 2. Send a prompt and get the reply in one step
+before using:
 
 ```bash
-iao send "Backend Agent" "Check the current API implementation and tell me whether the /users route is already wired up."
+iao send
+iao inspect
 ```
 
-**`iao send` is synchronous by default.** The command blocks until the target agent has
-finished replying, then prints the captured reply on stdout. Progress lines (elapsed
-time, bytes received, idle time) stream to stderr while you wait.
+Use the exact agent names returned by the CLI.
 
-The wait happens entirely inside the IAO bridge — **do not** wrap `iao send` in your own
-`sleep` / `iao inspect` loop. That used to be necessary; it no longer is, and doing it
-now just burns tokens.
+If no agents are connected, explain that this terminal cannot communicate with other agents until a connection is created on the canvas.
 
-Write self-contained prompts. The other agent does not see your conversation; it only
-sees what you put inside the quotes.
+### Important
 
-#### Tuning the wait
+`iao send` is synchronous.
 
-- Default timeout is 120 seconds. For longer tasks: `iao send --timeout 600 "Agent" "..."`.
-- For purely advisory pings where you don't need a reply: `iao send --no-wait "Agent" "..."`.
-- To hide the progress lines on stderr: `iao send --quiet "Agent" "..."`.
-- If the wait times out, `iao send` prints whatever output was captured so far and exits
-  with status 124. You can keep checking with `iao inspect` afterwards.
+The command returns only when the target agent has finished responding.
 
-### 3. `iao inspect` is for manual debug only
+Treat it exactly like waiting for:
 
 ```bash
-iao inspect "Backend Agent"
+npm test
+npm run build
 ```
 
-Returns the current captured output buffer of that terminal. Use it when you want a
-sanity check on what another agent is doing right now (e.g. the user asks "what is
-Backend doing?") — **not** as part of a polling loop, since `iao send` already waits for
-you.
+or any other long-running command.
 
-## Working with notes
+When using `iao send`:
 
-Notes are Markdown documents that live on the canvas. They are a shared scratchpad
-between you and the user (and any other agent linked to the same note). Use them to record
-plans, findings, checklists, or anything the user should be able to read on the canvas.
+- Wait for the command to finish.
+- Use the returned response.
+- Do not guess what the other agent might reply.
+- Do not continue based on assumptions.
+- Do not generate a replacement answer yourself.
 
-**You can only access notes that are linked to your terminal.** A note that exists on the
-canvas but is not linked to you cannot be read, written, edited, renamed, or deleted — the
-CLI returns an *access denied* message. Ask the user to link the note to this terminal on
-the canvas (or use `iao note create`, which links the new note to you automatically).
+If a timeout occurs:
+
+- Do not resend the prompt.
+- Do not invent a result.
+- Use `iao inspect` only to check progress.
+- Wait again if appropriate.
+
+### Checking Agent Status
+
+Use:
 
 ```bash
-iao note create "# Plan\n\n- [ ] First step"   # Create + auto-link; title comes from the first line
-iao note list                                  # Show the notes you can access (by title)
-iao note read "Plan"                           # Print the full Markdown body
-iao note read "Plan" 10 20                      # Print only lines 10–20
-iao note edit "Plan" "- [ ] First step" "- [x] First step"   # Surgical replacement
-iao note write "Plan" "Entirely new body"      # Replace the whole document
-iao note rename "Plan" "Implementation Plan"   # Change the title
-iao note delete "Plan"                          # Remove the note and all its links
+iao inspect "Agent Name"
 ```
 
-Guidelines:
+to see what an agent is currently displaying.
 
-- **Notes support Markdown** — headings, lists, task checkboxes (`- [ ]` / `- [x]`),
-  tables, code blocks. They render live on the canvas.
-- **Use `iao note list` when you don't know the exact name.** `read`/`write`/`edit`/
-  `rename`/`delete` resolve a note by title (exact match first, then a unique substring).
-- **Prefer `iao note edit` over `iao note write` for small changes.** `edit` replaces only
-  the matched text and preserves the rest; `write` overwrites the entire body, so an
-  imprecise call can destroy content. Reach for `write` only when replacing the whole note.
-- **Changes are reflected on the canvas in real time** — the user sees your edits the
-  moment the command returns, and any edits the user makes are visible to your next `read`.
+Use inspect only when:
+
+- The user asks what another agent is doing.
+- A previous send timed out.
+- You need to debug communication.
+
+Do not use inspect as a polling loop.
+
+`iao send` already waits for completion.
+
+## Connected Notes
+
+Notes are markdown documents that live on the canvas.
+
+Use notes for plans, checklists, findings, documentation, and shared context.
+
+You can only access notes linked to this terminal.
+
+Use:
+
+```bash
+iao note list
+```
+
+when you need to discover available notes.
+
+For small changes, prefer:
+
+```bash
+iao note edit
+```
+
+instead of:
+
+```bash
+iao note write
+```
+
+to avoid overwriting existing content.
+
+Changes appear on the canvas immediately.
+
+Notes support markdown formatting.
+
+### Important
+
+For note-only tasks:
+
+- Do not run `iao agents`.
+- Do not inspect agents.
+- Work directly with note commands.
 
 ## Rules
 
-- **Always `iao agents` first.** Never guess agent names.
-- **Use `iao note list` before reading or editing a note** when you are unsure of its name,
-  and remember you can only touch notes linked to this terminal.
-- **Never wrap `iao send` in a sleep/inspect loop.** The bridge already waits. Adding
-  your own polling just wastes prompts.
-- **Never resend the same prompt** while the previous `iao send` is still running — they
-  are mutually exclusive per (caller, target) pair anyway and the bridge will reject the
-  second one with HTTP 429.
-- **Do not edit files another agent is actively modifying.** Coordinate through
-  `iao send` — ask the other agent to pause, or check `iao inspect` to confirm it is idle.
-- **Prompts are not chat history.** Each `iao send` is standalone for the receiver. Give
-  enough context in every message.
-- **Use `iao help` / `iao debug`** when something looks off.
-
-## Example end-to-end flow
-
-```bash
-$ iao agents
-Backend Agent    · claude
-Test Agent       · codex
-
-$ iao send "Backend Agent" "Read src/server/routes.ts and reply with the list of registered routes."
-iao: delivered to "Backend Agent", waiting for reply (timeout 120s)...
-iao: waiting... 2s elapsed, 184 bytes received, idle 1s
-iao: waiting... 4s elapsed, 612 bytes received, idle 0s
-Reading src/server/routes.ts
-Found 4 routes:
-  GET  /health
-  GET  /users
-  POST /users
-  GET  /users/:id
-```
+- Use `iao agents` before `iao send` or `iao inspect`.
+- Do not use `iao agents` for note-only tasks.
+- Always wait for `iao send` to complete.
+- Never replace a missing agent response with your own assumptions.
+- Never resend a prompt that is already running.
+- Do not use `iao inspect` as a polling mechanism.
+- Prefer `iao note edit` over `iao note write` when possible.
+- Use `iao help` or `iao debug` if communication appears broken.
