@@ -112,16 +112,47 @@ export function resizePty(id: string, cols: number, rows: number): void {
   }
 }
 
+// Grace period between SIGHUP and the SIGKILL backstop when a node is deleted.
+const KILL_GRACE_MS = 2000
+
+/**
+ * Kill the pty's whole process tree, not just the shell. `proc.kill()` only
+ * signals the shell: agents that ignore SIGHUP (claude/codex) survive as
+ * orphans and keep burning CPU after their node is deleted. The pty child is
+ * its session leader, so `pid` doubles as the process-group id — signalling
+ * `-pid` reaches every descendant. SIGHUP first for graceful cleanup, then a
+ * SIGKILL backstop for whatever ignored it (immediately when graceMs is 0,
+ * e.g. on app quit, where a timer would never fire).
+ */
+function killProcessTree(proc: pty.IPty, graceMs: number): void {
+  const pid = proc.pid
+  if (process.platform === 'win32' || !pid) {
+    try { proc.kill() } catch { /* already dead */ }
+    return
+  }
+  try { process.kill(-pid, 'SIGHUP') } catch { /* group already gone */ }
+  try { proc.kill() } catch { /* already dead */ }
+  const reap = (): void => {
+    try { process.kill(-pid, 'SIGKILL') } catch { /* group already gone */ }
+  }
+  if (graceMs <= 0) {
+    reap()
+    return
+  }
+  setTimeout(reap, graceMs).unref?.()
+}
+
 export function killPty(id: string): void {
   iaoService.unregisterPtySession(id)
-  ptys.get(id)?.kill()
+  const proc = ptys.get(id)
+  if (proc) killProcessTree(proc, KILL_GRACE_MS)
   ptys.delete(id)
 }
 
 export function killAllPtys(): void {
   ptys.forEach((p, id) => {
     iaoService.unregisterPtySession(id)
-    p.kill()
+    killProcessTree(p, 0)
   })
   ptys.clear()
 }

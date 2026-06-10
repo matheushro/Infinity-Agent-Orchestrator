@@ -486,6 +486,36 @@ describe('Canvas', () => {
     })
   })
 
+  // Regression: the dot grid used to be painted across the whole 8000×8000+
+  // world surface, forcing the compositor to rasterize tens of megapixels and
+  // keeping the CPU busy even with an empty canvas. It now lives on a
+  // viewport-sized layer that tracks pan/zoom through background offsets.
+  it('paints the dot grid on a viewport-sized layer that tracks pan and zoom', async () => {
+    const { container, root } = renderCanvas()
+
+    const grid = container.querySelector('.canvas-grid') as HTMLDivElement
+    expect(grid).toBeTruthy()
+    expect(grid.style.backgroundSize).toBe('24px 24px')
+    expect(grid.style.backgroundPosition).toBe('0px 0px')
+
+    // Wheel pans the canvas — the lattice shifts by the same offset.
+    fireEvent.wheel(root, { deltaX: 10, deltaY: 20 })
+    await waitFor(() => expect(grid.style.backgroundPosition).toBe('-10px -20px'))
+
+    // Zoom scales the lattice spacing (same arithmetic as the component).
+    fireEvent.click(screen.getByTitle('Zoom out'))
+    const z = 1 * (1 + -0.12)
+    await waitFor(() =>
+      expect(grid.style.backgroundSize).toBe(`${24 * z}px ${24 * z}px`),
+    )
+  })
+
+  it('keeps the huge world surface paint-free (no background set on it)', () => {
+    const { surface } = renderCanvas()
+    expect(surface.style.backgroundImage).toBe('')
+    expect(surface.style.backgroundPosition).toBe('')
+  })
+
   it('starts marquee after 4px, converts client to world coords, selects intersected nodes, and deselects on simple click', async () => {
     const onSelectMany = vi.fn()
     const onSelectManyMixed = vi.fn()

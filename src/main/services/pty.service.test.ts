@@ -43,6 +43,7 @@ const expectedShellArgs = process.platform === 'darwin' ? ['-l'] : []
 // ---- mock pty proc factory ----
 
 type MockProc = {
+  pid: number
   write: ReturnType<typeof vi.fn>
   resize: ReturnType<typeof vi.fn>
   kill: ReturnType<typeof vi.fn>
@@ -52,10 +53,11 @@ type MockProc = {
   _triggerExit: () => void
 }
 
-function makeMockProc(): MockProc {
+function makeMockProc(pid = 4242): MockProc {
   let dataCb: ((d: string) => void) | null = null
   let exitCb: (() => void) | null = null
   return {
+    pid,
     write: vi.fn(),
     resize: vi.fn(),
     kill: vi.fn(),
@@ -90,10 +92,16 @@ function makeCallbacks() {
 
 // ---- lifecycle ----
 
+// killPty/killAllPtys signal the pty's process group via process.kill(-pid).
+// The spy must swallow those calls — a real signal to group 4242 could hit
+// arbitrary processes on the machine running the suite.
+let mockProcessKill: ReturnType<typeof vi.spyOn>
+
 beforeEach(() => {
   // resetAllMocks clears both call records AND implementations, preventing
   // mockImplementation() calls from leaking across tests.
   vi.resetAllMocks()
+  mockProcessKill = vi.spyOn(process, 'kill').mockImplementation(() => true)
   mockExistsSync.mockImplementation(() => false)
   mockRegister.mockReturnValue(IAO_SESSION as any)
   mockEnsureSkill.mockReturnValue('/SKILL.md')
@@ -528,6 +536,41 @@ describe('killPty', () => {
     writeToPty('pty-k', 'x')
     expect(proc.write).not.toHaveBeenCalled()
   })
+
+  // Regression: proc.kill() alone only signals the shell — agents that ignore
+  // SIGHUP survived as orphans burning CPU after their node was deleted.
+  it('SIGHUPs the process group, then SIGKILLs it after the grace period', () => {
+    vi.useFakeTimers()
+    const proc = makeMockProc(5151)
+    mockSpawn.mockReturnValue(proc as any)
+    mockExistsSync.mockReturnValue(true)
+
+    createPty(makeArgs({ id: 'pty-tree' }), makeCallbacks())
+    killPty('pty-tree')
+
+    expect(mockProcessKill).toHaveBeenCalledWith(-5151, 'SIGHUP')
+    expect(mockProcessKill).not.toHaveBeenCalledWith(-5151, 'SIGKILL')
+
+    vi.advanceTimersByTime(2000)
+    expect(mockProcessKill).toHaveBeenCalledWith(-5151, 'SIGKILL')
+    vi.useRealTimers()
+  })
+
+  it('does not throw when the process group is already gone (ESRCH)', () => {
+    vi.useFakeTimers()
+    const proc = makeMockProc(5252)
+    mockSpawn.mockReturnValue(proc as any)
+    mockExistsSync.mockReturnValue(true)
+    mockProcessKill.mockImplementation(() => { throw new Error('ESRCH') })
+
+    createPty(makeArgs({ id: 'pty-gone' }), makeCallbacks())
+
+    expect(() => {
+      killPty('pty-gone')
+      vi.advanceTimersByTime(2000)
+    }).not.toThrow()
+    vi.useRealTimers()
+  })
 })
 
 // ===========================================================================
@@ -556,5 +599,21 @@ describe('killAllPtys', () => {
     writeToPty('pty-b', 'x')
     expect(proc1.write).not.toHaveBeenCalled()
     expect(proc2.write).not.toHaveBeenCalled()
+  })
+
+  it('SIGKILLs each process group immediately (no grace timer survives app quit)', () => {
+    const proc1 = makeMockProc(6161)
+    const proc2 = makeMockProc(6262)
+    mockSpawn
+      .mockReturnValueOnce(proc1 as any)
+      .mockReturnValueOnce(proc2 as any)
+    mockExistsSync.mockReturnValue(true)
+
+    createPty(makeArgs({ id: 'pty-a' }), makeCallbacks())
+    createPty(makeArgs({ id: 'pty-b' }), makeCallbacks())
+    killAllPtys()
+
+    expect(mockProcessKill).toHaveBeenCalledWith(-6161, 'SIGKILL')
+    expect(mockProcessKill).toHaveBeenCalledWith(-6262, 'SIGKILL')
   })
 })

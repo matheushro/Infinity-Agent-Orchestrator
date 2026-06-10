@@ -5,6 +5,7 @@
 import { useEffect, useRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
+import { WebglAddon } from '@xterm/addon-webgl'
 import { COMMANDS } from '../commands'
 import { DEFAULT_TERMINAL_STYLE, type TerminalNodeData, type TerminalStyle } from '../types'
 import type { CanvasTheme } from '@renderer/features/canvas/types'
@@ -235,6 +236,29 @@ export function useTerminalSession(
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.open(containerRef.current)
+    // GPU renderer: the default DOM renderer burns CPU when agent TUIs redraw
+    // the whole screen — with several terminals it saturates the renderer
+    // process. Must load after open(); on failure (no WebGL, context lost,
+    // e.g. too many live contexts) xterm silently keeps the DOM renderer.
+    let webgl: WebglAddon | null = null
+    try {
+      webgl = new WebglAddon()
+      webgl.onContextLoss(() => {
+        webgl?.dispose()
+        webgl = null
+      })
+      term.loadAddon(webgl)
+    } catch {
+      // WebGL unavailable — keep the DOM renderer. Dispose the half-loaded
+      // addon so it is unregistered from the terminal; otherwise term.dispose()
+      // would re-dispose it and a teardown error would escape React's cleanup.
+      try {
+        webgl?.dispose()
+      } catch {
+        // addon never activated
+      }
+      webgl = null
+    }
     const restoreMouseCoordinates = patchXtermMouseCoordinates(term, scaleRef)
     fit.fit()
 
@@ -320,7 +344,20 @@ export function useTerminalSession(
       offExit()
       window.ptyApi.kill(ptyId)
       restoreMouseCoordinates()
-      term.dispose()
+      // Teardown must never throw out of a React cleanup: an exception during
+      // the unmount commit (e.g. the WebGL renderer failing to tear down)
+      // unmounts the entire app — the canvas goes white on a simple delete.
+      try {
+        webgl?.dispose()
+        webgl = null
+      } catch (err) {
+        console.error('[terminal] webgl addon dispose failed:', err)
+      }
+      try {
+        term.dispose()
+      } catch (err) {
+        console.error('[terminal] xterm dispose failed:', err)
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restartSignal])

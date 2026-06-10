@@ -61,10 +61,12 @@ body {
   overflow: hidden;
 }
 
-.canvas-surface {
+/* The world surface itself must stay paint-free: it spans 8000×8000+ px and
+   any background here forces the compositor to rasterize the whole layer.
+   The base color lives on the viewport wrapper and the dot grid on the
+   viewport-sized .canvas-grid layer (offsets driven by pan/zoom inline). */
+.canvas-ambient {
   background-color: var(--canvas);
-  background-image: radial-gradient(var(--dot) 1px, transparent 1px);
-  background-size: 24px 24px;
 }
 
 .canvas-ambient::before {

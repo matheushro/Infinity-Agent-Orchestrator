@@ -55,6 +55,54 @@ describe('PtyActivityContext', () => {
     expect(result.current.getStatus('node-d')).toBe('offline')
   })
 
+  // Regression: setStatus fires on every pty data chunk. Before the dedupe,
+  // each repeated 'busy' produced a new statusMap and re-rendered every
+  // consumer (all terminal nodes + sidebar) hundreds of times per second.
+  it('6.6 repeating the same status does not re-render consumers', () => {
+    let renders = 0
+    const { result } = renderHook(
+      () => {
+        renders++
+        return usePtyActivity()
+      },
+      { wrapper: PtyActivityProvider },
+    )
+
+    act(() => {
+      result.current.setStatus('node-spam', 'busy')
+    })
+    const rendersAfterTransition = renders
+
+    act(() => {
+      result.current.setStatus('node-spam', 'busy')
+    })
+    act(() => {
+      result.current.setStatus('node-spam', 'busy')
+    })
+
+    expect(renders).toBe(rendersAfterTransition)
+    expect(result.current.getStatus('node-spam')).toBe('busy')
+  })
+
+  it("6.7 setting 'offline' on an unknown node is a no-op (offline is the default)", () => {
+    let renders = 0
+    const { result } = renderHook(
+      () => {
+        renders++
+        return usePtyActivity()
+      },
+      { wrapper: PtyActivityProvider },
+    )
+    const initialRenders = renders
+
+    act(() => {
+      result.current.setStatus('never-seen', 'offline')
+    })
+
+    expect(renders).toBe(initialRenders)
+    expect(result.current.getStatus('never-seen')).toBe('offline')
+  })
+
   it('6.5 usePtyActivity outside a PtyActivityProvider returns the safe default (always offline)', () => {
     // The context default is { getStatus: () => "offline", setStatus: () => {} }
     // so calling getStatus outside a provider should return "offline" without throwing.

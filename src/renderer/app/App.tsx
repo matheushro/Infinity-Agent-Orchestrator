@@ -54,7 +54,13 @@ export default function App(): JSX.Element {
   }, [theme])
 
   const handleNodesChange = useCallback((workspaceId: string, nodes: TerminalNodeData[]): void => {
-    setNodesByWorkspace((prev) => ({ ...prev, [workspaceId]: nodes }))
+    // Bail out when the list is unchanged. WorkspaceCanvas re-reports its nodes
+    // whenever its onNodesChange prop identity changes (a fresh arrow every App
+    // render); always producing a new map here turned that into an infinite
+    // render loop — ~2000 re-renders/s pinning a CPU core with an idle canvas.
+    setNodesByWorkspace((prev) =>
+      prev[workspaceId] === nodes ? prev : { ...prev, [workspaceId]: nodes },
+    )
   }, [])
 
   function handleSelectTerminal(workspaceId: string, terminalId: string): void {

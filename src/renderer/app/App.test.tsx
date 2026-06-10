@@ -77,9 +77,14 @@ vi.mock('@renderer/features/terminals/hooks/useTerminalStyles', () => ({
   }),
 }))
 
-// WorkspaceCanvas stub — calls onNodesChange once on mount.
+// WorkspaceCanvas stub — mirrors the real component's contract: it re-reports
+// its (stable) node list whenever the onNodesChange prop identity changes,
+// exactly like the real `useEffect(..., [nodes, onNodesChange])`. App hands a
+// fresh arrow down on every render, so App must bail out on unchanged lists or
+// this feedback becomes an infinite render loop (the real bug).
 vi.mock('./components/WorkspaceCanvas', async () => {
   const { useEffect } = await import('react')
+  const STUB_NODES: TerminalNodeData[] = []
   return {
     WorkspaceCanvas: vi.fn(({ workspace, active, defaultProjectFolder, onNodesChange }: {
       workspace: WorkspaceRecord
@@ -87,7 +92,7 @@ vi.mock('./components/WorkspaceCanvas', async () => {
       defaultProjectFolder: string
       onNodesChange: (nodes: TerminalNodeData[]) => void
     }) => {
-      useEffect(() => { onNodesChange([]) }, []) // eslint-disable-line react-hooks/exhaustive-deps
+      useEffect(() => { onNodesChange(STUB_NODES) }, [onNodesChange])
       return (
         <div
           data-testid={`canvas-${workspace.id}`}
@@ -174,6 +179,25 @@ afterEach(() => {
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 describe('App composition', () => {
+  // Regression: WorkspaceCanvas re-reports its nodes whenever the
+  // onNodesChange prop identity changes (App passes a fresh arrow every
+  // render). Without the unchanged-list bailout in handleNodesChange this
+  // looped forever (~2000 renders/s pinning a CPU core with an idle canvas) —
+  // and this test never settles.
+  it('does not render-loop when canvases re-report an unchanged node list', async () => {
+    const { WorkspaceCanvas } = await import('./components/WorkspaceCanvas')
+
+    render(<App />)
+    await screen.findByTestId('canvas-ws-default')
+
+    // Force extra App renders; each one hands a fresh onNodesChange down.
+    fireEvent.click(screen.getByText('Toggle collapse'))
+    fireEvent.click(screen.getByText('Toggle collapse'))
+    await screen.findByTestId('canvas-ws-default')
+
+    expect(vi.mocked(WorkspaceCanvas).mock.calls.length).toBeLessThan(15)
+  })
+
   it('renders sidebar and at least one workspace canvas', async () => {
     render(<App />)
     expect(screen.getByTestId('sidebar')).toBeTruthy()

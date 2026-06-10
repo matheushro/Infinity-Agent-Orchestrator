@@ -819,6 +819,18 @@ export function Canvas({
                 : 'default',
       }}
     >
+      {/* Dot grid painted on a viewport-sized layer, simulating pan/zoom with
+          background offsets. Painting it on the world surface instead made the
+          compositor rasterize an 8000×8000+ layer — tens of megapixels redone
+          on every damage, keeping the CPU busy even with an empty canvas. */}
+      <div
+        className="canvas-grid absolute inset-0 pointer-events-none"
+        style={{
+          backgroundImage: `radial-gradient(var(--dot) ${zoom}px, transparent ${zoom}px)`,
+          backgroundSize: `${24 * zoom}px ${24 * zoom}px`,
+          backgroundPosition: `${pan.x}px ${pan.y}px`,
+        }}
+      />
       <div
         className="canvas-surface absolute"
         style={{
@@ -828,7 +840,6 @@ export function Canvas({
           top: 0,
           transformOrigin: '0 0',
           transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom}) translate(${surface.minX}px, ${surface.minY}px)`,
-          backgroundPosition: `${-surface.minX}px ${-surface.minY}px`,
         }}
       >
         <svg
