@@ -8,14 +8,50 @@ import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { Rnd } from 'react-rnd'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { IClose } from '@renderer/components/ui'
+import { IChevDown, IClose, ISearch } from '@renderer/components/ui'
 import type { NoteRecord } from '@shared/types/notes'
 import type { CanvasTool } from '@renderer/features/canvas/components/Canvas'
 import { toggleTaskAt } from '../lib/markdown'
+import { useNoteSearch } from '../hooks/useNoteSearch'
+import type { TextMatch } from '../lib/noteSearch'
 
 // Hoisted so the array identity is stable across renders — a fresh `[remarkGfm]`
 // literal would make react-markdown reprocess the document on every render.
 const REMARK_PLUGINS = [remarkGfm]
+
+function EditorSearchHighlight({
+  text,
+  matches,
+  currentIndex,
+}: {
+  text: string
+  matches: TextMatch[]
+  currentIndex: number
+}): JSX.Element {
+  const parts: JSX.Element[] = []
+  let offset = 0
+
+  matches.forEach((match, index) => {
+    if (match.start > offset) {
+      parts.push(<span key={`text-${offset}`}>{text.slice(offset, match.start)}</span>)
+    }
+    parts.push(
+      <mark
+        key={`match-${match.start}`}
+        className={index === currentIndex ? 'is-active' : undefined}
+      >
+        {text.slice(match.start, match.end)}
+      </mark>,
+    )
+    offset = match.end
+  })
+
+  if (offset < text.length) {
+    parts.push(<span key={`text-${offset}`}>{text.slice(offset)}</span>)
+  }
+
+  return <>{parts}</>
+}
 
 interface NoteNodeProps {
   note: NoteRecord
@@ -26,6 +62,8 @@ interface NoteNodeProps {
   tool?: CanvasTool
   /** Highlighted as the pending link source while the link tool is armed. */
   linkSource?: string | null
+  searchOpen?: boolean
+  searchRequestId?: number
   onSelect: (id: string) => void
   onEdit: (id: string) => void
   onDragStart: (id: string) => void
@@ -34,6 +72,7 @@ interface NoteNodeProps {
   onRemove: (id: string) => void
   onEditingComplete: () => void
   onContextMenu: (id: string, x: number, y: number) => void
+  onSearchClose?: () => void
 }
 
 export const NoteNode = memo(function NoteNode({
@@ -43,6 +82,8 @@ export const NoteNode = memo(function NoteNode({
   scale,
   tool = 'select',
   linkSource = null,
+  searchOpen = false,
+  searchRequestId = 0,
   onSelect,
   onEdit,
   onDragStart,
@@ -51,6 +92,7 @@ export const NoteNode = memo(function NoteNode({
   onRemove,
   onEditingComplete,
   onContextMenu,
+  onSearchClose = () => {},
 }: NoteNodeProps): JSX.Element {
   const isLinking = tool === 'link'
   const isDelete = tool === 'delete'
@@ -59,16 +101,29 @@ export const NoteNode = memo(function NoteNode({
   const [editingTitle, setEditingTitle] = useState(false)
   const [draftTitle, setDraftTitle] = useState(note.title)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const previewRef = useRef<HTMLDivElement | null>(null)
+  const searchBarRef = useRef<HTMLDivElement | null>(null)
+  const editorHighlightRef = useRef<HTMLDivElement | null>(null)
   const finishingRef = useRef(false)
+  const search = useNoteSearch({
+    open: searchOpen,
+    requestId: searchRequestId,
+    editing,
+    text: editing ? draft : note.content,
+    textareaRef,
+    previewRef,
+    onClose: onSearchClose,
+  })
 
   useEffect(() => {
     if (!editing) return
     finishingRef.current = false
     setDraft(note.content)
+    if (searchOpen) return
     requestAnimationFrame(() => {
       textareaRef.current?.focus()
     })
-  }, [editing, note.content])
+  }, [editing, note.content, searchOpen])
 
   function commitContent(): void {
     if (finishingRef.current) return
@@ -264,25 +319,129 @@ export const NoteNode = memo(function NoteNode({
           </button>
         </div>
 
-        {editing ? (
-          <textarea
-            ref={textareaRef}
-            value={draft}
-            placeholder="Write Markdown…"
-            onChange={(e) => setDraft(e.target.value)}
-            onBlur={commitContent}
-            onMouseDown={(e) => e.stopPropagation()}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') {
-                e.preventDefault()
-                commitContent()
-              }
+        {searchOpen && (
+          <div
+            ref={searchBarRef}
+            className="note-search flex h-9 shrink-0 items-center gap-1.5 px-2"
+            style={{
+              background: 'var(--node-head)',
+              borderBottom: '1px solid var(--line)',
             }}
-            className="note-editor min-h-0 flex-1 resize-none bg-transparent outline-none p-3 nice-scroll"
-            style={{ color: 'var(--fg)' }}
-          />
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <ISearch size={13} style={{ color: 'var(--fg-3)' }} aria-hidden="true" />
+            <input
+              ref={search.inputRef}
+              type="text"
+              value={search.query}
+              onChange={(event) => search.setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault()
+                  search.close()
+                } else if (event.key === 'Enter') {
+                  event.preventDefault()
+                  if (event.shiftKey) search.previous()
+                  else search.next()
+                }
+              }}
+              placeholder="Find in note"
+              aria-label="Find in note"
+              className="min-w-0 flex-1 bg-transparent text-[12px] outline-none"
+              style={{ color: 'var(--fg)' }}
+            />
+            <span
+              className="min-w-[42px] text-right text-[10.5px] tabular-nums"
+              style={{
+                color:
+                  search.matchCount === 0 && search.query
+                    ? 'var(--traffic-close)'
+                    : 'var(--fg-3)',
+              }}
+              aria-live="polite"
+            >
+              {!search.query
+                ? ''
+                : search.matchCount === 0
+                  ? '0/0'
+                  : `${search.currentIndex + 1}/${search.matchCount}`}
+            </span>
+            <button
+              type="button"
+              className="icon-btn !h-6 !w-6"
+              onClick={search.previous}
+              disabled={search.matchCount === 0}
+              title="Previous result (Shift+Enter)"
+              aria-label="Previous result"
+            >
+              <IChevDown size={12} style={{ transform: 'rotate(180deg)' }} />
+            </button>
+            <button
+              type="button"
+              className="icon-btn !h-6 !w-6"
+              onClick={search.next}
+              disabled={search.matchCount === 0}
+              title="Next result (Enter)"
+              aria-label="Next result"
+            >
+              <IChevDown size={12} />
+            </button>
+            <button
+              type="button"
+              className="icon-btn !h-6 !w-6"
+              onClick={search.close}
+              title="Close search (Escape)"
+              aria-label="Close search"
+            >
+              <IClose size={11} />
+            </button>
+          </div>
+        )}
+
+        {editing ? (
+          <div className="relative min-h-0 flex-1">
+            {searchOpen && search.query && (
+              <div
+                ref={editorHighlightRef}
+                className="note-editor note-editor-highlight pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words p-3"
+                aria-hidden="true"
+              >
+                <EditorSearchHighlight
+                  text={draft}
+                  matches={search.matches}
+                  currentIndex={search.currentIndex}
+                />
+              </div>
+            )}
+            <textarea
+              ref={textareaRef}
+              value={draft}
+              placeholder="Write Markdown…"
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={(event) => {
+                if (searchBarRef.current?.contains(event.relatedTarget as Node | null)) return
+                commitContent()
+              }}
+              onScroll={(event) => {
+                if (!editorHighlightRef.current) return
+                editorHighlightRef.current.scrollTop = event.currentTarget.scrollTop
+                editorHighlightRef.current.scrollLeft = event.currentTarget.scrollLeft
+              }}
+              onMouseDown={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.preventDefault()
+                  commitContent()
+                }
+              }}
+              className="note-editor relative h-full w-full resize-none bg-transparent outline-none p-3 nice-scroll"
+              style={{ color: 'var(--fg)' }}
+            />
+          </div>
         ) : (
           <div
+            ref={previewRef}
+            tabIndex={-1}
             className="note-markdown min-h-0 flex-1 overflow-auto p-3 nice-scroll"
             style={{ color: 'var(--fg)' }}
             onDoubleClick={(e) => {

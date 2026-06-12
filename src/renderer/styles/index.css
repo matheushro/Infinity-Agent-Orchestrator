@@ -163,6 +163,17 @@ body {
   line-height: 1.5;
 }
 .note-editor::placeholder { color: var(--fg-3); }
+.note-editor-highlight {
+  color: transparent;
+}
+.note-editor-highlight mark {
+  background: color-mix(in oklch, var(--accent) 42%, transparent);
+  border-radius: 2px;
+  color: transparent;
+}
+.note-editor-highlight mark.is-active {
+  background: var(--accent);
+}
 
 .note-markdown {
   font-size: 13px;
@@ -442,3 +453,12 @@ body.is-panning,
 body.is-panning * { cursor: grabbing !important; user-select: none; }
 body.is-dragging,
 body.is-dragging * { user-select: none; }
+::highlight(note-search-match) {
+  background: color-mix(in oklch, var(--accent) 42%, transparent);
+  color: inherit;
+}
+
+::highlight(note-search-active) {
+  background: var(--accent);
+  color: var(--accent-fg, #fff);
+}

@@ -108,6 +108,8 @@ interface CanvasProps {
   selectedEdgeId: string | null
   editingTextId: string | null
   editingNoteId: string | null
+  searchingNoteId: string | null
+  noteSearchRequestId: number
   focusedId: string | null
   focusRequest: string | null
   linkSource: string | null
@@ -136,6 +138,7 @@ interface CanvasProps {
   onUpdateNote: (id: string, patch: Partial<NoteRecord>) => void
   onRemoveNote: (id: string) => void
   onNoteContextMenu: (id: string, x: number, y: number) => void
+  onNoteSearchClose: () => void
   onFocusConsumed: () => void
   onMoveNode: (id: string, patch: Partial<TerminalNodeData>) => void
   onUpdateNode: (id: string, patch: Partial<TerminalNodeData>) => void
@@ -164,6 +167,8 @@ export function Canvas({
   selectedEdgeId,
   editingTextId,
   editingNoteId,
+  searchingNoteId,
+  noteSearchRequestId,
   focusedId,
   focusRequest,
   linkSource,
@@ -188,6 +193,7 @@ export function Canvas({
   onUpdateNote,
   onRemoveNote,
   onNoteContextMenu,
+  onNoteSearchClose,
   onFocusConsumed,
   onMoveNode,
   onUpdateNode,
@@ -1037,6 +1043,8 @@ export function Canvas({
               note={note}
               selected={selectedNoteIds.includes(note.id)}
               editing={editingNoteId === note.id}
+              searchOpen={searchingNoteId === note.id}
+              searchRequestId={noteSearchRequestId}
               scale={zoom}
               tool={tool}
               linkSource={linkSource}
@@ -1062,6 +1070,7 @@ export function Canvas({
               onRemove={onRemoveNote}
               onEditingComplete={() => onEditNote(null)}
               onContextMenu={onNoteContextMenu}
+              onSearchClose={onNoteSearchClose}
             />
           ))}
         </div>

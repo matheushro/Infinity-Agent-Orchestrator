@@ -126,6 +126,8 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
     const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null)
     const [editingTextId, setEditingTextId] = useState<string | null>(null)
     const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
+    const [searchingNoteId, setSearchingNoteId] = useState<string | null>(null)
+    const [noteSearchRequestId, setNoteSearchRequestId] = useState(0)
     const [focusedId, setFocusedId] = useState<string | null>(null)
     const [focusRequest, setFocusRequest] = useState<string | null>(null)
     const [tool, setTool] = useState<CanvasTool>('select')
@@ -174,6 +176,15 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
           e.preventDefault()
           setPendingCreatePos(null)
           setModalOpen(true)
+        }
+        if (
+          (e.metaKey || e.ctrlKey) &&
+          e.key.toLowerCase() === 'f' &&
+          selectedNoteIds.length === 1
+        ) {
+          e.preventDefault()
+          setSearchingNoteId(selectedNoteIds[0])
+          setNoteSearchRequestId((requestId) => requestId + 1)
         }
         if (e.key === 'Escape') {
           if (tool === 'link' || tool === 'delete') {
@@ -243,6 +254,12 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
       removeNote,
       removeTerminalStyle,
     ])
+
+    useEffect(() => {
+      if (searchingNoteId && !selectedNoteIds.includes(searchingNoteId)) {
+        setSearchingNoteId(null)
+      }
+    }, [searchingNoteId, selectedNoteIds])
 
     function requestFocus(id: string): void {
       setFocusedId(id)
@@ -376,6 +393,8 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
           selectedEdgeId={selectedEdgeId}
           editingTextId={editingTextId}
           editingNoteId={editingNoteId}
+          searchingNoteId={searchingNoteId}
+          noteSearchRequestId={noteSearchRequestId}
           focusedId={focusedId}
           focusRequest={focusRequest}
           linkSource={linkSource}
@@ -455,6 +474,7 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
             setEditingNoteId((prev) => (prev === id ? null : prev))
           }}
           onNoteContextMenu={(noteId, x, y) => setNoteCtxMenu({ noteId, x, y })}
+          onNoteSearchClose={() => setSearchingNoteId(null)}
           onFocusConsumed={() => setFocusRequest(null)}
           onMoveNode={moveNode}
           onUpdateNode={updateNode}

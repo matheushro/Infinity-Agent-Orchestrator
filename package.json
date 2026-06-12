@@ -1,6 +1,6 @@
 {
   "name": "IAO",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "description": "MVP - local terminal canvas in Electron",
   "main": "out/main/index.js",
   "author": {
@@ -73,7 +73,6 @@
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.10.0",
-    "@xterm/addon-webgl": "^0.19.0",
     "@xterm/xterm": "^5.5.0",
     "better-sqlite3": "^12.10.0",
     "node-pty": "^1.0.0",

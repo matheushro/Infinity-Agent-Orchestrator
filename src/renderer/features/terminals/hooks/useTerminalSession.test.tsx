@@ -38,11 +38,7 @@ const mocks = vi.hoisted(() => {
     }
     open = vi.fn()
     focus = vi.fn()
-    loadAddon = vi.fn((addon: unknown) => {
-      if (webglState.loadShouldThrow && addon instanceof MockWebglAddon) {
-        throw new Error('webgl activation failed')
-      }
-    })
+    loadAddon = vi.fn()
     write = vi.fn()
     dispose = vi.fn()
     keyEventHandler: ((e: KeyboardEvent) => boolean) | null = null
@@ -77,22 +73,6 @@ const mocks = vi.hoisted(() => {
 
     constructor() {
       fitInstances.push(this)
-    }
-  }
-
-  const webglInstances: any[] = []
-  const webglState = { shouldThrow: false, loadShouldThrow: false }
-
-  class MockWebglAddon {
-    dispose = vi.fn()
-    contextLossCb: (() => void) | null = null
-    onContextLoss = vi.fn((cb: () => void) => {
-      this.contextLossCb = cb
-    })
-
-    constructor() {
-      if (webglState.shouldThrow) throw new Error('webgl unavailable')
-      webglInstances.push(this)
     }
   }
 
@@ -141,15 +121,12 @@ const mocks = vi.hoisted(() => {
     terminalInstances,
     fitInstances,
     resizeObserverInstances,
-    webglInstances,
-    webglState,
     createResolvers,
     dataHandlers,
     exitHandlers,
     ptyApi,
     MockTerminal,
     MockFitAddon,
-    MockWebglAddon,
     MockResizeObserver,
   }
 })
@@ -163,12 +140,6 @@ vi.mock('@xterm/xterm', () => ({
 vi.mock('@xterm/addon-fit', () => ({
   FitAddon: vi.fn(function () {
     return new mocks.MockFitAddon()
-  }),
-}))
-
-vi.mock('@xterm/addon-webgl', () => ({
-  WebglAddon: vi.fn(function () {
-    return new mocks.MockWebglAddon()
   }),
 }))
 
@@ -240,9 +211,6 @@ beforeEach(() => {
   mocks.terminalInstances.length = 0
   mocks.fitInstances.length = 0
   mocks.resizeObserverInstances.length = 0
-  mocks.webglInstances.length = 0
-  mocks.webglState.shouldThrow = false
-  mocks.webglState.loadShouldThrow = false
   mocks.createResolvers.length = 0
   mocks.dataHandlers.length = 0
   mocks.exitHandlers.length = 0
@@ -303,65 +271,9 @@ describe('useTerminalSession', () => {
     expect(node.id).not.toBe('pty-1')
   })
 
-  it('loads the WebGL renderer addon after opening the terminal', async () => {
-    render(<SessionHarness />)
-
-    await waitFor(() => expect(mocks.ptyApi.create).toHaveBeenCalledTimes(1))
-
-    const terminal = mocks.terminalInstances[0]
-    expect(mocks.webglInstances).toHaveLength(1)
-    expect(terminal.loadAddon).toHaveBeenCalledWith(mocks.webglInstances[0])
-    // The addon needs an opened terminal — open() must have happened first.
-    expect(terminal.open).toHaveBeenCalled()
-  })
-
-  it('falls back to the DOM renderer when WebGL is unavailable', async () => {
-    mocks.webglState.shouldThrow = true
-
-    render(<SessionHarness />)
-
-    // Session still comes up fully wired despite the failed addon.
-    await waitFor(() => expect(mocks.ptyApi.create).toHaveBeenCalledTimes(1))
-    expect(mocks.webglInstances).toHaveLength(0)
-    expect(mocks.terminalInstances[0].open).toHaveBeenCalled()
-  })
-
-  it('disposes the WebGL addon when its context is lost', async () => {
-    render(<SessionHarness />)
-
-    await waitFor(() => expect(mocks.ptyApi.create).toHaveBeenCalledTimes(1))
-
-    const webgl = mocks.webglInstances[0]
-    expect(webgl.contextLossCb).toBeTypeOf('function')
-    webgl.contextLossCb()
-    expect(webgl.dispose).toHaveBeenCalledTimes(1)
-  })
-
-  it('disposes the half-loaded WebGL addon when activation throws in loadAddon', async () => {
-    mocks.webglState.loadShouldThrow = true
-
-    const { unmount } = render(<SessionHarness />)
-
-    await waitFor(() => expect(mocks.ptyApi.create).toHaveBeenCalledTimes(1))
-    // The addon must be unregistered right away so term.dispose() does not
-    // re-dispose a partially-initialized addon during React cleanup.
-    expect(mocks.webglInstances[0].dispose).toHaveBeenCalledTimes(1)
-
-    expect(() => unmount()).not.toThrow()
-  })
-
-  it('disposes the WebGL addon on unmount', async () => {
-    const { unmount } = render(<SessionHarness />)
-
-    await waitFor(() => expect(mocks.ptyApi.create).toHaveBeenCalledTimes(1))
-    unmount()
-
-    expect(mocks.webglInstances[0].dispose).toHaveBeenCalled()
-  })
-
-  // Regression: deleting a terminal threw inside the effect cleanup (xterm /
-  // WebGL teardown), which unmounted the entire React tree — the whole app
-  // went white on a simple node delete.
+  // Regression: deleting a terminal threw inside the effect cleanup (xterm
+  // teardown), which unmounted the entire React tree — the whole app went
+  // white on a simple node delete.
   it('unmount does not propagate xterm dispose errors (white-screen regression)', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
 
@@ -375,22 +287,6 @@ describe('useTerminalSession', () => {
 
     expect(() => unmount()).not.toThrow()
     expect(mocks.ptyApi.kill).toHaveBeenCalledTimes(1)
-  })
-
-  it('unmount still disposes the terminal when the WebGL addon dispose throws', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {})
-
-    const { unmount } = render(<SessionHarness />)
-
-    await waitFor(() => expect(mocks.ptyApi.create).toHaveBeenCalledTimes(1))
-    const terminal = mocks.terminalInstances[0]
-    const webgl = mocks.webglInstances[0]
-    webgl.dispose.mockImplementation(() => {
-      throw new Error('webgl teardown failed')
-    })
-
-    expect(() => unmount()).not.toThrow()
-    expect(terminal.dispose).toHaveBeenCalledTimes(1)
   })
 
   it('focuses after pty create resolves, unless the hook is already disposed', async () => {

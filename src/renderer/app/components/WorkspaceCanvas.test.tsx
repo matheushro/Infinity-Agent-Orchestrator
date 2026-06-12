@@ -234,6 +234,75 @@ describe('WorkspaceCanvas', () => {
     expect(screen.queryByTestId('new-terminal-modal')).toBeNull()
   })
 
+  it('opens note search only for the selected note', async () => {
+    const { Canvas } = await import('@renderer/features/canvas/components/Canvas')
+    const canvasMock = vi.mocked(Canvas)
+    render(<WorkspaceCanvas {...defaultProps} />)
+
+    let lastCall = canvasMock.mock.calls[canvasMock.mock.calls.length - 1]
+    act(() => {
+      lastCall[0].onSelectNote('note-selected')
+    })
+
+    const event = new KeyboardEvent('keydown', {
+      key: 'f',
+      ctrlKey: true,
+      cancelable: true,
+    })
+    window.dispatchEvent(event)
+
+    await waitFor(() => {
+      lastCall = canvasMock.mock.calls[canvasMock.mock.calls.length - 1]
+      expect(lastCall[0].searchingNoteId).toBe('note-selected')
+      expect(lastCall[0].noteSearchRequestId).toBe(1)
+    })
+    expect(event.defaultPrevented).toBe(true)
+  })
+
+  it('does not intercept find when no note is selected', async () => {
+    const { Canvas } = await import('@renderer/features/canvas/components/Canvas')
+    const canvasMock = vi.mocked(Canvas)
+    render(<WorkspaceCanvas {...defaultProps} />)
+
+    const event = new KeyboardEvent('keydown', {
+      key: 'f',
+      metaKey: true,
+      cancelable: true,
+    })
+    window.dispatchEvent(event)
+
+    await act(async () => {})
+    const lastCall = canvasMock.mock.calls[canvasMock.mock.calls.length - 1]
+    expect(lastCall[0].searchingNoteId).toBeNull()
+    expect(event.defaultPrevented).toBe(false)
+  })
+
+  it('closes note search when that note is deselected', async () => {
+    const { Canvas } = await import('@renderer/features/canvas/components/Canvas')
+    const canvasMock = vi.mocked(Canvas)
+    render(<WorkspaceCanvas {...defaultProps} />)
+
+    let lastCall = canvasMock.mock.calls[canvasMock.mock.calls.length - 1]
+    act(() => {
+      lastCall[0].onSelectNote('note-selected')
+    })
+    fireEvent.keyDown(window, { key: 'f', ctrlKey: true })
+
+    await waitFor(() => {
+      lastCall = canvasMock.mock.calls[canvasMock.mock.calls.length - 1]
+      expect(lastCall[0].searchingNoteId).toBe('note-selected')
+    })
+
+    act(() => {
+      lastCall[0].onSelectNote(null)
+    })
+
+    await waitFor(() => {
+      lastCall = canvasMock.mock.calls[canvasMock.mock.calls.length - 1]
+      expect(lastCall[0].searchingNoteId).toBeNull()
+    })
+  })
+
   it('10.10 Delete key removes the selected node and calls removeTerminalStyle', async () => {
     const node: TerminalNodeData = {
       id: 'del-node', x: 0, y: 0, width: 600, height: 380,

@@ -2,7 +2,7 @@ import '@testing-library/jest-dom/vitest'
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { StrictMode, type CSSProperties, type ReactNode } from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { NoteRecord } from '@shared/types/notes'
 
 const mocks = vi.hoisted(() => {
@@ -65,6 +65,10 @@ beforeEach(() => {
   mocks.rndInstances.length = 0
 })
 
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
 describe('NoteNode', () => {
   it('shows the title and renders Markdown content in view mode', async () => {
     renderNode({
@@ -125,6 +129,83 @@ describe('NoteNode', () => {
     fireEvent.blur(textarea)
 
     expect(onUpdate).toHaveBeenCalledWith('note-1', { content: 'b' })
+  })
+
+  it('searches and navigates matches in the Markdown editor without leaving edit mode', async () => {
+    const onEditingComplete = vi.fn()
+    renderNode({
+      note: { ...baseNote, content: 'alpha beta alpha' },
+      editing: true,
+      searchOpen: true,
+      searchRequestId: 1,
+      onEditingComplete,
+    })
+
+    const searchInput = screen.getByRole('textbox', { name: 'Find in note' })
+    const editor = screen.getByPlaceholderText('Write Markdown…') as HTMLTextAreaElement
+    fireEvent.change(searchInput, { target: { value: 'alpha' } })
+
+    await waitFor(() => expect(screen.getByText('1/2')).toBeInTheDocument())
+    expect(editor.selectionStart).toBe(0)
+    expect(editor.selectionEnd).toBe(5)
+    expect(document.querySelectorAll('.note-editor-highlight mark')).toHaveLength(2)
+    expect(document.querySelector('.note-editor-highlight mark.is-active')).toHaveTextContent(
+      'alpha',
+    )
+    expect(onEditingComplete).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(searchInput, { key: 'Enter' })
+
+    await waitFor(() => expect(screen.getByText('2/2')).toBeInTheDocument())
+    expect(editor.selectionStart).toBe(11)
+    expect(editor.selectionEnd).toBe(16)
+    expect(document.querySelectorAll('.note-editor-highlight mark')[1]).toHaveClass('is-active')
+    expect(onEditingComplete).not.toHaveBeenCalled()
+  })
+
+  it('searches rendered Markdown across inline formatting boundaries', async () => {
+    class MockHighlight {
+      constructor(..._ranges: Range[]) {}
+    }
+    const highlights = {
+      set: vi.fn(),
+      delete: vi.fn(),
+    }
+    vi.stubGlobal('CSS', { highlights })
+    vi.stubGlobal('Highlight', MockHighlight)
+
+    renderNode({
+      note: { ...baseNote, content: '**bold** and *italic*, then bold and italic again' },
+      searchOpen: true,
+      searchRequestId: 1,
+    })
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Find in note' }), {
+      target: { value: 'bold and italic' },
+    })
+
+    await waitFor(() => expect(screen.getByText('1/2')).toBeInTheDocument())
+    expect(highlights.set).toHaveBeenCalledWith(
+      'note-search-match',
+      expect.any(MockHighlight),
+    )
+    expect(highlights.set).toHaveBeenCalledWith(
+      'note-search-active',
+      expect.any(MockHighlight),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Next result' }))
+    await waitFor(() => expect(screen.getByText('2/2')).toBeInTheDocument())
+  })
+
+  it('closes search with Escape and returns control to the selected note', () => {
+    const onSearchClose = vi.fn()
+    renderNode({ searchOpen: true, searchRequestId: 1, onSearchClose })
+
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Find in note' }), {
+      key: 'Escape',
+    })
+
+    expect(onSearchClose).toHaveBeenCalledTimes(1)
   })
 
   it('renames the title inline on Enter', () => {
