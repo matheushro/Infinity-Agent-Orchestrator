@@ -88,27 +88,24 @@ describe('main/index — window-all-closed handler', () => {
     expect(killAllPtys).toHaveBeenCalledOnce()
   })
 
-  it('calls stopIaoServer when all windows are closed', () => {
-    callbacks.appEvents.get('window-all-closed')!()
-    expect(stopIaoServer).toHaveBeenCalledOnce()
-  })
-
-  it('quits the app on non-darwin platforms', () => {
+  it('stops the IAO server and quits the app on non-darwin platforms', () => {
     const original = Object.getOwnPropertyDescriptor(process, 'platform')
     Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
     try {
       callbacks.appEvents.get('window-all-closed')!()
+      expect(stopIaoServer).toHaveBeenCalledOnce()
       expect(app.quit).toHaveBeenCalledOnce()
     } finally {
       if (original) Object.defineProperty(process, 'platform', original)
     }
   })
 
-  it('does NOT quit the app on darwin', () => {
+  it('keeps the IAO server running and does NOT quit the app on darwin', () => {
     const original = Object.getOwnPropertyDescriptor(process, 'platform')
     Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
     try {
       callbacks.appEvents.get('window-all-closed')!()
+      expect(stopIaoServer).not.toHaveBeenCalled()
       expect(app.quit).not.toHaveBeenCalled()
     } finally {
       if (original) Object.defineProperty(process, 'platform', original)

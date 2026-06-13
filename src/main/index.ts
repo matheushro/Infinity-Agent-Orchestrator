@@ -32,6 +32,8 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => {
   killAllPtys()
-  stopIaoServer()
-  if (process.platform !== 'darwin') app.quit()
+  if (process.platform !== 'darwin') {
+    stopIaoServer()
+    app.quit()
+  }
 })
