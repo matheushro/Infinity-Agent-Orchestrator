@@ -8,7 +8,7 @@ import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { Rnd } from 'react-rnd'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { IChevDown, IClose, ISearch } from '@renderer/components/ui'
+import { IChevDown, IClose, ICopy, ISearch } from '@renderer/components/ui'
 import type { NoteRecord } from '@shared/types/notes'
 import type { CanvasTool } from '@renderer/features/canvas/components/Canvas'
 import { toggleTaskAt } from '../lib/markdown'
@@ -304,6 +304,19 @@ export const NoteNode = memo(function NoteNode({
               </span>
             )}
           </div>
+
+          <button
+            className="icon-btn !w-6 !h-6"
+            onClick={(e) => {
+              e.stopPropagation()
+              void navigator.clipboard.writeText(note.title)
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            title="Copy note name"
+            aria-label="Copy note name"
+          >
+            <ICopy size={12} />
+          </button>
 
           <button
             className="icon-btn !w-6 !h-6"

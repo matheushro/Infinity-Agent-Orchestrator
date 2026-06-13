@@ -157,6 +157,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe('TerminalNode', () => {
@@ -170,6 +171,16 @@ describe('TerminalNode', () => {
     expect(closeButton).toBeTruthy()
     expect(closeButton).toHaveAttribute('title', 'Close terminal')
     expect(closeButton).toHaveAttribute('aria-label', 'Close terminal')
+  })
+
+  it('copies the terminal name from the header', () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { clipboard: { writeText } })
+    renderNode()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy terminal name' }))
+
+    expect(writeText).toHaveBeenCalledWith(baseNode.title)
   })
 
   it('enters title edit mode on double-click and commits on Enter', () => {

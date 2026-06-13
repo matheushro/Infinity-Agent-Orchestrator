@@ -92,6 +92,16 @@ describe('NoteNode', () => {
     expect(screen.getByText(/Empty note/i)).toBeInTheDocument()
   })
 
+  it('copies the note name from the header', () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { clipboard: { writeText } })
+    renderNode()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy note name' }))
+
+    expect(writeText).toHaveBeenCalledWith(baseNote.title)
+  })
+
   it('enters edit mode when the body is double-clicked', () => {
     const onEdit = vi.fn()
     renderNode({ note: { ...baseNote, content: 'hello' }, onEdit })

@@ -2,7 +2,7 @@
 // The xterm/pty session lives in useTerminalSession.
 import { useState } from 'react'
 import { Rnd } from 'react-rnd'
-import { IClose } from '@renderer/components/ui'
+import { IClose, ICopy } from '@renderer/components/ui'
 import { AGENTS } from '@shared/agents'
 import { useTerminalSession } from '../hooks/useTerminalSession'
 import type { TerminalNodeData, TerminalStyle } from '../types'
@@ -199,6 +199,19 @@ export function TerminalNode({
               </>
             )}
           </div>
+
+          <button
+            className="icon-btn !w-6 !h-6"
+            onClick={(e) => {
+              e.stopPropagation()
+              void navigator.clipboard.writeText(node.title)
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            title="Copy terminal name"
+            aria-label="Copy terminal name"
+          >
+            <ICopy size={12} />
+          </button>
 
           <button
             className="icon-btn !w-6 !h-6"
