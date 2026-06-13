@@ -62,6 +62,7 @@ function renderSidebar(overrides: Partial<ComponentProps<typeof Sidebar>> = {}) 
     onSwitchWorkspace: vi.fn(),
     onSelectTerminal: vi.fn(),
     onOpenSettings: vi.fn(),
+    onTerminalDuplicate: vi.fn(),
     onTerminalDelete: vi.fn(),
     onTerminalLink: vi.fn(),
     onTerminalStyle: vi.fn(),
@@ -100,6 +101,7 @@ function renderSidebarWithStatus(
     onSwitchWorkspace: vi.fn(),
     onSelectTerminal: vi.fn(),
     onOpenSettings: vi.fn(),
+    onTerminalDuplicate: vi.fn(),
     onTerminalDelete: vi.fn(),
     onTerminalLink: vi.fn(),
     onTerminalStyle: vi.fn(),
@@ -337,6 +339,7 @@ describe('Sidebar', () => {
       const termItem = screen.getByText('Alpha Shell').closest('.term-item')!
       fireEvent.contextMenu(termItem)
       expect(screen.getByText('Delete terminal')).toBeTruthy()
+      expect(screen.getByText('Duplicate terminal')).toBeTruthy()
       expect(screen.getByText('Link to terminal/note')).toBeTruthy()
       expect(screen.getByText('Open on VS Code')).toBeTruthy()
       expect(screen.getByText('Customize style…')).toBeTruthy()
@@ -348,6 +351,14 @@ describe('Sidebar', () => {
       fireEvent.contextMenu(termItem)
       fireEvent.click(screen.getByText('Delete terminal'))
       expect(props.onTerminalDelete).toHaveBeenCalledWith('ws-1', 'alpha')
+    })
+
+    it('clicking Duplicate terminal calls onTerminalDuplicate', () => {
+      const { props } = renderSidebar()
+      const termItem = screen.getByText('Alpha Shell').closest('.term-item')!
+      fireEvent.contextMenu(termItem)
+      fireEvent.click(screen.getByText('Duplicate terminal'))
+      expect(props.onTerminalDuplicate).toHaveBeenCalledWith('ws-1', 'alpha')
     })
 
     it('clicking Link to terminal/note calls onTerminalLink', () => {

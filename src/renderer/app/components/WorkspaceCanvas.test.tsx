@@ -12,6 +12,7 @@ const { mockUseTerminals, mockUseCanvasTexts, mockUseNotes, mockUseEdges, mockUs
   mockUseTerminals: {
     nodes: [] as TerminalNodeData[],
     createTerminal: vi.fn(),
+    duplicateTerminal: vi.fn(),
     moveNode: vi.fn(),
     updateNode: vi.fn(),
     removeNode: vi.fn(),
@@ -218,6 +219,38 @@ describe('WorkspaceCanvas', () => {
         expect.objectContaining({ defaultFolder: '/home/user/project' }),
         {},
       )
+    })
+  })
+
+  it('duplicates a terminal via ref and copies its visual style', () => {
+    const ref = createRef<WorkspaceCanvasHandle>()
+    const getTerminalStyle = vi.fn(() => ({
+      theme: 'light' as const,
+      fontFamily: 'JetBrains Mono',
+      fontSize: 15,
+    }))
+    const setTerminalStyle = vi.fn()
+    mockUseTerminals.duplicateTerminal.mockReturnValue('node-copy')
+
+    render(
+      <WorkspaceCanvas
+        {...defaultProps}
+        ref={ref}
+        getTerminalStyle={getTerminalStyle}
+        setTerminalStyle={setTerminalStyle}
+      />,
+    )
+
+    act(() => {
+      ref.current?.duplicateTerminal('node-1')
+    })
+
+    expect(mockUseTerminals.duplicateTerminal).toHaveBeenCalledWith('node-1')
+    expect(getTerminalStyle).toHaveBeenCalledWith('node-1')
+    expect(setTerminalStyle).toHaveBeenCalledWith('node-copy', {
+      theme: 'light',
+      fontFamily: 'JetBrains Mono',
+      fontSize: 15,
     })
   })
 

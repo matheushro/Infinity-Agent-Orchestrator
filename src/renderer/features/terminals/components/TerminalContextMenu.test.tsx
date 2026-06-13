@@ -8,6 +8,7 @@ import { TerminalContextMenu } from './TerminalContextMenu'
 function renderMenu() {
   const onClose = vi.fn()
   const onRestart = vi.fn()
+  const onDuplicate = vi.fn()
   const onLink = vi.fn()
   const onDelete = vi.fn()
   const onStyle = vi.fn()
@@ -19,6 +20,7 @@ function renderMenu() {
       y={392}
       onClose={onClose}
       onRestart={onRestart}
+      onDuplicate={onDuplicate}
       onLink={onLink}
       onDelete={onDelete}
       onStyle={onStyle}
@@ -30,7 +32,17 @@ function renderMenu() {
   const menu = linkButton.parentElement as HTMLElement
   const overlay = menu.previousElementSibling as HTMLElement
 
-  return { onClose, onRestart, onLink, onDelete, onStyle, onOpenInVSCode, menu, overlay }
+  return {
+    onClose,
+    onRestart,
+    onDuplicate,
+    onLink,
+    onDelete,
+    onStyle,
+    onOpenInVSCode,
+    menu,
+    overlay,
+  }
 }
 
 beforeEach(() => {
@@ -49,6 +61,7 @@ describe('TerminalContextMenu', () => {
     expect(menu).toHaveStyle({ left: '248px', top: '392px' })
     expect(menu.className).toContain('fixed')
     expect(screen.getByRole('button', { name: 'Restart terminal' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Duplicate terminal' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Link to terminal/note' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Open on VS Code' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Customize style…' })).toBeInTheDocument()
@@ -57,6 +70,7 @@ describe('TerminalContextMenu', () => {
 
   it.each([
     ['Restart terminal', 'onRestart'],
+    ['Duplicate terminal', 'onDuplicate'],
     ['Link to terminal/note', 'onLink'],
     ['Open on VS Code', 'onOpenInVSCode'],
     ['Customize style…', 'onStyle'],

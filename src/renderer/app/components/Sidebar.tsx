@@ -35,6 +35,7 @@ interface SidebarProps {
   onSwitchWorkspace: (workspaceId: string) => void
   onSelectTerminal: (workspaceId: string, terminalId: string) => void
   onOpenSettings: () => void
+  onTerminalDuplicate: (workspaceId: string, terminalId: string) => void
   onTerminalDelete: (workspaceId: string, terminalId: string) => void
   onTerminalLink: (workspaceId: string, terminalId: string) => void
   onTerminalStyle: (workspaceId: string, terminalId: string) => void
@@ -268,6 +269,7 @@ function ExpandedSidebar({
   onSwitchWorkspace,
   onSelectTerminal,
   onOpenSettings,
+  onTerminalDuplicate,
   onTerminalDelete,
   onTerminalLink,
   onTerminalStyle,
@@ -624,6 +626,10 @@ function ExpandedSidebar({
           y={termCtxMenu.y}
           onClose={() => setTermCtxMenu(null)}
           onRestart={() => setTermCtxMenu(null)}
+          onDuplicate={() => {
+            onTerminalDuplicate(termCtxMenu.terminal.workspace_id, termCtxMenu.terminal.id)
+            setTermCtxMenu(null)
+          }}
           onLink={() => {
             onTerminalLink(termCtxMenu.terminal.workspace_id, termCtxMenu.terminal.id)
             setTermCtxMenu(null)

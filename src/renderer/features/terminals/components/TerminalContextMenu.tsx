@@ -4,13 +4,14 @@
 // any sibling terminal node regardless of DOM order.
 import { useEffect, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { ILink, IPalette, IRefresh, ITrash } from '@renderer/components/ui'
+import { ICopy, ILink, IPalette, IRefresh, ITrash } from '@renderer/components/ui'
 
 interface TerminalContextMenuProps {
   x: number
   y: number
   onClose: () => void
   onRestart: () => void
+  onDuplicate: () => void
   onLink: () => void
   onDelete: () => void
   onStyle: () => void
@@ -22,6 +23,7 @@ export function TerminalContextMenu({
   y,
   onClose,
   onRestart,
+  onDuplicate,
   onLink,
   onDelete,
   onStyle,
@@ -44,6 +46,7 @@ export function TerminalContextMenu({
 
   const items: Array<{ icon: ReactNode; label: string; onClick: () => void; danger?: boolean }> = [
     { icon: <IRefresh size={13} />, label: 'Restart terminal', onClick: onRestart },
+    { icon: <ICopy size={13} />, label: 'Duplicate terminal', onClick: onDuplicate },
     { icon: <ILink size={13} />, label: 'Link to terminal/note', onClick: onLink },
     { icon: <VSCodeIcon />, label: 'Open on VS Code', onClick: onOpenInVSCode },
     { icon: <IPalette size={13} />, label: 'Customize style…', onClick: onStyle },

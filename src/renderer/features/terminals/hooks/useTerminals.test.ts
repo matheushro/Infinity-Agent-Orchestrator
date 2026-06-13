@@ -246,6 +246,43 @@ describe('useTerminals — moveNode', () => {
   })
 })
 
+describe('useTerminals — duplicateTerminal', () => {
+  it('copies the terminal beside the source with a new id and title', async () => {
+    mockTerminalRepository.listActive.mockResolvedValue([baseNode])
+    vi.mocked(createTerminalId).mockReturnValue('term-copy')
+    const { result } = renderHook(() => useTerminals('ws-1'))
+    await waitFor(() => expect(result.current.nodes).toHaveLength(1))
+
+    let duplicateId: string | null = null
+    act(() => {
+      duplicateId = result.current.duplicateTerminal('term-1')
+    })
+
+    expect(duplicateId).toBe('term-copy')
+    expect(result.current.nodes[1]).toEqual({
+      ...baseNode,
+      id: 'term-copy',
+      x: baseNode.x + baseNode.width + 24,
+      title: 'Claude Code · project - Copy',
+    })
+    expect(mockTerminalRepository.persist).toHaveBeenCalledWith(result.current.nodes[1])
+  })
+
+  it('does nothing when the source terminal does not exist', async () => {
+    const { result } = renderHook(() => useTerminals('ws-1'))
+    await waitFor(() => expect(mockTerminalRepository.listActive).toHaveBeenCalled())
+
+    let duplicateId: string | null = 'unexpected'
+    act(() => {
+      duplicateId = result.current.duplicateTerminal('missing')
+    })
+
+    expect(duplicateId).toBeNull()
+    expect(createTerminalId).not.toHaveBeenCalled()
+    expect(mockTerminalRepository.persist).not.toHaveBeenCalled()
+  })
+})
+
 describe('useTerminals — updateNode', () => {
   it('updates state and persists via terminalRepository.persist', async () => {
     mockTerminalRepository.listActive.mockResolvedValue([baseNode])

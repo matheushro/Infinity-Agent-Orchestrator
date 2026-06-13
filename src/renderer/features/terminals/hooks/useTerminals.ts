@@ -15,6 +15,7 @@ export interface UseTerminalsResult {
     shell: ShellType,
     position?: { x: number; y: number; width?: number; height?: number }
   ) => string
+  duplicateTerminal: (id: string) => string | null
   /** In-memory transient update used during drag/resize — no DB write. */
   moveNode: (id: string, patch: Partial<TerminalNodeData>) => void
   /** Persisted update — writes the row to SQLite. */
@@ -69,6 +70,25 @@ export function useTerminals(workspaceId: string): UseTerminalsResult {
     setNodes((prev) => prev.map((n) => (n.id === id ? { ...n, ...patch } : n)))
   }, [])
 
+  const duplicateTerminal = useCallback(
+    (id: string): string | null => {
+      const source = nodes.find((node) => node.id === id)
+      if (!source) return null
+
+      const duplicate: TerminalNodeData = {
+        ...source,
+        id: createTerminalId(),
+        x: source.x + source.width + 24,
+        title: `${source.title} - Copy`,
+        workspace_id: workspaceId,
+      }
+      terminalRepository.persist(duplicate)
+      setNodes((prev) => [...prev, duplicate])
+      return duplicate.id
+    },
+    [nodes, workspaceId],
+  )
+
   const updateNode = useCallback((id: string, patch: Partial<TerminalNodeData>) => {
     setNodes((prev) =>
       prev.map((n) => {
@@ -86,5 +106,5 @@ export function useTerminals(workspaceId: string): UseTerminalsResult {
     setNodes((prev) => prev.filter((n) => n.id !== id))
   }, [])
 
-  return { nodes, createTerminal, moveNode, updateNode, removeNode }
+  return { nodes, createTerminal, duplicateTerminal, moveNode, updateNode, removeNode }
 }

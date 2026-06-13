@@ -97,6 +97,10 @@ export default function App(): JSX.Element {
           onSwitchWorkspace={setActiveId}
           onSelectTerminal={handleSelectTerminal}
           onOpenSettings={() => setSettingsOpen(true)}
+          onTerminalDuplicate={(workspaceId, terminalId) => {
+            setActiveId(workspaceId)
+            canvasRefs.current.get(workspaceId)?.duplicateTerminal(terminalId)
+          }}
           onTerminalDelete={(workspaceId, terminalId) => {
             canvasRefs.current.get(workspaceId)?.deleteTerminal(terminalId)
           }}

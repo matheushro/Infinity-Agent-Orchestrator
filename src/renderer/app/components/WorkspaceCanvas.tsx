@@ -75,6 +75,7 @@ interface WorkspaceCanvasProps {
 
 export interface WorkspaceCanvasHandle {
   openNewTerminalModal: () => void
+  duplicateTerminal: (id: string) => void
   deleteTerminal: (id: string) => void
   startLinkFrom: (id: string) => void
   openStyleEditor: (id: string) => void
@@ -98,9 +99,14 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
     },
     ref,
   ) {
-    const { nodes, createTerminal, moveNode, updateNode, removeNode } = useTerminals(
-      workspace.id,
-    )
+    const {
+      nodes,
+      createTerminal,
+      duplicateTerminal,
+      moveNode,
+      updateNode,
+      removeNode,
+    } = useTerminals(workspace.id)
     const {
       texts,
       createText,
@@ -349,6 +355,10 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
         setPendingCreatePos(null)
         setModalOpen(true)
       },
+      duplicateTerminal(id: string) {
+        const duplicateId = duplicateTerminal(id)
+        if (duplicateId) setTerminalStyle(duplicateId, getTerminalStyle(id))
+      },
       deleteTerminal(id: string) {
         setSelectedIds((prev) => prev.filter((p) => p !== id))
         removeNode(id)
@@ -529,6 +539,15 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
             onClose={() => setCtxMenu(null)}
             onRestart={() => {
               restartTerminal(ctxMenu.nodeId)
+              setCtxMenu(null)
+            }}
+            onDuplicate={() => {
+              const duplicateId = duplicateTerminal(ctxMenu.nodeId)
+              if (duplicateId) {
+                setTerminalStyle(duplicateId, getTerminalStyle(ctxMenu.nodeId))
+                setSelectedIds([duplicateId])
+                onTerminalSelected(duplicateId)
+              }
               setCtxMenu(null)
             }}
             onLink={() => startLinkFrom(ctxMenu.nodeId)}
