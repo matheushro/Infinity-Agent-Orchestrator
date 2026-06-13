@@ -36,8 +36,4 @@ export function registerPtyIpc(): void {
   ipcMain.on(IpcChannels.ptyKill, (_event, { id }: PtyKillPayload) => {
     ptyService.killPty(id)
   })
-
-  ipcMain.on(IpcChannels.ptyReinjectPrompt, (_event, { id }) => {
-    ptyService.reinjectPrompt(id)
-  })
 }

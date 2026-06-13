@@ -13,7 +13,6 @@ export const ptyApi: PtyApi = {
   getPathForFile: (file) => webUtils.getPathForFile(file),
   resize: (id, cols, rows) => ipcRenderer.send(IpcChannels.ptyResize, { id, cols, rows }),
   kill: (id) => ipcRenderer.send(IpcChannels.ptyKill, { id }),
-  reinjectPrompt: (id) => ipcRenderer.send(IpcChannels.ptyReinjectPrompt, { id }),
   onData: (cb) => {
     const listener = (_e: unknown, payload: PtyDataPayload): void => cb(payload.id, payload.data)
     ipcRenderer.on(IpcChannels.ptyData, listener)

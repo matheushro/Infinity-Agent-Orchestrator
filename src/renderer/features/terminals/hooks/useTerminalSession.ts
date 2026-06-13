@@ -283,22 +283,11 @@ export function useTerminalSession(
         term.focus()
       })
 
-    // The renderer never executes commands: it only sends typed input.
-    let pendingInput = ''
+    // The renderer never executes commands: it only sends typed input. The
+    // prompt lives in the agent's context file, so `/clear` needs no special
+    // handling — the agent re-reads its role from the file on its own.
     const inputSub = term.onData((data) => {
       window.ptyApi.input(ptyId, data)
-      // Track input to detect /clear command and reinject prompt when it's submitted.
-      pendingInput += data
-      if (pendingInput.includes('\r') || pendingInput.includes('\n')) {
-        const lines = pendingInput.split(/[\r\n]/)
-        for (const line of lines) {
-          if (line.trim() === '/clear') {
-            // Schedule reinject after a brief delay so the clear completes first.
-            setTimeout(() => window.ptyApi.reinjectPrompt(ptyId), 500)
-          }
-        }
-        pendingInput = ''
-      }
     })
 
     const offData = window.ptyApi.onData((id, data) => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { AGENTS, agentByCmd, shellQuote } from './agents'
+import { AGENTS, agentByCmd, contextFileForCmd, DEFAULT_CONTEXT_FILE } from './agents'
 import type { AgentKey } from './agents'
 
 describe('AGENTS registry', () => {
@@ -60,31 +60,32 @@ describe('AGENTS registry', () => {
     expect(AGENTS.terminal.skillDir).toBeUndefined()
   })
 
-  it('only claude exposes a native system-prompt flag (promptArg)', () => {
-    expect(AGENTS.claude.promptArg).toBeTypeOf('function')
-    for (const [key, def] of Object.entries(AGENTS)) {
-      if (key !== 'claude') expect(def.promptArg, `${key}.promptArg`).toBeUndefined()
-    }
+  it('maps each agent to the context file it reads its prompt from', () => {
+    expect(AGENTS.claude.contextFile).toBe('CLAUDE.md')
+    expect(AGENTS.codex.contextFile).toBe('AGENTS.md')
+    expect(AGENTS.opencode.contextFile).toBe('AGENTS.md')
+    expect(AGENTS.cursor.contextFile).toBe('AGENTS.md')
+    expect(AGENTS.gemini.contextFile).toBe('GEMINI.md')
+    expect(AGENTS.copilot.contextFile).toBe('.github/copilot-instructions.md')
   })
 
-  it("claude's promptArg builds an --append-system-prompt flag with a quoted prompt", () => {
-    expect(AGENTS.claude.promptArg?.('Be helpful.')).toBe(
-      `--append-system-prompt 'Be helpful.'`,
-    )
+  it('the plain terminal declares no context file', () => {
+    expect(AGENTS.terminal.contextFile).toBeUndefined()
   })
 })
 
-describe('shellQuote', () => {
-  it('wraps a plain value in single quotes', () => {
-    expect(shellQuote('hello world')).toBe(`'hello world'`)
+describe('contextFileForCmd', () => {
+  it('resolves the context file by launch command', () => {
+    expect(contextFileForCmd('claude')).toBe('CLAUDE.md')
+    expect(contextFileForCmd('gemini')).toBe('GEMINI.md')
+    expect(contextFileForCmd('cursor-agent')).toBe('AGENTS.md')
+    expect(contextFileForCmd('copilot')).toBe('.github/copilot-instructions.md')
   })
 
-  it('escapes embedded single quotes', () => {
-    expect(shellQuote("it's")).toBe(`'it'\\''s'`)
-  })
-
-  it('preserves newlines inside the single-quoted argument', () => {
-    expect(shellQuote('line1\nline2')).toBe(`'line1\nline2'`)
+  it('falls back to AGENTS.md for an unknown or empty command', () => {
+    expect(contextFileForCmd('nonexistent-cli')).toBe(DEFAULT_CONTEXT_FILE)
+    expect(contextFileForCmd('')).toBe(DEFAULT_CONTEXT_FILE)
+    expect(DEFAULT_CONTEXT_FILE).toBe('AGENTS.md')
   })
 })
 

@@ -23,10 +23,15 @@ vi.mock('./skill.service', () => ({
   ensureIAOSkill: vi.fn()
 }))
 
+vi.mock('./promptFile.service', () => ({
+  applyPrompt: vi.fn()
+}))
+
 import { existsSync } from 'fs'
 import * as nodePty from 'node-pty'
 import * as iaoService from './iao.service'
 import * as skillService from './skill.service'
+import { applyPrompt } from './promptFile.service'
 import { createPty, writeToPty, resizePty, killPty, killAllPtys } from './pty.service'
 
 const mockExistsSync = vi.mocked(existsSync)
@@ -35,6 +40,7 @@ const mockRegister = vi.mocked(iaoService.registerPtySession)
 const mockAppend = vi.mocked(iaoService.appendOutput)
 const mockUnregister = vi.mocked(iaoService.unregisterPtySession)
 const mockEnsureSkill = vi.mocked(skillService.ensureIAOSkill)
+const mockApplyPrompt = vi.mocked(applyPrompt)
 
 // On macOS the pty is spawned as a login shell (`-l`) so it inherits the
 // user's full PATH (Homebrew, Docker, nvm, ...). Everywhere else: no args.
@@ -372,87 +378,71 @@ describe('createPty — command scheduling', () => {
 })
 
 // ===========================================================================
-// createPty — prompt injection
+// createPty — file-based prompt delivery
 // ===========================================================================
 
-describe('createPty — prompt injection', () => {
-  it('appends the native flag to the launch command for an agent with promptArg (claude)', () => {
+// `/tmp` is used as cwd because the fs mock does not intercept pty.service.ts's
+// named `existsSync` import (CJS live-binding limitation, as elsewhere in this
+// suite). A real, existing directory keeps workdir == cwd instead of falling
+// back to os.homedir().
+describe('createPty — file-based prompt delivery', () => {
+  it('writes the prompt into the agent context file via applyPrompt (claude → CLAUDE.md)', () => {
+    const proc = makeMockProc()
+    mockSpawn.mockReturnValue(proc as any)
+    mockExistsSync.mockReturnValue(true)
+
+    createPty(
+      makeArgs({ cwd: '/tmp', command: 'claude', prompt: 'You are a reviewer.' }),
+      makeCallbacks(),
+    )
+
+    expect(mockApplyPrompt).toHaveBeenCalledWith('/tmp', 'CLAUDE.md', 'You are a reviewer.')
+  })
+
+  it('resolves the context file by command (codex → AGENTS.md)', () => {
+    const proc = makeMockProc()
+    mockSpawn.mockReturnValue(proc as any)
+    mockExistsSync.mockReturnValue(true)
+
+    createPty(makeArgs({ cwd: '/tmp', command: 'codex', prompt: 'Be terse.' }), makeCallbacks())
+
+    expect(mockApplyPrompt).toHaveBeenCalledWith('/tmp', 'AGENTS.md', 'Be terse.')
+  })
+
+  it('launches the agent command WITHOUT any embedded prompt and never re-sends it', () => {
     vi.useFakeTimers()
     const proc = makeMockProc()
     mockSpawn.mockReturnValue(proc as any)
     mockExistsSync.mockReturnValue(true)
 
     createPty(makeArgs({ command: 'claude', prompt: 'You are a reviewer.' }), makeCallbacks())
-    vi.advanceTimersByTime(250)
 
-    expect(proc.write).toHaveBeenCalledWith(
-      `claude --append-system-prompt 'You are a reviewer.'\r`,
-    )
-    // The flag carries the prompt — no separate REPL write should follow.
+    vi.advanceTimersByTime(250)
+    expect(proc.write).toHaveBeenCalledWith('claude\r')
+    // No native flag, no REPL fallback — the context file carries the prompt.
     vi.advanceTimersByTime(5000)
     expect(proc.write).toHaveBeenCalledTimes(1)
     vi.useRealTimers()
   })
 
-  it('shell-escapes embedded single quotes in the claude flag', () => {
-    vi.useFakeTimers()
+  it('passes an empty prompt to applyPrompt when the prompt is only whitespace', () => {
     const proc = makeMockProc()
     mockSpawn.mockReturnValue(proc as any)
     mockExistsSync.mockReturnValue(true)
 
-    createPty(makeArgs({ command: 'claude', prompt: "it's fine" }), makeCallbacks())
-    vi.advanceTimersByTime(250)
+    createPty(makeArgs({ cwd: '/tmp', command: 'codex', prompt: '   ' }), makeCallbacks())
 
-    expect(proc.write).toHaveBeenCalledWith(
-      `claude --append-system-prompt 'it'\\''s fine'\r`,
-    )
-    vi.useRealTimers()
+    expect(mockApplyPrompt).toHaveBeenCalledWith('/tmp', 'AGENTS.md', '')
   })
 
-  it('injects the prompt as a second REPL write for an agent without promptArg (codex)', () => {
-    vi.useFakeTimers()
-    const proc = makeMockProc()
-    mockSpawn.mockReturnValue(proc as any)
-    mockExistsSync.mockReturnValue(true)
-
-    createPty(makeArgs({ command: 'codex', prompt: 'Be terse.' }), makeCallbacks())
-
-    vi.advanceTimersByTime(250)
-    expect(proc.write).toHaveBeenNthCalledWith(1, 'codex\r')
-    expect(proc.write).toHaveBeenCalledTimes(1)
-
-    // The REPL fallback fires later, once the agent has booted.
-    vi.advanceTimersByTime(1500)
-    expect(proc.write).toHaveBeenNthCalledWith(2, 'Be terse.\r')
-    expect(proc.write).toHaveBeenCalledTimes(2)
-    vi.useRealTimers()
-  })
-
-  it('does NOT inject a prompt that is only whitespace', () => {
-    vi.useFakeTimers()
-    const proc = makeMockProc()
-    mockSpawn.mockReturnValue(proc as any)
-    mockExistsSync.mockReturnValue(true)
-
-    createPty(makeArgs({ command: 'codex', prompt: '   ' }), makeCallbacks())
-    vi.advanceTimersByTime(5000)
-
-    expect(proc.write).toHaveBeenCalledTimes(1)
-    expect(proc.write).toHaveBeenCalledWith('codex\r')
-    vi.useRealTimers()
-  })
-
-  it('ignores the prompt for a plain terminal (no command)', () => {
-    vi.useFakeTimers()
+  it('does NOT call applyPrompt for a plain terminal (no command)', () => {
     const proc = makeMockProc()
     mockSpawn.mockReturnValue(proc as any)
     mockExistsSync.mockReturnValue(true)
 
     createPty(makeArgs({ command: '', prompt: 'Be terse.' }), makeCallbacks())
-    vi.advanceTimersByTime(5000)
 
-    expect(proc.write).not.toHaveBeenCalled()
-    vi.useRealTimers()
+    expect(mockApplyPrompt).not.toHaveBeenCalled()
   })
 })
 

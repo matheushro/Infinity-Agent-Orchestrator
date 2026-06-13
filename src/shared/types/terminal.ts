@@ -14,10 +14,11 @@ export interface TerminalRecord {
   command: string
   shell: string
   /**
-   * Base prompt (markdown) defining the agent's role. Injected once when the
-   * agent launches — as a native system-prompt flag where the agent supports
-   * one (see `promptArg` in `@shared/agents`), otherwise as the first REPL
-   * message. Empty string means "no prompt". Persisted as TEXT in SQLite.
+   * Base prompt (markdown) defining the agent's role. Written into the agent's
+   * native context file (CLAUDE.md / AGENTS.md / …) inside an IAO-managed marker
+   * block when the agent launches, so the agent reads it as part of its normal
+   * context (see `promptFile.service`). Empty string means "no prompt".
+   * Persisted as TEXT in SQLite.
    */
   prompt: string
   x: number

@@ -13,7 +13,6 @@ export interface PtyApi {
   getPathForFile(file: File): string
   resize(id: string, cols: number, rows: number): void
   kill(id: string): void
-  reinjectPrompt(id: string): void
   onData(cb: (id: string, data: string) => void): () => void
   onExit(cb: (id: string) => void): () => void
 }

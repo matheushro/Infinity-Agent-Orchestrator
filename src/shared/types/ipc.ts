@@ -6,7 +6,6 @@ export const IpcChannels = {
   ptyInput: 'pty:input',
   ptyResize: 'pty:resize',
   ptyKill: 'pty:kill',
-  ptyReinjectPrompt: 'pty:reinject-prompt',
   ptyData: 'pty:data',
   ptyExit: 'pty:exit',
   dbListActive: 'db:list-active',
@@ -47,8 +46,9 @@ export interface PtyCreateArgs {
   rows: number
   cwd?: string
   command?: string
-  // Base prompt injected once at agent launch (see pty.service). Empty/omitted
-  // means no prompt. Ignored for a plain terminal (no command).
+  // Base prompt written into the agent's context file at launch (see
+  // promptFile.service). Empty/omitted means no prompt. Ignored for a plain
+  // terminal (no command).
   prompt?: string
   // Persistence id of the terminal node this pty belongs to. The iao bridge
   // uses it to map a pty session to the user-visible terminal (title, edges).
@@ -72,10 +72,6 @@ export interface PtyResizePayload {
 }
 
 export interface PtyKillPayload {
-  id: string
-}
-
-export interface PtyReinjectPromptPayload {
   id: string
 }
 
