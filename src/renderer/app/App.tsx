@@ -7,6 +7,7 @@ import { WorkspaceCanvas, type WorkspaceCanvasHandle } from './components/Worksp
 import { useWorkspaces } from '@renderer/features/workspaces/hooks/useWorkspaces'
 import { useTerminalStyles } from '@renderer/features/terminals/hooks/useTerminalStyles'
 import { PtyActivityProvider } from '@renderer/features/workspaces/context/PtyActivityContext'
+import { IPower } from '@renderer/components/ui'
 import { useLocalStorage } from '@renderer/hooks/useLocalStorage'
 import type { TerminalNodeData } from '@renderer/features/terminals/types'
 import type { ShellType } from '@renderer/features/terminals/types'
@@ -23,6 +24,7 @@ export default function App(): JSX.Element {
     deleteWorkspace,
     duplicateWorkspace,
     reorderWorkspaces,
+    setWorkspaceEnabled,
   } = useWorkspaces(maxWorkspaces)
   const { getStyle, setStyle, removeStyle } = useTerminalStyles()
   const [defaultShell, setDefaultShell] = useLocalStorage<ShellType>('defaultShell', 'default')
@@ -74,6 +76,9 @@ export default function App(): JSX.Element {
   const activeWorkspace = workspaces.find((ws) => ws.id === activeId)
   const activeWorkspaceName = activeWorkspace?.name ?? ''
   const activeTerminalCount = nodesByWorkspace[activeId]?.length ?? 0
+  // A deactivated workspace is not mounted at all — its terminals run no pty and
+  // its notes are not held in memory. We show a placeholder prompting re-enable.
+  const activeWorkspaceDisabled = Boolean(activeWorkspace && activeWorkspace.enabled === false)
 
   return (
     <PtyActivityProvider>
@@ -94,6 +99,7 @@ export default function App(): JSX.Element {
           onDeleteWorkspace={deleteWorkspace}
           onDuplicateWorkspace={duplicateWorkspace}
           onReorderWorkspaces={reorderWorkspaces}
+          onSetWorkspaceEnabled={setWorkspaceEnabled}
           onSwitchWorkspace={setActiveId}
           onSelectTerminal={handleSelectTerminal}
           onOpenSettings={() => setSettingsOpen(true)}
@@ -103,6 +109,9 @@ export default function App(): JSX.Element {
           }}
           onTerminalDelete={(workspaceId, terminalId) => {
             canvasRefs.current.get(workspaceId)?.deleteTerminal(terminalId)
+          }}
+          onTerminalToggleEnabled={(workspaceId, terminalId) => {
+            canvasRefs.current.get(workspaceId)?.toggleTerminalEnabled(terminalId)
           }}
           onTerminalLink={(workspaceId, terminalId) => {
             setActiveId(workspaceId)
@@ -124,7 +133,15 @@ export default function App(): JSX.Element {
           />
 
           <div className="flex-1 min-h-0 min-w-0 relative overflow-hidden">
-            {workspaces.map((ws) => (
+            {activeWorkspaceDisabled && (
+              <WorkspaceDisabledPlaceholder
+                name={activeWorkspaceName}
+                onEnable={() => setWorkspaceEnabled(activeId, true)}
+              />
+            )}
+            {workspaces
+              .filter((ws) => ws.enabled !== false)
+              .map((ws) => (
               <WorkspaceCanvas
                 key={ws.id}
                 ref={(handle) => {
@@ -165,5 +182,43 @@ export default function App(): JSX.Element {
         )}
       </div>
     </PtyActivityProvider>
+  )
+}
+
+function WorkspaceDisabledPlaceholder({
+  name,
+  onEnable,
+}: {
+  name: string
+  onEnable: () => void
+}): JSX.Element {
+  return (
+    <div
+      className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 select-none"
+      style={{ background: 'var(--bg)', color: 'var(--fg-3)' }}
+    >
+      <span style={{ opacity: 0.5 }}>
+        <IPower size={36} />
+      </span>
+      <div className="text-center">
+        <div className="text-[14px]" style={{ color: 'var(--fg-2)' }}>
+          “{name}” is deactivated
+        </div>
+        <div className="text-[12px] mt-1">
+          Its terminals and notes are turned off to save RAM/CPU.
+        </div>
+      </div>
+      <button
+        className="text-[12.5px] px-4 py-2 rounded-[8px]"
+        style={{
+          border: '1px solid var(--accent)',
+          color: 'var(--accent)',
+          background: 'color-mix(in oklch, var(--accent) 10%, transparent)',
+        }}
+        onClick={onEnable}
+      >
+        Activate workspace
+      </button>
+    </div>
   )
 }

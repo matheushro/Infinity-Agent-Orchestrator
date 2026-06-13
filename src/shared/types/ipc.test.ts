@@ -68,7 +68,7 @@ describe('IpcChannels — completude e consistência', () => {
     expect(IpcChannels.notesChanged).toBe('notes:changed')
   })
 
-  it('IpcChannels contém exatamente os 34 canais conhecidos (sem canais fantasma)', () => {
+  it('IpcChannels contém exatamente os 35 canais conhecidos (sem canais fantasma)', () => {
     const expected = [
       'pty:create', 'pty:input', 'pty:resize', 'pty:kill', 'pty:data', 'pty:exit',
       'db:list-active', 'db:upsert', 'db:remove', 'db:reorder-terminals',
@@ -79,6 +79,7 @@ describe('IpcChannels — completude e consistência', () => {
       'dialog:select-folder',
       'workspaces:list', 'workspaces:create', 'workspaces:delete',
       'workspaces:rename', 'workspaces:duplicate', 'workspaces:reorder',
+      'workspaces:set-enabled',
       'window:is-full-screen', 'window:set-full-screen', 'window:full-screen-changed',
       'window:open-in-vscode',
     ]

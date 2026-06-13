@@ -2,7 +2,7 @@
 // The xterm/pty session lives in useTerminalSession.
 import { useState } from 'react'
 import { Rnd } from 'react-rnd'
-import { IClose, ICopy } from '@renderer/components/ui'
+import { IClose, ICopy, IPower } from '@renderer/components/ui'
 import { AGENTS } from '@shared/agents'
 import { useTerminalSession } from '../hooks/useTerminalSession'
 import type { TerminalNodeData, TerminalStyle } from '../types'
@@ -46,7 +46,12 @@ export function TerminalNode({
   raised,
   restartSignal,
 }: TerminalNodeProps): JSX.Element {
-  const containerRef = useTerminalSession(node, style, globalTheme, scale, restartSignal)
+  const enabled = node.enabled !== false
+  const containerRef = useTerminalSession(node, style, globalTheme, scale, restartSignal, enabled)
+
+  function toggleEnabled(): void {
+    onUpdateNode(node.id, { enabled: !enabled })
+  }
 
   const [editingTitle, setEditingTitle] = useState(false)
   const [draftTitle, setDraftTitle] = useState(node.title)
@@ -202,6 +207,21 @@ export function TerminalNode({
 
           <button
             className="icon-btn !w-6 !h-6"
+            style={{ color: enabled ? 'var(--accent)' : 'var(--fg-3)' }}
+            onClick={(e) => {
+              e.stopPropagation()
+              toggleEnabled()
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            title={enabled ? 'Turn off terminal' : 'Turn on terminal'}
+            aria-label={enabled ? 'Turn off terminal' : 'Turn on terminal'}
+            aria-pressed={enabled}
+          >
+            <IPower size={12} />
+          </button>
+
+          <button
+            className="icon-btn !w-6 !h-6"
             onClick={(e) => {
               e.stopPropagation()
               void navigator.clipboard.writeText(node.title)
@@ -227,11 +247,38 @@ export function TerminalNode({
           </button>
         </div>
 
-        <div
-          ref={containerRef}
-          className="min-h-0 flex-1 p-1 nice-scroll"
-          style={{ background: isDark ? '#0b1120' : '#f7f7f5' }}
-        />
+        {enabled ? (
+          <div
+            ref={containerRef}
+            className="min-h-0 flex-1 p-1 nice-scroll"
+            style={{ background: isDark ? '#0b1120' : '#f7f7f5' }}
+          />
+        ) : (
+          <div
+            className="min-h-0 flex-1 flex flex-col items-center justify-center gap-3 select-none"
+            style={{ background: isDark ? '#0b1120' : '#f7f7f5', color: 'var(--fg-3)' }}
+          >
+            <span style={{ opacity: 0.5 }}>
+              <IPower size={26} />
+            </span>
+            <span className="text-[12px]">Terminal is off</span>
+            <button
+              className="text-[12px] px-3 py-1.5 rounded-[7px]"
+              style={{
+                border: '1px solid var(--accent)',
+                color: 'var(--accent)',
+                background: 'color-mix(in oklch, var(--accent) 10%, transparent)',
+              }}
+              onClick={(e) => {
+                e.stopPropagation()
+                toggleEnabled()
+              }}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              Turn on
+            </button>
+          </div>
+        )}
       </div>
     </Rnd>
   )

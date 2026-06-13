@@ -5,11 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { TerminalContextMenu } from './TerminalContextMenu'
 
-function renderMenu() {
+function renderMenu(overrides: { enabled?: boolean } = {}) {
   const onClose = vi.fn()
   const onRestart = vi.fn()
   const onDuplicate = vi.fn()
   const onLink = vi.fn()
+  const onToggleEnabled = vi.fn()
   const onDelete = vi.fn()
   const onStyle = vi.fn()
   const onOpenInVSCode = vi.fn()
@@ -18,10 +19,12 @@ function renderMenu() {
     <TerminalContextMenu
       x={248}
       y={392}
+      enabled={overrides.enabled ?? true}
       onClose={onClose}
       onRestart={onRestart}
       onDuplicate={onDuplicate}
       onLink={onLink}
+      onToggleEnabled={onToggleEnabled}
       onDelete={onDelete}
       onStyle={onStyle}
       onOpenInVSCode={onOpenInVSCode}
@@ -37,6 +40,7 @@ function renderMenu() {
     onRestart,
     onDuplicate,
     onLink,
+    onToggleEnabled,
     onDelete,
     onStyle,
     onOpenInVSCode,
@@ -66,6 +70,23 @@ describe('TerminalContextMenu', () => {
     expect(screen.getByRole('button', { name: 'Open on VS Code' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Customize style…' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Delete terminal' })).toBeInTheDocument()
+  })
+
+  it('labels the power action "Turn off terminal" when enabled', () => {
+    renderMenu({ enabled: true })
+    expect(screen.getByRole('button', { name: 'Turn off terminal' })).toBeInTheDocument()
+  })
+
+  it('labels the power action "Turn on terminal" when disabled', () => {
+    renderMenu({ enabled: false })
+    expect(screen.getByRole('button', { name: 'Turn on terminal' })).toBeInTheDocument()
+  })
+
+  it('clicking the power action triggers onToggleEnabled and closes', () => {
+    const props = renderMenu({ enabled: true })
+    fireEvent.click(screen.getByRole('button', { name: 'Turn off terminal' }))
+    expect(props.onToggleEnabled).toHaveBeenCalledTimes(1)
+    expect(props.onClose).toHaveBeenCalledTimes(1)
   })
 
   it.each([

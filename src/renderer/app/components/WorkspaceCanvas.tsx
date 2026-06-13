@@ -77,6 +77,7 @@ export interface WorkspaceCanvasHandle {
   openNewTerminalModal: () => void
   duplicateTerminal: (id: string) => void
   deleteTerminal: (id: string) => void
+  toggleTerminalEnabled: (id: string) => void
   startLinkFrom: (id: string) => void
   openStyleEditor: (id: string) => void
 }
@@ -105,6 +106,7 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
       duplicateTerminal,
       moveNode,
       updateNode,
+      setNodeEnabled,
       removeNode,
     } = useTerminals(workspace.id)
     const {
@@ -364,6 +366,10 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
         removeNode(id)
         removeTerminalStyle(id)
       },
+      toggleTerminalEnabled(id: string) {
+        const node = nodes.find((n) => n.id === id)
+        if (node) setNodeEnabled(id, node.enabled === false)
+      },
       startLinkFrom(id: string) {
         setTool('link')
         setLinkSource(id)
@@ -536,9 +542,15 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
           <TerminalContextMenu
             x={ctxMenu.x}
             y={ctxMenu.y}
+            enabled={nodes.find((n) => n.id === ctxMenu.nodeId)?.enabled !== false}
             onClose={() => setCtxMenu(null)}
             onRestart={() => {
               restartTerminal(ctxMenu.nodeId)
+              setCtxMenu(null)
+            }}
+            onToggleEnabled={() => {
+              const node = nodes.find((n) => n.id === ctxMenu.nodeId)
+              if (node) setNodeEnabled(node.id, node.enabled === false)
               setCtxMenu(null)
             }}
             onDuplicate={() => {

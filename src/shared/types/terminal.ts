@@ -18,6 +18,12 @@ export interface TerminalRecord {
   width: number
   height: number
   workspace_id: string
+  /**
+   * Power state. `true` means the terminal runs its pty/xterm session; `false`
+   * means it stays on the canvas (persisted, visible) but does NOT spawn a shell
+   * — saving RAM/CPU. Persisted as INTEGER 0/1 in SQLite.
+   */
+  enabled: boolean
 }
 
 /** Persisted edge connecting two terminal nodes. */

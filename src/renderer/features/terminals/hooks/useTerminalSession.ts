@@ -165,6 +165,9 @@ export function useTerminalSession(
   // Bumping this tears down the current pty/xterm and rebuilds a fresh session,
   // exactly as if the terminal had just been opened.
   restartSignal = 0,
+  // When false the terminal is "off": no xterm, no pty — the node stays on the
+  // canvas but consumes no shell/RAM/CPU. Flipping it back on rebuilds a session.
+  enabled = true,
 ): React.RefObject<HTMLDivElement> {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
@@ -175,7 +178,8 @@ export function useTerminalSession(
 
   // Initialize xterm and connect it to the pty in the main process once per node.
   useEffect(() => {
-    if (!containerRef.current) return
+    // Powered-off terminals never spawn a shell. Keep them strictly inert.
+    if (!enabled || !containerRef.current) return
 
     const term = new Terminal({
       cursorBlink: true,
@@ -330,7 +334,7 @@ export function useTerminalSession(
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [restartSignal])
+  }, [restartSignal, enabled])
 
   // Apply live style updates (theme, font) without rebuilding the pty session.
   useEffect(() => {

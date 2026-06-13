@@ -18,13 +18,21 @@ export function initDb(): void {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       created_at INTEGER NOT NULL,
-      position INTEGER NOT NULL DEFAULT 0
+      position INTEGER NOT NULL DEFAULT 0,
+      enabled INTEGER NOT NULL DEFAULT 1
     )
   `)
 
   // Migration: add position column on dbs created before user-driven ordering.
   try {
     db.exec(`ALTER TABLE workspaces ADD COLUMN position INTEGER NOT NULL DEFAULT 0`)
+  } catch {
+    // column already exists — no-op
+  }
+
+  // Migration: add the workspace power flag (deactivate to save RAM/CPU).
+  try {
+    db.exec(`ALTER TABLE workspaces ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1`)
   } catch {
     // column already exists — no-op
   }
@@ -43,7 +51,8 @@ export function initDb(): void {
       active INTEGER NOT NULL DEFAULT 1,
       created_at INTEGER NOT NULL,
       workspace_id TEXT NOT NULL DEFAULT '',
-      position INTEGER NOT NULL DEFAULT 0
+      position INTEGER NOT NULL DEFAULT 0,
+      enabled INTEGER NOT NULL DEFAULT 1
     )
   `)
 
@@ -113,6 +122,13 @@ export function initDb(): void {
     // column already exists — no-op
   }
 
+  // Migration: add the terminal power flag (turn off to skip the pty/xterm).
+  try {
+    db.exec(`ALTER TABLE terminals ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1`)
+  } catch {
+    // column already exists — no-op
+  }
+
   // Seed: if no workspaces exist, create a default one and assign orphaned terminals.
   const count = (
     db.prepare('SELECT COUNT(*) as n FROM workspaces').get() as { n: number }
@@ -138,10 +154,22 @@ export function initDb(): void {
 
 // ── Workspaces ──────────────────────────────────────────────────────────────
 
+function rowToWorkspace(row: Record<string, unknown>): WorkspaceRecord {
+  return {
+    id: row.id as string,
+    name: row.name as string,
+    created_at: row.created_at as number,
+    // SQLite stores enabled as 0/1; older rows predating the column read as 1.
+    enabled: row.enabled === undefined ? true : Boolean(row.enabled),
+  }
+}
+
 export function listWorkspaces(): WorkspaceRecord[] {
-  return db
-    .prepare('SELECT id, name, created_at FROM workspaces ORDER BY position, created_at')
-    .all() as WorkspaceRecord[]
+  return (
+    db
+      .prepare('SELECT id, name, created_at, enabled FROM workspaces ORDER BY position, created_at')
+      .all() as Record<string, unknown>[]
+  ).map(rowToWorkspace)
 }
 
 export function createWorkspace(record: WorkspaceRecord): void {
@@ -150,8 +178,12 @@ export function createWorkspace(record: WorkspaceRecord): void {
     m: number
   }
   db.prepare(
-    'INSERT INTO workspaces (id, name, created_at, position) VALUES (@id, @name, @created_at, @position)',
-  ).run({ ...record, position: maxRow.m + 1 })
+    'INSERT INTO workspaces (id, name, created_at, position, enabled) VALUES (@id, @name, @created_at, @position, @enabled)',
+  ).run({ ...record, position: maxRow.m + 1, enabled: record.enabled === false ? 0 : 1 })
+}
+
+export function setWorkspaceEnabled(id: string, enabled: boolean): void {
+  db.prepare('UPDATE workspaces SET enabled = ? WHERE id = ?').run(enabled ? 1 : 0, id)
 }
 
 export function reorderWorkspaces(orderedIds: string[]): void {
@@ -181,24 +213,31 @@ export function duplicateWorkspace(sourceId: string): WorkspaceRecord {
     id: newId,
     name: `${source.name} Copy`,
     created_at: Date.now(),
+    enabled: true,
   }
   const maxRow = db.prepare('SELECT COALESCE(MAX(position), -1) AS m FROM workspaces').get() as {
     m: number
   }
   db.prepare(
-    'INSERT INTO workspaces (id, name, created_at, position) VALUES (@id, @name, @created_at, @position)',
-  ).run({ ...newRecord, position: maxRow.m + 1 })
+    'INSERT INTO workspaces (id, name, created_at, position, enabled) VALUES (@id, @name, @created_at, @position, @enabled)',
+  ).run({ ...newRecord, position: maxRow.m + 1, enabled: 1 })
 
   const terminals = db
     .prepare('SELECT * FROM terminals WHERE active = 1 AND workspace_id = ?')
-    .all(sourceId) as Array<TerminalRecord & { active: number; created_at: number }>
+    .all(sourceId) as Array<Record<string, unknown>>
   const insert = db.prepare(
-    `INSERT INTO terminals (id, title, cwd, command, shell, x, y, width, height, active, created_at, workspace_id, position)
-     VALUES (@id, @title, @cwd, @command, @shell, @x, @y, @width, @height, 1, @created_at, @workspace_id, @position)`,
+    `INSERT INTO terminals (id, title, cwd, command, shell, x, y, width, height, active, created_at, workspace_id, position, enabled)
+     VALUES (@id, @title, @cwd, @command, @shell, @x, @y, @width, @height, 1, @created_at, @workspace_id, @position, @enabled)`,
   )
   const now = Date.now()
   for (const t of terminals) {
-    insert.run({ ...t, id: crypto.randomUUID(), workspace_id: newId, created_at: now })
+    insert.run({
+      ...t,
+      id: crypto.randomUUID(),
+      workspace_id: newId,
+      created_at: now,
+      enabled: t.enabled ? 1 : 0,
+    })
   }
 
   const texts = db
@@ -234,17 +273,34 @@ export function duplicateWorkspace(sourceId: string): WorkspaceRecord {
 
 // ── Terminals ────────────────────────────────────────────────────────────────
 
-export function listActiveTerminals(workspaceId?: string): TerminalRecord[] {
-  if (workspaceId) {
-    return db
-      .prepare(
-        'SELECT * FROM terminals WHERE active = 1 AND workspace_id = ? ORDER BY position, created_at',
-      )
-      .all(workspaceId) as TerminalRecord[]
+function rowToTerminal(row: Record<string, unknown>): TerminalRecord {
+  return {
+    id: row.id as string,
+    title: row.title as string,
+    cwd: row.cwd as string,
+    command: row.command as string,
+    shell: row.shell as string,
+    x: row.x as number,
+    y: row.y as number,
+    width: row.width as number,
+    height: row.height as number,
+    workspace_id: row.workspace_id as string,
+    // SQLite stores enabled as 0/1; older rows predating the column read as 1.
+    enabled: row.enabled === undefined ? true : Boolean(row.enabled),
   }
-  return db
-    .prepare('SELECT * FROM terminals WHERE active = 1 ORDER BY workspace_id, position, created_at')
-    .all() as TerminalRecord[]
+}
+
+export function listActiveTerminals(workspaceId?: string): TerminalRecord[] {
+  const rows = workspaceId
+    ? (db
+        .prepare(
+          'SELECT * FROM terminals WHERE active = 1 AND workspace_id = ? ORDER BY position, created_at',
+        )
+        .all(workspaceId) as Record<string, unknown>[])
+    : (db
+        .prepare('SELECT * FROM terminals WHERE active = 1 ORDER BY workspace_id, position, created_at')
+        .all() as Record<string, unknown>[])
+  return rows.map(rowToTerminal)
 }
 
 export function upsertTerminal(record: TerminalRecord): void {
@@ -254,13 +310,13 @@ export function upsertTerminal(record: TerminalRecord): void {
   const position = existing?.position ?? nextTerminalPosition(record.workspace_id)
 
   db.prepare(
-    `INSERT INTO terminals (id, title, cwd, command, shell, x, y, width, height, active, created_at, workspace_id, position)
-     VALUES (@id, @title, @cwd, @command, @shell, @x, @y, @width, @height, 1, @created_at, @workspace_id, @position)
+    `INSERT INTO terminals (id, title, cwd, command, shell, x, y, width, height, active, created_at, workspace_id, position, enabled)
+     VALUES (@id, @title, @cwd, @command, @shell, @x, @y, @width, @height, 1, @created_at, @workspace_id, @position, @enabled)
      ON CONFLICT(id) DO UPDATE SET
        title = @title, cwd = @cwd, command = @command, shell = @shell,
        x = @x, y = @y, width = @width, height = @height, active = 1,
-       workspace_id = @workspace_id`,
-  ).run({ ...record, created_at: Date.now(), position })
+       workspace_id = @workspace_id, enabled = @enabled`,
+  ).run({ ...record, created_at: Date.now(), position, enabled: record.enabled === false ? 0 : 1 })
 }
 
 export function reorderTerminals(workspaceId: string, orderedIds: string[]): void {
@@ -278,7 +334,10 @@ export function removeTerminal(id: string): void {
 }
 
 export function getTerminal(id: string): TerminalRecord | undefined {
-  return db.prepare('SELECT * FROM terminals WHERE id = ?').get(id) as TerminalRecord | undefined
+  const row = db.prepare('SELECT * FROM terminals WHERE id = ?').get(id) as
+    | Record<string, unknown>
+    | undefined
+  return row ? rowToTerminal(row) : undefined
 }
 
 function nextTerminalPosition(workspaceId: string): number {

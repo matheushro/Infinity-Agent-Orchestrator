@@ -23,7 +23,7 @@ describe('workspace.api', () => {
   })
 
   it('4.2 create(record) calls invoke with workspaces:create and the record', () => {
-    const record: WorkspaceRecord = { id: 'ws-1', name: 'Main', created_at: 1000 }
+    const record: WorkspaceRecord = { id: 'ws-1', name: 'Main', created_at: 1000, enabled: true }
     workspaceApi.create(record)
     expect(mockIpc.invoke).toHaveBeenCalledWith(IpcChannels.workspacesCreate, record)
   })
@@ -31,5 +31,10 @@ describe('workspace.api', () => {
   it('4.3 delete(id) calls invoke with workspaces:delete and the id', () => {
     workspaceApi.delete('ws-to-del')
     expect(mockIpc.invoke).toHaveBeenCalledWith(IpcChannels.workspacesDelete, 'ws-to-del')
+  })
+
+  it('4.4 setEnabled(id, enabled) calls invoke with workspaces:set-enabled', () => {
+    workspaceApi.setEnabled('ws-1', false)
+    expect(mockIpc.invoke).toHaveBeenCalledWith(IpcChannels.workspacesSetEnabled, 'ws-1', false)
   })
 })

@@ -10,4 +10,5 @@ export const workspaceApi: WorkspaceApi = {
   rename: (id, name) => ipcRenderer.invoke(IpcChannels.workspacesRename, id, name),
   duplicate: (id) => ipcRenderer.invoke(IpcChannels.workspacesDuplicate, id),
   reorder: (orderedIds) => ipcRenderer.invoke(IpcChannels.workspacesReorder, orderedIds),
+  setEnabled: (id, enabled) => ipcRenderer.invoke(IpcChannels.workspacesSetEnabled, id, enabled),
 }

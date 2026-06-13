@@ -26,6 +26,7 @@ const record: TerminalRecord = {
   width: 800,
   height: 600,
   workspace_id: 'ws-1',
+  enabled: true,
 }
 
 const node: TerminalNodeData = {
@@ -39,6 +40,7 @@ const node: TerminalNodeData = {
   width: 800,
   height: 600,
   workspace_id: 'ws-1',
+  enabled: true,
 }
 
 beforeEach(() => {
@@ -64,7 +66,16 @@ describe('terminalRepository.listActive', () => {
       width: record.width,
       height: record.height,
       workspace_id: 'ws-1',
+      enabled: true,
     })
+  })
+
+  it('maps a disabled (off) terminal record preserving enabled = false', async () => {
+    mockDbApi.listActive.mockResolvedValue([{ ...record, enabled: false }])
+
+    const [result] = await terminalRepository.listActive('ws-1')
+
+    expect(result.enabled).toBe(false)
   })
 
   it('returns empty array when dbApi returns no rows', async () => {
@@ -104,6 +115,7 @@ describe('terminalRepository.persist', () => {
       width: node.width,
       height: node.height,
       workspace_id: 'ws-1',
+      enabled: true,
     })
   })
 })

@@ -21,4 +21,7 @@ export function registerWorkspaceIpc(): void {
   ipcMain.handle(IpcChannels.workspacesReorder, (_event, orderedIds: string[]) =>
     dbService.reorderWorkspaces(orderedIds),
   )
+  ipcMain.handle(IpcChannels.workspacesSetEnabled, (_event, id: string, enabled: boolean) =>
+    dbService.setWorkspaceEnabled(id, enabled),
+  )
 }

@@ -16,6 +16,7 @@ function recordToNode(r: TerminalRecord): TerminalNodeData {
     cwd: r.cwd,
     command: r.command as CommandKey,
     workspace_id: r.workspace_id,
+    enabled: r.enabled,
   }
 }
 
@@ -31,6 +32,7 @@ function nodeToRecord(n: TerminalNodeData): TerminalRecord {
     width: n.width,
     height: n.height,
     workspace_id: n.workspace_id,
+    enabled: n.enabled,
   }
 }
 

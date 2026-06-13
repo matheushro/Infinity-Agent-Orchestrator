@@ -4,15 +4,18 @@
 // any sibling terminal node regardless of DOM order.
 import { useEffect, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { ICopy, ILink, IPalette, IRefresh, ITrash } from '@renderer/components/ui'
+import { ICopy, ILink, IPalette, IPower, IRefresh, ITrash } from '@renderer/components/ui'
 
 interface TerminalContextMenuProps {
   x: number
   y: number
+  /** Current power state, used to label the turn on/off action. */
+  enabled: boolean
   onClose: () => void
   onRestart: () => void
   onDuplicate: () => void
   onLink: () => void
+  onToggleEnabled: () => void
   onDelete: () => void
   onStyle: () => void
   onOpenInVSCode: () => void
@@ -21,10 +24,12 @@ interface TerminalContextMenuProps {
 export function TerminalContextMenu({
   x,
   y,
+  enabled,
   onClose,
   onRestart,
   onDuplicate,
   onLink,
+  onToggleEnabled,
   onDelete,
   onStyle,
   onOpenInVSCode,
@@ -45,6 +50,11 @@ export function TerminalContextMenu({
   }, [onClose])
 
   const items: Array<{ icon: ReactNode; label: string; onClick: () => void; danger?: boolean }> = [
+    {
+      icon: <IPower size={13} />,
+      label: enabled ? 'Turn off terminal' : 'Turn on terminal',
+      onClick: onToggleEnabled,
+    },
     { icon: <IRefresh size={13} />, label: 'Restart terminal', onClick: onRestart },
     { icon: <ICopy size={13} />, label: 'Duplicate terminal', onClick: onDuplicate },
     { icon: <ILink size={13} />, label: 'Link to terminal/note', onClick: onLink },

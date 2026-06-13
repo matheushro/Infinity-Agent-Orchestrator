@@ -153,6 +153,7 @@ const node: TerminalNodeData = {
   title: 'Claude Code · repo',
   cwd: '/home/user/repo',
   command: 'claude',
+  enabled: true,
 }
 
 const initialStyle: TerminalStyle = {
@@ -166,13 +167,15 @@ function SessionHarness({
   style = initialStyle,
   scale = 1,
   restartSignal = 0,
+  enabled = true,
 }: {
   currentNode?: TerminalNodeData
   style?: TerminalStyle
   scale?: number
   restartSignal?: number
+  enabled?: boolean
 }): JSX.Element {
-  const ref = useTerminalSession(currentNode, style, 'dark', scale, restartSignal)
+  const ref = useTerminalSession(currentNode, style, 'dark', scale, restartSignal, enabled)
 
   return <div ref={ref} data-testid="terminal-container" />
 }
@@ -677,6 +680,42 @@ describe('useTerminalSession', () => {
 
     mocks.ptyApi.emitExit('pty-second')
     expect(remountedTerminal.write).toHaveBeenCalledWith('\r\n\x1b[31m[process exited]\x1b[0m\r\n')
+  })
+
+  describe('enabled / turn off', () => {
+    it('does not create an xterm or pty when the terminal is off', async () => {
+      render(<SessionHarness enabled={false} />)
+
+      // Give any (incorrect) async create a chance to fire.
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(mocks.terminalInstances).toHaveLength(0)
+      expect(mocks.ptyApi.create).not.toHaveBeenCalled()
+    })
+
+    it('spins up the session when the terminal is turned on', async () => {
+      vi.mocked(crypto.randomUUID).mockReturnValue('pty-on')
+
+      const { rerender } = render(<SessionHarness enabled={false} />)
+      expect(mocks.ptyApi.create).not.toHaveBeenCalled()
+
+      rerender(<SessionHarness enabled={true} />)
+
+      await waitFor(() => expect(mocks.ptyApi.create).toHaveBeenCalledTimes(1))
+      expect(mocks.terminalInstances).toHaveLength(1)
+    })
+
+    it('tears down the pty when the terminal is turned off', async () => {
+      vi.mocked(crypto.randomUUID).mockReturnValue('pty-off')
+
+      const { rerender } = render(<SessionHarness enabled={true} />)
+      await waitFor(() => expect(mocks.ptyApi.create).toHaveBeenCalledTimes(1))
+
+      rerender(<SessionHarness enabled={false} />)
+
+      expect(mocks.ptyApi.kill).toHaveBeenCalledWith('pty-off')
+    })
   })
 
   describe('PTY status transitions', () => {

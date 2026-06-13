@@ -22,6 +22,8 @@ export interface TerminalNodeData {
   cwd: string
   command: CommandKey
   workspace_id: string
+  /** Power state. When `false`, the node stays on the canvas but runs no pty/xterm. */
+  enabled: boolean
 }
 
 /** Per-terminal visual customization. Persisted in localStorage, not in SQLite. */

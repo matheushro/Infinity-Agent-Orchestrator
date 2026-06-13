@@ -40,12 +40,14 @@ const mockWorkspaceApi = vi.hoisted(() => ({
   delete: vi.fn(),
   rename: vi.fn(),
   duplicate: vi.fn(),
+  reorder: vi.fn(),
+  setEnabled: vi.fn(),
 }))
 
 import { useWorkspaces } from './useWorkspaces'
 
-const WS1: WorkspaceRecord = { id: 'ws-1', name: 'Main', created_at: 1000 }
-const WS2: WorkspaceRecord = { id: 'ws-2', name: 'Side', created_at: 2000 }
+const WS1: WorkspaceRecord = { id: 'ws-1', name: 'Main', created_at: 1000, enabled: true }
+const WS2: WorkspaceRecord = { id: 'ws-2', name: 'Side', created_at: 2000, enabled: true }
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -55,6 +57,8 @@ beforeEach(() => {
   mockWorkspaceApi.delete.mockResolvedValue(undefined)
   mockWorkspaceApi.rename.mockResolvedValue(undefined)
   mockWorkspaceApi.duplicate.mockResolvedValue(undefined)
+  mockWorkspaceApi.reorder.mockResolvedValue(undefined)
+  mockWorkspaceApi.setEnabled.mockResolvedValue(undefined)
   Object.assign(window, { workspaceApi: mockWorkspaceApi })
   vi.spyOn(crypto, 'randomUUID').mockReturnValue('uuid-new' as ReturnType<typeof crypto.randomUUID>)
 })
@@ -243,5 +247,35 @@ describe('useWorkspaces', () => {
     })
 
     expect(mockWorkspaceApi.duplicate).not.toHaveBeenCalled()
+  })
+
+  it('5.16 createWorkspace stamps new workspaces as enabled = true', async () => {
+    const { result } = renderHook(() => useWorkspaces())
+    await waitFor(() => expect(result.current.workspaces).toHaveLength(1))
+
+    await act(async () => {
+      await result.current.createWorkspace('Powered')
+    })
+
+    const record: WorkspaceRecord = mockWorkspaceApi.create.mock.calls[0][0]
+    expect(record.enabled).toBe(true)
+  })
+
+  it('5.17 setWorkspaceEnabled persists the flag and updates local state', async () => {
+    const { result } = renderHook(() => useWorkspaces())
+    await waitFor(() => expect(result.current.workspaces).toHaveLength(1))
+
+    await act(async () => {
+      await result.current.setWorkspaceEnabled(WS1.id, false)
+    })
+
+    expect(mockWorkspaceApi.setEnabled).toHaveBeenCalledWith(WS1.id, false)
+    expect(result.current.workspaces[0].enabled).toBe(false)
+
+    await act(async () => {
+      await result.current.setWorkspaceEnabled(WS1.id, true)
+    })
+
+    expect(result.current.workspaces[0].enabled).toBe(true)
   })
 })

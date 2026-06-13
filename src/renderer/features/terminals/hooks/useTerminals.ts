@@ -20,6 +20,9 @@ export interface UseTerminalsResult {
   moveNode: (id: string, patch: Partial<TerminalNodeData>) => void
   /** Persisted update — writes the row to SQLite. */
   updateNode: (id: string, patch: Partial<TerminalNodeData>) => void
+  /** Turn a terminal on/off. Persisted; an "off" terminal stays on the canvas
+   * but runs no pty/xterm session (saves RAM/CPU). */
+  setNodeEnabled: (id: string, enabled: boolean) => void
   removeNode: (id: string) => void
 }
 
@@ -57,6 +60,7 @@ export function useTerminals(workspaceId: string): UseTerminalsResult {
           cwd: folder,
           command,
           workspace_id: workspaceId,
+          enabled: true,
         }
         terminalRepository.persist(node)
         return [...prev, node]
@@ -100,11 +104,30 @@ export function useTerminals(workspaceId: string): UseTerminalsResult {
     )
   }, [])
 
+  const setNodeEnabled = useCallback((id: string, enabled: boolean) => {
+    setNodes((prev) =>
+      prev.map((n) => {
+        if (n.id !== id || n.enabled === enabled) return n
+        const next = { ...n, enabled }
+        terminalRepository.persist(next)
+        return next
+      }),
+    )
+  }, [])
+
   const removeNode = useCallback((id: string) => {
     window.ptyApi.kill(id)
     terminalRepository.remove(id)
     setNodes((prev) => prev.filter((n) => n.id !== id))
   }, [])
 
-  return { nodes, createTerminal, duplicateTerminal, moveNode, updateNode, removeNode }
+  return {
+    nodes,
+    createTerminal,
+    duplicateTerminal,
+    moveNode,
+    updateNode,
+    setNodeEnabled,
+    removeNode,
+  }
 }

@@ -12,6 +12,9 @@ export interface UseWorkspacesResult {
   deleteWorkspace: (id: string) => Promise<void>
   duplicateWorkspace: (id: string) => Promise<void>
   reorderWorkspaces: (orderedIds: string[]) => Promise<void>
+  /** Activate/deactivate a workspace. Deactivating tears down its canvas
+   * (terminals + notes) to save RAM/CPU. Persisted. */
+  setWorkspaceEnabled: (id: string, enabled: boolean) => Promise<void>
 }
 
 export function useWorkspaces(maxWorkspaces = 5): UseWorkspacesResult {
@@ -36,6 +39,7 @@ export function useWorkspaces(maxWorkspaces = 5): UseWorkspacesResult {
         id: crypto.randomUUID(),
         name: name.trim() || 'Workspace',
         created_at: Date.now(),
+        enabled: true,
       }
       await window.workspaceApi.create(record)
       setWorkspaces((prev) => [...prev, record])
@@ -76,6 +80,13 @@ export function useWorkspaces(maxWorkspaces = 5): UseWorkspacesResult {
     [maxWorkspaces, workspaces.length],
   )
 
+  const setWorkspaceEnabled = useCallback(async (id: string, enabled: boolean) => {
+    setWorkspaces((prev) =>
+      prev.map((w) => (w.id === id ? { ...w, enabled } : w)),
+    )
+    await window.workspaceApi.setEnabled(id, enabled)
+  }, [])
+
   const reorderWorkspaces = useCallback(async (orderedIds: string[]) => {
     setWorkspaces((prev) => {
       const byId = new Map(prev.map((w) => [w.id, w]))
@@ -103,5 +114,6 @@ export function useWorkspaces(maxWorkspaces = 5): UseWorkspacesResult {
     deleteWorkspace,
     duplicateWorkspace,
     reorderWorkspaces,
+    setWorkspaceEnabled,
   }
 }

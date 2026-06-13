@@ -117,6 +117,7 @@ const baseNode: TerminalNodeData = {
   title: 'Claude Code · repo',
   cwd: '/home/user/repo',
   command: 'claude',
+  enabled: true,
 }
 
 const baseStyle: TerminalStyle = {
@@ -181,6 +182,47 @@ describe('TerminalNode', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Copy terminal name' }))
 
     expect(writeText).toHaveBeenCalledWith(baseNode.title)
+  })
+
+  it('turns the terminal off from the header power button', () => {
+    const { props } = renderNode()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Turn off terminal' }))
+
+    expect(props.onUpdateNode).toHaveBeenCalledWith(baseNode.id, { enabled: false })
+  })
+
+  it('runs the terminal session only while enabled', () => {
+    renderNode()
+    expect(mocks.useTerminalSession).toHaveBeenLastCalledWith(
+      baseNode,
+      baseStyle,
+      undefined,
+      1.5,
+      0,
+      true,
+    )
+
+    mocks.useTerminalSession.mockClear()
+    renderNode({ node: { ...baseNode, enabled: false } })
+    expect(mocks.useTerminalSession).toHaveBeenLastCalledWith(
+      expect.objectContaining({ enabled: false }),
+      baseStyle,
+      undefined,
+      1.5,
+      0,
+      false,
+    )
+  })
+
+  it('shows the off placeholder and turns the terminal back on', () => {
+    const { props } = renderNode({ node: { ...baseNode, enabled: false } })
+
+    expect(screen.getByText('Terminal is off')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Turn on' }))
+
+    expect(props.onUpdateNode).toHaveBeenCalledWith(baseNode.id, { enabled: true })
   })
 
   it('enters title edit mode on double-click and commits on Enter', () => {

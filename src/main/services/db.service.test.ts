@@ -183,6 +183,10 @@ vi.mock('better-sqlite3', () => {
                   ? { ...existing, ...rec, created_at: existing.created_at }
                   : { ...rec }
               )
+            } else if (sql.startsWith('UPDATE workspaces SET enabled')) {
+              const [enabled, id] = args as [number, string]
+              const ws = store.workspaces.get(id)
+              if (ws) store.workspaces.set(id, { ...ws, enabled })
             } else if (sql.includes('UPDATE terminals SET workspace_id')) {
               // migration: assign orphaned terminals to default workspace
               for (const [key, t] of store.terminals) {
@@ -265,6 +269,7 @@ import {
   createWorkspace,
   deleteWorkspace,
   duplicateWorkspace,
+  setWorkspaceEnabled,
 } from './db.service'
 import type { CanvasTextRecord } from '@shared/types/canvas'
 import type { NoteRecord, NoteLinkRecord } from '@shared/types/notes'
@@ -287,6 +292,7 @@ function makeTerminal(overrides: Partial<TerminalRecord> = {}): TerminalRecord {
     width: 800,
     height: 600,
     workspace_id: 'default',
+    enabled: true,
     ...overrides
   }
 }
@@ -296,6 +302,7 @@ function makeWorkspace(overrides: Partial<WorkspaceRecord> = {}): WorkspaceRecor
     id: `ws-${++seq}`,
     name: `Workspace ${seq}`,
     created_at: seq * 1000,
+    enabled: true,
     ...overrides,
   }
 }
@@ -485,6 +492,66 @@ describe('upsertTerminal', () => {
     upsertTerminal({ ...t, title: 'Updated' })
     const found = listActiveTerminals().find(r => r.id === 're-1')
     expect(found).toBeDefined()
+  })
+
+  it('defaults enabled to true and round-trips it as a boolean', () => {
+    upsertTerminal(makeTerminal({ id: 'en-default' }))
+    const found = listActiveTerminals().find(r => r.id === 'en-default')
+    expect(found?.enabled).toBe(true)
+  })
+
+  it('persists enabled = false (terminal off) and reads it back', () => {
+    upsertTerminal(makeTerminal({ id: 'en-off', enabled: false }))
+    const found = listActiveTerminals().find(r => r.id === 'en-off')
+    expect(found?.enabled).toBe(false)
+  })
+
+  it('updates enabled on conflict (turn off then on persists each time)', () => {
+    const t = makeTerminal({ id: 'en-toggle', enabled: true })
+    upsertTerminal(t)
+    upsertTerminal({ ...t, enabled: false })
+    expect(listActiveTerminals().find(r => r.id === 'en-toggle')?.enabled).toBe(false)
+    upsertTerminal({ ...t, enabled: true })
+    expect(listActiveTerminals().find(r => r.id === 'en-toggle')?.enabled).toBe(true)
+  })
+
+  it('reads legacy rows with no enabled column as enabled (true)', () => {
+    // Simulate a pre-migration row that has no `enabled` key at all.
+    store.terminals.set('legacy', {
+      id: 'legacy', title: 'Legacy', cwd: '/', command: 'claude',
+      shell: 'bash', x: 0, y: 0, width: 800, height: 600, active: 1,
+      created_at: 1, workspace_id: 'default', position: 0,
+    })
+    expect(listActiveTerminals().find(r => r.id === 'legacy')?.enabled).toBe(true)
+  })
+})
+
+// ===========================================================================
+// Workspace enable/disable (power state)
+// ===========================================================================
+
+describe('workspace enabled flag', () => {
+  it('defaults a created workspace to enabled = true', () => {
+    store.workspaces.clear()
+    createWorkspace(makeWorkspace({ id: 'we-1' }))
+    expect(listWorkspaces().find((w) => w.id === 'we-1')?.enabled).toBe(true)
+  })
+
+  it('setWorkspaceEnabled toggles the persisted flag (read back as boolean)', () => {
+    store.workspaces.clear()
+    createWorkspace(makeWorkspace({ id: 'we-2' }))
+
+    setWorkspaceEnabled('we-2', false)
+    expect(listWorkspaces().find((w) => w.id === 'we-2')?.enabled).toBe(false)
+
+    setWorkspaceEnabled('we-2', true)
+    expect(listWorkspaces().find((w) => w.id === 'we-2')?.enabled).toBe(true)
+  })
+
+  it('reads legacy workspace rows with no enabled column as enabled (true)', () => {
+    store.workspaces.clear()
+    store.workspaces.set('legacy-ws', { id: 'legacy-ws', name: 'Legacy', created_at: 1, position: 0 })
+    expect(listWorkspaces().find((w) => w.id === 'legacy-ws')?.enabled).toBe(true)
   })
 })
 

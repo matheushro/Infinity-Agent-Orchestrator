@@ -12,6 +12,7 @@ const mockDbService = vi.hoisted(() => ({
   listWorkspaces: vi.fn(),
   createWorkspace: vi.fn(),
   deleteWorkspace: vi.fn(),
+  setWorkspaceEnabled: vi.fn(),
 }))
 
 vi.mock('../services/db.service', () => mockDbService)
@@ -34,7 +35,7 @@ function getHandler(channel: string): (event: unknown, ...args: unknown[]) => un
 describe('registerWorkspaceIpc', () => {
   it('3.1 registers workspaces:list handler that calls listWorkspaces', () => {
     const handler = getHandler(IpcChannels.workspacesList)
-    const workspaces: WorkspaceRecord[] = [{ id: 'ws-1', name: 'Main', created_at: 1000 }]
+    const workspaces: WorkspaceRecord[] = [{ id: 'ws-1', name: 'Main', created_at: 1000, enabled: true }]
     mockDbService.listWorkspaces.mockReturnValue(workspaces)
 
     const result = handler(null)
@@ -45,7 +46,7 @@ describe('registerWorkspaceIpc', () => {
 
   it('3.2 workspaces:create handler forwards the record to createWorkspace', () => {
     const handler = getHandler(IpcChannels.workspacesCreate)
-    const record: WorkspaceRecord = { id: 'ws-new', name: 'New WS', created_at: 9999 }
+    const record: WorkspaceRecord = { id: 'ws-new', name: 'New WS', created_at: 9999, enabled: true }
 
     handler(null, record)
 
@@ -60,5 +61,14 @@ describe('registerWorkspaceIpc', () => {
 
     expect(mockDbService.deleteWorkspace).toHaveBeenCalledTimes(1)
     expect(mockDbService.deleteWorkspace).toHaveBeenCalledWith('ws-to-delete')
+  })
+
+  it('3.4 workspaces:set-enabled handler forwards id + flag to setWorkspaceEnabled', () => {
+    const handler = getHandler(IpcChannels.workspacesSetEnabled)
+
+    handler(null, 'ws-x', false)
+
+    expect(mockDbService.setWorkspaceEnabled).toHaveBeenCalledTimes(1)
+    expect(mockDbService.setWorkspaceEnabled).toHaveBeenCalledWith('ws-x', false)
   })
 })

@@ -36,6 +36,7 @@ const baseNode: TerminalNodeData = {
   cwd: '/home/user/project',
   command: 'claude',
   workspace_id: 'ws-1',
+  enabled: true,
 }
 
 beforeEach(() => {
@@ -298,6 +299,49 @@ describe('useTerminals — updateNode', () => {
     expect(mockTerminalRepository.persist).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'term-1', title: 'Renamed' })
     )
+  })
+})
+
+describe('useTerminals — enabled (turn on/off)', () => {
+  it('createTerminal stamps new terminals as enabled = true', async () => {
+    const { result } = renderHook(() => useTerminals('ws-1'))
+    await waitFor(() => expect(mockTerminalRepository.listActive).toHaveBeenCalled())
+
+    act(() => {
+      result.current.createTerminal('/home/user/project', 'claude', '', 'bash')
+    })
+
+    expect(result.current.nodes[0].enabled).toBe(true)
+    expect(mockTerminalRepository.persist).toHaveBeenCalledWith(
+      expect.objectContaining({ enabled: true }),
+    )
+  })
+
+  it('setNodeEnabled flips state and persists the new power state', async () => {
+    mockTerminalRepository.listActive.mockResolvedValue([baseNode])
+    const { result } = renderHook(() => useTerminals('ws-1'))
+    await waitFor(() => expect(result.current.nodes).toHaveLength(1))
+
+    act(() => {
+      result.current.setNodeEnabled('term-1', false)
+    })
+
+    expect(result.current.nodes[0].enabled).toBe(false)
+    expect(mockTerminalRepository.persist).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'term-1', enabled: false }),
+    )
+  })
+
+  it('setNodeEnabled is a no-op (no persist) when the state is unchanged', async () => {
+    mockTerminalRepository.listActive.mockResolvedValue([baseNode])
+    const { result } = renderHook(() => useTerminals('ws-1'))
+    await waitFor(() => expect(result.current.nodes).toHaveLength(1))
+
+    act(() => {
+      result.current.setNodeEnabled('term-1', true)
+    })
+
+    expect(mockTerminalRepository.persist).not.toHaveBeenCalled()
   })
 })
 

@@ -32,11 +32,13 @@ interface SidebarProps {
   onDeleteWorkspace: (id: string) => void
   onDuplicateWorkspace: (id: string) => void
   onReorderWorkspaces: (orderedIds: string[]) => void
+  onSetWorkspaceEnabled: (id: string, enabled: boolean) => void
   onSwitchWorkspace: (workspaceId: string) => void
   onSelectTerminal: (workspaceId: string, terminalId: string) => void
   onOpenSettings: () => void
   onTerminalDuplicate: (workspaceId: string, terminalId: string) => void
   onTerminalDelete: (workspaceId: string, terminalId: string) => void
+  onTerminalToggleEnabled: (workspaceId: string, terminalId: string) => void
   onTerminalLink: (workspaceId: string, terminalId: string) => void
   onTerminalStyle: (workspaceId: string, terminalId: string) => void
   onTerminalOpenInVSCode: (workspaceId: string, terminal: TerminalNodeData) => void
@@ -266,11 +268,13 @@ function ExpandedSidebar({
   onDuplicateWorkspace,
   onReorderWorkspaces,
   onReorderTerminals,
+  onSetWorkspaceEnabled,
   onSwitchWorkspace,
   onSelectTerminal,
   onOpenSettings,
   onTerminalDuplicate,
   onTerminalDelete,
+  onTerminalToggleEnabled,
   onTerminalLink,
   onTerminalStyle,
   onTerminalOpenInVSCode,
@@ -624,8 +628,13 @@ function ExpandedSidebar({
         <TerminalContextMenu
           x={termCtxMenu.x}
           y={termCtxMenu.y}
+          enabled={termCtxMenu.terminal.enabled !== false}
           onClose={() => setTermCtxMenu(null)}
           onRestart={() => setTermCtxMenu(null)}
+          onToggleEnabled={() => {
+            onTerminalToggleEnabled(termCtxMenu.terminal.workspace_id, termCtxMenu.terminal.id)
+            setTermCtxMenu(null)
+          }}
           onDuplicate={() => {
             onTerminalDuplicate(termCtxMenu.terminal.workspace_id, termCtxMenu.terminal.id)
             setTermCtxMenu(null)
@@ -662,7 +671,13 @@ function ExpandedSidebar({
           y={wsCtxMenu.y}
           canDuplicate={workspaces.length < maxWorkspaces}
           maxWorkspaces={maxWorkspaces}
+          enabled={workspaces.find((w) => w.id === wsCtxMenu.workspaceId)?.enabled !== false}
           onClose={() => setWsCtxMenu(null)}
+          onToggleEnabled={() => {
+            const ws = workspaces.find((w) => w.id === wsCtxMenu.workspaceId)
+            if (ws) onSetWorkspaceEnabled(ws.id, ws.enabled === false)
+            setWsCtxMenu(null)
+          }}
           onRename={() => {
             setRenamingWsId(wsCtxMenu.workspaceId)
             setWsCtxMenu(null)
@@ -724,8 +739,9 @@ function WorkspaceSection({
   terminalRowRefs: React.MutableRefObject<Map<string, HTMLDivElement>>
   getStatus: (nodeId: string) => PtyStatus
 }): JSX.Element {
-  const anyBusy = nodes.some((n) => getStatus(n.id) === 'busy')
-  const anyIdle = nodes.some((n) => getStatus(n.id) === 'idle')
+  const isDisabled = workspace.enabled === false
+  const anyBusy = !isDisabled && nodes.some((n) => getStatus(n.id) === 'busy')
+  const anyIdle = !isDisabled && nodes.some((n) => getStatus(n.id) === 'idle')
   const wsDotStatus: PtyStatus | null = anyBusy ? 'busy' : anyIdle ? 'idle' : null
   const [renameValue, setRenameValue] = useState(workspace.name)
   const renameInputRef = useRef<HTMLInputElement>(null)
@@ -757,6 +773,7 @@ function WorkspaceSection({
           border: isActiveWs
             ? '1px solid color-mix(in oklch, var(--accent) 25%, transparent)'
             : '1px solid transparent',
+          opacity: isDisabled ? 0.6 : 1,
         }}
         onContextMenu={(e) => {
           e.preventDefault()
@@ -811,6 +828,15 @@ function WorkspaceSection({
 
         {/* Chip + dot */}
         <div className="flex items-center gap-1.5 flex-shrink-0">
+          {isDisabled && (
+            <span
+              className="chip"
+              title="Workspace deactivated — terminals and notes are off"
+              style={{ color: 'var(--fg-3)' }}
+            >
+              Off
+            </span>
+          )}
           {nodes.length > 0 && <span className="chip">{nodes.length}</span>}
           {wsDotStatus && (
             <span
@@ -876,7 +902,7 @@ function WorkspaceSection({
                   <TerminalItem
                     terminal={t}
                     selected={selectedTerminalId === t.id}
-                    ptyStatus={getStatus(t.id)}
+                    ptyStatus={t.enabled === false ? 'offline' : getStatus(t.id)}
                     onSelect={() => {
                       onSwitchWorkspace(t.workspace_id)
                       onSelectTerminal(t.workspace_id, t.id)
@@ -923,10 +949,13 @@ function TerminalItem({
   const folderLabel = terminalFolderLabel(terminal.cwd)
   const folderName = terminalFolderName(terminal.cwd)
   const agent = AGENTS[terminal.command]
+  const isOff = terminal.enabled === false
 
   return (
     <div
       className={'term-item ' + (selected ? 'active' : '')}
+      style={{ opacity: isOff ? 0.55 : 1 }}
+      title={isOff ? 'Terminal is off' : undefined}
       onClick={onSelect}
       onContextMenu={(e) => {
         e.preventDefault()
@@ -996,7 +1025,9 @@ function WorkspaceContextMenu({
   y,
   canDuplicate,
   maxWorkspaces,
+  enabled,
   onClose,
+  onToggleEnabled,
   onRename,
   onDelete,
   onDuplicate,
@@ -1005,7 +1036,9 @@ function WorkspaceContextMenu({
   y: number
   canDuplicate: boolean
   maxWorkspaces: number
+  enabled: boolean
   onClose: () => void
+  onToggleEnabled: () => void
   onRename: () => void
   onDelete: () => void
   onDuplicate: () => void
@@ -1047,6 +1080,14 @@ function WorkspaceContextMenu({
         }}
         onMouseDown={(e) => e.stopPropagation()}
       >
+        <button
+          className="ctx-item flex w-full items-center gap-2.5 px-3 py-2 text-[12.5px]"
+          style={{ color: 'var(--fg)' }}
+          onClick={() => { onToggleEnabled(); onClose() }}
+        >
+          <WsIcon d="M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10" />
+          {enabled ? 'Deactivate workspace' : 'Activate workspace'}
+        </button>
         <button
           className="ctx-item flex w-full items-center gap-2.5 px-3 py-2 text-[12.5px]"
           style={{ color: 'var(--fg)' }}

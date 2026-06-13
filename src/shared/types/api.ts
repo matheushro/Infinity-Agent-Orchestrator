@@ -50,6 +50,8 @@ export interface WorkspaceApi {
   rename(id: string, name: string): Promise<void>
   duplicate(id: string): Promise<WorkspaceRecord>
   reorder(orderedIds: string[]): Promise<void>
+  /** Turn a workspace on/off (deactivates its terminals + notes). Persisted. */
+  setEnabled(id: string, enabled: boolean): Promise<void>
 }
 
 export interface DialogApi {
