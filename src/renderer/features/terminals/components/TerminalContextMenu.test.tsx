@@ -11,6 +11,7 @@ function renderMenu(overrides: { enabled?: boolean } = {}) {
   const onDuplicate = vi.fn()
   const onLink = vi.fn()
   const onToggleEnabled = vi.fn()
+  const onEditPrompt = vi.fn()
   const onDelete = vi.fn()
   const onStyle = vi.fn()
   const onOpenInVSCode = vi.fn()
@@ -25,6 +26,7 @@ function renderMenu(overrides: { enabled?: boolean } = {}) {
       onDuplicate={onDuplicate}
       onLink={onLink}
       onToggleEnabled={onToggleEnabled}
+      onEditPrompt={onEditPrompt}
       onDelete={onDelete}
       onStyle={onStyle}
       onOpenInVSCode={onOpenInVSCode}
@@ -41,6 +43,7 @@ function renderMenu(overrides: { enabled?: boolean } = {}) {
     onDuplicate,
     onLink,
     onToggleEnabled,
+    onEditPrompt,
     onDelete,
     onStyle,
     onOpenInVSCode,
@@ -67,6 +70,7 @@ describe('TerminalContextMenu', () => {
     expect(screen.getByRole('button', { name: 'Restart terminal' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Duplicate terminal' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Link to terminal/note' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Edit agent prompt…' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Open on VS Code' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Customize style…' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Delete terminal' })).toBeInTheDocument()
@@ -91,6 +95,7 @@ describe('TerminalContextMenu', () => {
 
   it.each([
     ['Restart terminal', 'onRestart'],
+    ['Edit agent prompt…', 'onEditPrompt'],
     ['Duplicate terminal', 'onDuplicate'],
     ['Link to terminal/note', 'onLink'],
     ['Open on VS Code', 'onOpenInVSCode'],

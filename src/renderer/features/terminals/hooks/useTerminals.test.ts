@@ -35,6 +35,7 @@ const baseNode: TerminalNodeData = {
   title: 'Claude Code · project',
   cwd: '/home/user/project',
   command: 'claude',
+  prompt: '',
   workspace_id: 'ws-1',
   enabled: true,
 }
@@ -98,6 +99,20 @@ describe('useTerminals — createTerminal', () => {
     expect(mockTerminalRepository.persist).toHaveBeenCalledOnce()
     expect(mockTerminalRepository.persist).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'term-1', cwd: '/home/user/project', command: 'claude' })
+    )
+  })
+
+  it('defaults a new terminal prompt to an empty string', async () => {
+    const { result } = renderHook(() => useTerminals('ws-1'))
+    await waitFor(() => expect(mockTerminalRepository.listActive).toHaveBeenCalled())
+
+    act(() => {
+      result.current.createTerminal('/home/user/project', 'claude', '', 'bash')
+    })
+
+    expect(result.current.nodes[0].prompt).toBe('')
+    expect(mockTerminalRepository.persist).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: '' }),
     )
   })
 

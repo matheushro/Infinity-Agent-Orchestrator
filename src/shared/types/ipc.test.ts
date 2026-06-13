@@ -68,9 +68,9 @@ describe('IpcChannels — completude e consistência', () => {
     expect(IpcChannels.notesChanged).toBe('notes:changed')
   })
 
-  it('IpcChannels contém exatamente os 35 canais conhecidos (sem canais fantasma)', () => {
+  it('IpcChannels contém exatamente os 36 canais conhecidos (sem canais fantasma)', () => {
     const expected = [
-      'pty:create', 'pty:input', 'pty:resize', 'pty:kill', 'pty:data', 'pty:exit',
+      'pty:create', 'pty:input', 'pty:resize', 'pty:kill', 'pty:reinject-prompt', 'pty:data', 'pty:exit',
       'db:list-active', 'db:upsert', 'db:remove', 'db:reorder-terminals',
       'edges:list', 'edges:upsert', 'edges:remove',
       'canvas-texts:list', 'canvas-texts:upsert', 'canvas-texts:remove',
@@ -103,6 +103,7 @@ describe('IpcChannels — completude e consistência', () => {
     expect(ch.ptyInput).toBeTruthy()
     expect(ch.ptyResize).toBeTruthy()
     expect(ch.ptyKill).toBeTruthy()
+    expect(ch.ptyReinjectPrompt).toBeTruthy()
     expect(ch.ptyData).toBeTruthy()
     expect(ch.ptyExit).toBeTruthy()
   })

@@ -371,6 +371,91 @@ describe('createPty — command scheduling', () => {
   })
 })
 
+// ===========================================================================
+// createPty — prompt injection
+// ===========================================================================
+
+describe('createPty — prompt injection', () => {
+  it('appends the native flag to the launch command for an agent with promptArg (claude)', () => {
+    vi.useFakeTimers()
+    const proc = makeMockProc()
+    mockSpawn.mockReturnValue(proc as any)
+    mockExistsSync.mockReturnValue(true)
+
+    createPty(makeArgs({ command: 'claude', prompt: 'You are a reviewer.' }), makeCallbacks())
+    vi.advanceTimersByTime(250)
+
+    expect(proc.write).toHaveBeenCalledWith(
+      `claude --append-system-prompt 'You are a reviewer.'\r`,
+    )
+    // The flag carries the prompt — no separate REPL write should follow.
+    vi.advanceTimersByTime(5000)
+    expect(proc.write).toHaveBeenCalledTimes(1)
+    vi.useRealTimers()
+  })
+
+  it('shell-escapes embedded single quotes in the claude flag', () => {
+    vi.useFakeTimers()
+    const proc = makeMockProc()
+    mockSpawn.mockReturnValue(proc as any)
+    mockExistsSync.mockReturnValue(true)
+
+    createPty(makeArgs({ command: 'claude', prompt: "it's fine" }), makeCallbacks())
+    vi.advanceTimersByTime(250)
+
+    expect(proc.write).toHaveBeenCalledWith(
+      `claude --append-system-prompt 'it'\\''s fine'\r`,
+    )
+    vi.useRealTimers()
+  })
+
+  it('injects the prompt as a second REPL write for an agent without promptArg (codex)', () => {
+    vi.useFakeTimers()
+    const proc = makeMockProc()
+    mockSpawn.mockReturnValue(proc as any)
+    mockExistsSync.mockReturnValue(true)
+
+    createPty(makeArgs({ command: 'codex', prompt: 'Be terse.' }), makeCallbacks())
+
+    vi.advanceTimersByTime(250)
+    expect(proc.write).toHaveBeenNthCalledWith(1, 'codex\r')
+    expect(proc.write).toHaveBeenCalledTimes(1)
+
+    // The REPL fallback fires later, once the agent has booted.
+    vi.advanceTimersByTime(1500)
+    expect(proc.write).toHaveBeenNthCalledWith(2, 'Be terse.\r')
+    expect(proc.write).toHaveBeenCalledTimes(2)
+    vi.useRealTimers()
+  })
+
+  it('does NOT inject a prompt that is only whitespace', () => {
+    vi.useFakeTimers()
+    const proc = makeMockProc()
+    mockSpawn.mockReturnValue(proc as any)
+    mockExistsSync.mockReturnValue(true)
+
+    createPty(makeArgs({ command: 'codex', prompt: '   ' }), makeCallbacks())
+    vi.advanceTimersByTime(5000)
+
+    expect(proc.write).toHaveBeenCalledTimes(1)
+    expect(proc.write).toHaveBeenCalledWith('codex\r')
+    vi.useRealTimers()
+  })
+
+  it('ignores the prompt for a plain terminal (no command)', () => {
+    vi.useFakeTimers()
+    const proc = makeMockProc()
+    mockSpawn.mockReturnValue(proc as any)
+    mockExistsSync.mockReturnValue(true)
+
+    createPty(makeArgs({ command: '', prompt: 'Be terse.' }), makeCallbacks())
+    vi.advanceTimersByTime(5000)
+
+    expect(proc.write).not.toHaveBeenCalled()
+    vi.useRealTimers()
+  })
+})
+
 describe('createPty — ensureIAOSkill best-effort', () => {
   it('continues and spawns the pty even if ensureIAOSkill throws', () => {
     const proc = makeMockProc()

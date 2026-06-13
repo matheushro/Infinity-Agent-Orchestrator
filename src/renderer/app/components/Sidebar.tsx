@@ -41,6 +41,7 @@ interface SidebarProps {
   onTerminalToggleEnabled: (workspaceId: string, terminalId: string) => void
   onTerminalLink: (workspaceId: string, terminalId: string) => void
   onTerminalStyle: (workspaceId: string, terminalId: string) => void
+  onTerminalEditPrompt: (workspaceId: string, terminalId: string) => void
   onTerminalOpenInVSCode: (workspaceId: string, terminal: TerminalNodeData) => void
 }
 
@@ -277,6 +278,7 @@ function ExpandedSidebar({
   onTerminalToggleEnabled,
   onTerminalLink,
   onTerminalStyle,
+  onTerminalEditPrompt,
   onTerminalOpenInVSCode,
   terminalOrderByWorkspace,
 }: SidebarStateProps): JSX.Element {
@@ -641,6 +643,10 @@ function ExpandedSidebar({
           }}
           onLink={() => {
             onTerminalLink(termCtxMenu.terminal.workspace_id, termCtxMenu.terminal.id)
+            setTermCtxMenu(null)
+          }}
+          onEditPrompt={() => {
+            onTerminalEditPrompt(termCtxMenu.terminal.workspace_id, termCtxMenu.terminal.id)
             setTermCtxMenu(null)
           }}
           onDelete={() => {

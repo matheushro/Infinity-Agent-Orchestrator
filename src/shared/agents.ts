@@ -8,6 +8,25 @@ export interface AgentDef {
   icon: string
   /** Path relative to os.homedir() where the IAO SKILL.md should be installed. */
   skillDir?: string
+  /**
+   * Native system-prompt flag, when the agent exposes one. Returns the launch
+   * argument (e.g. `--append-system-prompt '<prompt>'`) appended to `cmd` so
+   * the prompt lands in the agent's cached prompt prefix — paid for once, then
+   * cheap on every following turn. Agents without a reliable flag omit this and
+   * fall back to injecting the prompt as the first REPL message (see
+   * pty.service). Only ever called with a non-empty prompt.
+   */
+  promptArg?: (prompt: string) => string
+}
+
+/**
+ * Wrap a value as a single POSIX shell argument: single-quote it and escape any
+ * embedded single quotes. Single quotes preserve everything literally (including
+ * newlines), so a multi-line markdown prompt survives intact as one argument in
+ * the bash/zsh the pty spawns.
+ */
+export function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`
 }
 
 export const AGENTS = {
@@ -24,6 +43,10 @@ export const AGENTS = {
     cmd: 'claude',
     icon: '✳️',
     skillDir: '.claude/skills/iao',
+    // Claude Code is the only agent with a reliable interactive system-prompt
+    // flag. It is a real system prompt (best adherence) and stays in the cached
+    // prefix. Other agents have no equivalent, so they use the REPL fallback.
+    promptArg: (prompt) => `--append-system-prompt ${shellQuote(prompt)}`,
   },
   gemini: {
     key: 'gemini',
@@ -63,3 +86,14 @@ export const AGENTS = {
 } satisfies Record<string, AgentDef>
 
 export type AgentKey = keyof typeof AGENTS
+
+/**
+ * Resolve an agent by the shell command it launches (`cmd`). The pty service
+ * only knows the command string it was asked to run, not the registry key, so
+ * this maps back to the definition (e.g. to read `promptArg`). Returns
+ * undefined for a plain terminal (empty cmd) or an unknown command.
+ */
+export function agentByCmd(cmd: string): AgentDef | undefined {
+  if (!cmd) return undefined
+  return Object.values(AGENTS).find((agent) => agent.cmd === cmd)
+}

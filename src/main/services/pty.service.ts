@@ -10,11 +10,27 @@ import type {
   PtyDataPayload,
   PtyExitPayload
 } from '@shared/types/ipc'
+import { agentByCmd } from '@shared/agents'
 import * as iaoService from './iao.service'
 import * as skillService from './skill.service'
 
 // Active pty processes, indexed by terminal session id.
 const ptys = new Map<string, pty.IPty>()
+
+// Store original prompts for reinjektion after /clear.
+interface PtySession {
+  proc: pty.IPty
+  prompt: string
+  command?: string
+}
+const ptySessions = new Map<string, PtySession>()
+
+// Delay before writing the launch command, giving the shell time to come up.
+const LAUNCH_CMD_MS = 250
+// Delay before the prompt fallback write (REPL injection). Larger than the
+// launch delay so the agent's REPL is up and ready to accept the first message.
+// Tunable: bump if a slow-booting agent swallows the prompt.
+const PROMPT_INJECT_MS = 1500
 
 /** Look for an executable in PATH; return the absolute path or null. */
 function findOnPath(bin: string): string | null {
@@ -91,10 +107,26 @@ export function createPty(args: PtyCreateArgs, callbacks: PtyCallbacks): PtyCrea
   })
 
   ptys.set(args.id, proc)
+  const prompt = args.prompt?.trim() ? args.prompt : ''
+  ptySessions.set(args.id, { proc, prompt, command: args.command })
 
   // Fire the selected command (Codex / Claude Code) as soon as the shell starts.
+  // The optional per-terminal prompt is injected exactly once, here, so it lives
+  // in the agent's stable prompt prefix (cache-friendly) — never re-sent per turn.
   if (args.command) {
-    setTimeout(() => proc.write(`${args.command}\r`), 250)
+    const agent = agentByCmd(args.command)
+
+    // Level 1 — native flag (claude): the prompt rides into the launch command
+    // as a real system prompt, no separate write needed.
+    const launchCmd =
+      prompt && agent?.promptArg ? `${args.command} ${agent.promptArg(prompt)}` : args.command
+    setTimeout(() => proc.write(`${launchCmd}\r`), LAUNCH_CMD_MS)
+
+    // Level 2 — universal fallback: agents without a flag get the prompt as the
+    // first REPL message, once the agent has had time to boot.
+    if (prompt && !agent?.promptArg) {
+      setTimeout(() => proc.write(`${prompt}\r`), PROMPT_INJECT_MS)
+    }
   }
 
   return { id: args.id, shell: shellPath }
@@ -142,11 +174,27 @@ function killProcessTree(proc: pty.IPty, graceMs: number): void {
   setTimeout(reap, graceMs).unref?.()
 }
 
+export function reinjectPrompt(id: string): void {
+  const session = ptySessions.get(id)
+  if (!session || !session.prompt) return
+
+  const agent = session.command ? agentByCmd(session.command) : undefined
+  if (agent?.promptArg) {
+    // Level 1: agent with native flag — restart agent with prompt as system prompt
+    const launchCmd = `${session.command} ${agent.promptArg(session.prompt)}`
+    session.proc.write(`${launchCmd}\r`)
+  } else if (session.prompt) {
+    // Level 2: inject as first REPL message
+    session.proc.write(`${session.prompt}\r`)
+  }
+}
+
 export function killPty(id: string): void {
   iaoService.unregisterPtySession(id)
   const proc = ptys.get(id)
   if (proc) killProcessTree(proc, KILL_GRACE_MS)
   ptys.delete(id)
+  ptySessions.delete(id)
 }
 
 export function killAllPtys(): void {
@@ -155,4 +203,5 @@ export function killAllPtys(): void {
     killProcessTree(p, 0)
   })
   ptys.clear()
+  ptySessions.clear()
 }

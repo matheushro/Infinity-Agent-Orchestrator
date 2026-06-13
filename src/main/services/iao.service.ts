@@ -691,6 +691,7 @@ function handleNoteCreate(
     id: `note-${now}-${randomBytes(4).toString('hex')}`,
     title: deriveNoteTitle(content),
     content,
+    theme: 'auto',
     // Drop the note just to the right of the creating terminal so it lands in
     // view next to the agent that made it.
     x: terminal.x + terminal.width + 60,

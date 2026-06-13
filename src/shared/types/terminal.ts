@@ -13,6 +13,13 @@ export interface TerminalRecord {
   cwd: string
   command: string
   shell: string
+  /**
+   * Base prompt (markdown) defining the agent's role. Injected once when the
+   * agent launches — as a native system-prompt flag where the agent supports
+   * one (see `promptArg` in `@shared/agents`), otherwise as the first REPL
+   * message. Empty string means "no prompt". Persisted as TEXT in SQLite.
+   */
+  prompt: string
   x: number
   y: number
   width: number

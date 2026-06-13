@@ -121,6 +121,10 @@ export default function App(): JSX.Element {
             setActiveId(workspaceId)
             canvasRefs.current.get(workspaceId)?.openStyleEditor(terminalId)
           }}
+          onTerminalEditPrompt={(workspaceId, terminalId) => {
+            setActiveId(workspaceId)
+            canvasRefs.current.get(workspaceId)?.openPromptEditor(terminalId)
+          }}
           onTerminalOpenInVSCode={(_workspaceId, terminal) => {
             window.windowApi.openInVSCode(terminal.cwd)
           }}

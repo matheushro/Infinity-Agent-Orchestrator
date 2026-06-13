@@ -287,6 +287,7 @@ function makeTerminal(overrides: Partial<TerminalRecord> = {}): TerminalRecord {
     cwd: '/home/user',
     command: 'claude',
     shell: 'bash',
+    prompt: '',
     x: 0,
     y: 0,
     width: 800,
@@ -524,6 +525,35 @@ describe('upsertTerminal', () => {
       created_at: 1, workspace_id: 'default', position: 0,
     })
     expect(listActiveTerminals().find(r => r.id === 'legacy')?.enabled).toBe(true)
+  })
+
+  it('persists the agent prompt and reads it back', () => {
+    upsertTerminal(makeTerminal({ id: 'p-1', prompt: 'You are a reviewer.' }))
+    const found = listActiveTerminals().find(r => r.id === 'p-1')
+    expect(found?.prompt).toBe('You are a reviewer.')
+  })
+
+  it('defaults prompt to an empty string when none is given', () => {
+    upsertTerminal(makeTerminal({ id: 'p-default' }))
+    const found = listActiveTerminals().find(r => r.id === 'p-default')
+    expect(found?.prompt).toBe('')
+  })
+
+  it('updates the prompt on conflict (edit persists)', () => {
+    const t = makeTerminal({ id: 'p-edit', prompt: 'first' })
+    upsertTerminal(t)
+    upsertTerminal({ ...t, prompt: 'second' })
+    expect(listActiveTerminals().find(r => r.id === 'p-edit')?.prompt).toBe('second')
+  })
+
+  it('reads legacy rows with no prompt column as an empty string', () => {
+    // Simulate a pre-migration row that has no `prompt` key at all.
+    store.terminals.set('legacy-prompt', {
+      id: 'legacy-prompt', title: 'Legacy', cwd: '/', command: 'claude',
+      shell: 'bash', x: 0, y: 0, width: 800, height: 600, active: 1,
+      created_at: 1, workspace_id: 'default', position: 0, enabled: 1,
+    })
+    expect(listActiveTerminals().find(r => r.id === 'legacy-prompt')?.prompt).toBe('')
   })
 })
 

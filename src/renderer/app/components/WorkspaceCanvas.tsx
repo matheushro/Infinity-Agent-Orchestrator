@@ -11,6 +11,7 @@ import {
   useState,
 } from 'react'
 import { Canvas, type CanvasTool } from '@renderer/features/canvas/components/Canvas'
+import { EditTerminalModal } from '@renderer/features/terminals/components/EditTerminalModal'
 import { NewTerminalModal } from '@renderer/features/terminals/components/NewTerminalModal'
 import { TerminalContextMenu } from '@renderer/features/terminals/components/TerminalContextMenu'
 import { TerminalStyleModal } from '@renderer/features/terminals/components/TerminalStyleModal'
@@ -81,6 +82,7 @@ export interface WorkspaceCanvasHandle {
   toggleTerminalEnabled: (id: string) => void
   startLinkFrom: (id: string) => void
   openStyleEditor: (id: string) => void
+  openPromptEditor: (id: string) => void
 }
 
 export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvasProps>(
@@ -154,6 +156,7 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
     const [edgeCtxMenu, setEdgeCtxMenu] = useState<EdgeContextMenuState | null>(null)
     const [canvasMenu, setCanvasMenu] = useState<CanvasMenuState | null>(null)
     const [styleEditorFor, setStyleEditorFor] = useState<string | null>(null)
+    const [promptEditorFor, setPromptEditorFor] = useState<string | null>(null)
     // Per-terminal restart counter; bumping a node's value rebuilds its pty/xterm
     // session from scratch, as if the terminal had just been opened.
     const [restartSignals, setRestartSignals] = useState<Record<string, number>>({})
@@ -378,9 +381,15 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
       openStyleEditor(id: string) {
         setStyleEditorFor(id)
       },
+      openPromptEditor(id: string) {
+        setPromptEditorFor(id)
+      },
     }))
 
     const styleEditorNode = styleEditorFor ? nodes.find((n) => n.id === styleEditorFor) : null
+    const promptEditorNode = promptEditorFor
+      ? nodes.find((n) => n.id === promptEditorFor)
+      : null
 
     return (
       <div
@@ -564,6 +573,10 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
               setCtxMenu(null)
             }}
             onLink={() => startLinkFrom(ctxMenu.nodeId)}
+            onEditPrompt={() => {
+              setPromptEditorFor(ctxMenu.nodeId)
+              setCtxMenu(null)
+            }}
             onOpenInVSCode={() => {
               const node = nodes.find((n) => n.id === ctxMenu.nodeId)
               if (node) window.windowApi.openInVSCode(node.cwd)
@@ -667,6 +680,15 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
             onChange={(patch) => setTerminalStyle(styleEditorNode.id, patch)}
             onReset={() => removeTerminalStyle(styleEditorNode.id)}
             onClose={() => setStyleEditorFor(null)}
+          />
+        )}
+
+        {promptEditorNode && (
+          <EditTerminalModal
+            title={promptEditorNode.title}
+            prompt={promptEditorNode.prompt}
+            onConfirm={({ title, prompt }) => updateNode(promptEditorNode.id, { title, prompt })}
+            onClose={() => setPromptEditorFor(null)}
           />
         )}
       </div>

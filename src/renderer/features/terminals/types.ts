@@ -21,6 +21,8 @@ export interface TerminalNodeData {
   title: string
   cwd: string
   command: CommandKey
+  /** Base prompt (markdown) injected once when the agent launches. '' = none. */
+  prompt: string
   workspace_id: string
   /** Power state. When `false`, the node stays on the canvas but runs no pty/xterm. */
   enabled: boolean

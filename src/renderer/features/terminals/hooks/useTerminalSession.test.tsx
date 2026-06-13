@@ -154,6 +154,7 @@ const node: TerminalNodeData = {
   title: 'Claude Code · repo',
   cwd: '/home/user/repo',
   command: 'claude',
+  prompt: 'Stay concise.',
   enabled: true,
 }
 
@@ -270,6 +271,7 @@ describe('useTerminalSession', () => {
       rows: terminal.rows,
       cwd: node.cwd,
       command: 'claude',
+      prompt: 'Stay concise.',
     })
     expect(crypto.randomUUID).toHaveBeenCalledTimes(1)
     expect(node.id).not.toBe('pty-1')

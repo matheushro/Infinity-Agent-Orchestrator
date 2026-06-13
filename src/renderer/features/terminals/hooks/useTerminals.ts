@@ -59,6 +59,7 @@ export function useTerminals(workspaceId: string): UseTerminalsResult {
           title: name || `${COMMANDS[command].label} · ${folderName}`,
           cwd: folder,
           command,
+          prompt: '',
           workspace_id: workspaceId,
           enabled: true,
         }

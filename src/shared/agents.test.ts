@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { AGENTS } from './agents'
+import { AGENTS, agentByCmd, shellQuote } from './agents'
 import type { AgentKey } from './agents'
 
 describe('AGENTS registry', () => {
@@ -58,5 +58,47 @@ describe('AGENTS registry', () => {
   it('the plain terminal opens a shell with no command and no skill dir', () => {
     expect(AGENTS.terminal.cmd).toBe('')
     expect(AGENTS.terminal.skillDir).toBeUndefined()
+  })
+
+  it('only claude exposes a native system-prompt flag (promptArg)', () => {
+    expect(AGENTS.claude.promptArg).toBeTypeOf('function')
+    for (const [key, def] of Object.entries(AGENTS)) {
+      if (key !== 'claude') expect(def.promptArg, `${key}.promptArg`).toBeUndefined()
+    }
+  })
+
+  it("claude's promptArg builds an --append-system-prompt flag with a quoted prompt", () => {
+    expect(AGENTS.claude.promptArg?.('Be helpful.')).toBe(
+      `--append-system-prompt 'Be helpful.'`,
+    )
+  })
+})
+
+describe('shellQuote', () => {
+  it('wraps a plain value in single quotes', () => {
+    expect(shellQuote('hello world')).toBe(`'hello world'`)
+  })
+
+  it('escapes embedded single quotes', () => {
+    expect(shellQuote("it's")).toBe(`'it'\\''s'`)
+  })
+
+  it('preserves newlines inside the single-quoted argument', () => {
+    expect(shellQuote('line1\nline2')).toBe(`'line1\nline2'`)
+  })
+})
+
+describe('agentByCmd', () => {
+  it('resolves an agent definition by its launch command', () => {
+    expect(agentByCmd('claude')).toBe(AGENTS.claude)
+    expect(agentByCmd('cursor-agent')).toBe(AGENTS.cursor)
+  })
+
+  it('returns undefined for an empty command (plain terminal)', () => {
+    expect(agentByCmd('')).toBeUndefined()
+  })
+
+  it('returns undefined for an unknown command', () => {
+    expect(agentByCmd('nonexistent-cli')).toBeUndefined()
   })
 })
