@@ -24,6 +24,7 @@ import type { TerminalNodeData } from '@renderer/features/terminals/types'
 import type { ShellType } from '@renderer/features/terminals/types'
 import type { CanvasTheme } from '@renderer/features/canvas/types'
 import type { WorkspaceRecord } from '@shared/types/workspace'
+import type { NoteRecord } from '@shared/types/notes'
 
 interface ContextMenuState {
   nodeId: string
@@ -601,6 +602,7 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
           <NoteContextMenu
             x={noteCtxMenu.x}
             y={noteCtxMenu.y}
+            theme={notes.find((n) => n.id === noteCtxMenu.noteId)?.theme ?? 'auto'}
             onClose={() => setNoteCtxMenu(null)}
             onEdit={() => {
               setEditingNoteId(noteCtxMenu.noteId)
@@ -608,6 +610,10 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
             }}
             onLink={() => {
               startLinkFrom(noteCtxMenu.noteId)
+              setNoteCtxMenu(null)
+            }}
+            onSetTheme={(theme) => {
+              updateNote(noteCtxMenu.noteId, { theme })
               setNoteCtxMenu(null)
             }}
             onDelete={() => {
@@ -773,19 +779,29 @@ function CanvasContextMenu({
   )
 }
 
+const NOTE_THEMES: ReadonlyArray<{ value: NoteRecord['theme']; label: string }> = [
+  { value: 'auto', label: 'Auto' },
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+]
+
 function NoteContextMenu({
   x,
   y,
+  theme,
   onClose,
   onEdit,
   onLink,
+  onSetTheme,
   onDelete,
 }: {
   x: number
   y: number
+  theme: NoteRecord['theme']
   onClose: () => void
   onEdit: () => void
   onLink: () => void
+  onSetTheme: (theme: NoteRecord['theme']) => void
   onDelete: () => void
 }): JSX.Element {
   return (
@@ -823,6 +839,28 @@ function NoteContextMenu({
         >
           Link to terminal
         </button>
+        <div className="my-1 h-px" style={{ background: 'var(--line)' }} />
+        <div
+          className="px-3 pt-1 pb-0.5 text-[10.5px] font-medium uppercase tracking-[0.12em]"
+          style={{ color: 'var(--fg-3)' }}
+        >
+          Theme
+        </div>
+        {NOTE_THEMES.map(({ value, label }) => (
+          <button
+            key={value}
+            className="ctx-item flex w-full items-center justify-between gap-2.5 px-3 py-2 text-[12.5px]"
+            onClick={() => onSetTheme(value)}
+          >
+            <span>{label}</span>
+            {theme === value && (
+              <span style={{ color: 'var(--accent)' }} aria-hidden="true">
+                ✓
+              </span>
+            )}
+          </button>
+        ))}
+        <div className="my-1 h-px" style={{ background: 'var(--line)' }} />
         <button
           className="ctx-item flex w-full items-center gap-2.5 px-3 py-2 text-[12.5px]"
           onClick={onDelete}

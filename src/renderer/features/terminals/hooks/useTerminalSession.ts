@@ -343,6 +343,7 @@ export function useTerminalSession(
     term.options.theme = THEMES[resolveTheme(style, globalTheme)]
     term.options.fontFamily = style.fontFamily
     term.options.fontSize = style.fontSize
+    ;(term as Terminal & { refresh: (start: number, end: number) => void }).refresh(0, term.rows)
   }, [style.theme, style.fontFamily, style.fontSize, globalTheme])
 
   return containerRef

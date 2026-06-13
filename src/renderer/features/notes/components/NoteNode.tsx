@@ -11,6 +11,7 @@ import remarkGfm from 'remark-gfm'
 import { IChevDown, IClose, ICopy, ISearch } from '@renderer/components/ui'
 import type { NoteRecord } from '@shared/types/notes'
 import type { CanvasTool } from '@renderer/features/canvas/components/Canvas'
+import type { CanvasTheme } from '@renderer/features/canvas/types'
 import { toggleTaskAt } from '../lib/markdown'
 import { useNoteSearch } from '../hooks/useNoteSearch'
 import type { TextMatch } from '../lib/noteSearch'
@@ -55,6 +56,7 @@ function EditorSearchHighlight({
 
 interface NoteNodeProps {
   note: NoteRecord
+  globalTheme: CanvasTheme
   selected: boolean
   editing: boolean
   scale: number
@@ -77,6 +79,7 @@ interface NoteNodeProps {
 
 export const NoteNode = memo(function NoteNode({
   note,
+  globalTheme,
   selected,
   editing,
   scale,
@@ -97,6 +100,8 @@ export const NoteNode = memo(function NoteNode({
   const isLinking = tool === 'link'
   const isDelete = tool === 'delete'
   const isLinkSource = linkSource === note.id
+  const resolvedTheme = note.theme === 'auto' ? globalTheme : note.theme
+  const isDark = resolvedTheme === 'dark'
   const [draft, setDraft] = useState(note.content)
   const [editingTitle, setEditingTitle] = useState(false)
   const [draftTitle, setDraftTitle] = useState(note.title)
@@ -189,6 +194,27 @@ export const NoteNode = memo(function NoteNode({
     [],
   )
 
+  // Rendering Markdown runs the full remark/rehype pipeline, which is O(document
+  // size) and react-markdown re-runs it on *every* render. NoteNode re-renders
+  // constantly — pan/zoom changes `scale`, dragging any other node re-renders
+  // the whole Canvas, etc. — so a large note would re-parse on every frame and
+  // tank the app's frame rate. Memoising the rendered subtree on `note.content`
+  // means the parse only happens when the text actually changes; the stable
+  // element reference also lets React skip reconciling it on unrelated renders.
+  const renderedMarkdown = useMemo(
+    () =>
+      note.content.trim() ? (
+        <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={markdownComponents}>
+          {note.content}
+        </ReactMarkdown>
+      ) : (
+        <span className="text-[12px]" style={{ color: 'var(--fg-3)' }}>
+          Empty note — double-click to edit
+        </span>
+      ),
+    [note.content, markdownComponents],
+  )
+
   return (
     <Rnd
       size={{ width: note.width, height: note.height }}
@@ -251,7 +277,11 @@ export const NoteNode = memo(function NoteNode({
       className={
         'note-node overflow-hidden rounded-[12px] ' +
         (selected ? 'is-selected node-shadow-selected ' : 'node-shadow ') +
-        (editing ? 'is-editing ' : '')
+        (editing ? 'is-editing ' : '') +
+        // Always emit an explicit palette class so a note can force `light` even
+        // inside a `.dark` root (and vice-versa); a bare `dark`-only class would
+        // leave a forced-light note inheriting the ancestor's dark variables.
+        (isDark ? 'dark ' : 'light ')
       }
       style={{
         background: 'var(--node-bg)',
@@ -462,15 +492,7 @@ export const NoteNode = memo(function NoteNode({
               onEdit(note.id)
             }}
           >
-            {note.content.trim() ? (
-              <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={markdownComponents}>
-                {note.content}
-              </ReactMarkdown>
-            ) : (
-              <span className="text-[12px]" style={{ color: 'var(--fg-3)' }}>
-                Empty note — double-click to edit
-              </span>
-            )}
+            {renderedMarkdown}
           </div>
         )}
       </div>

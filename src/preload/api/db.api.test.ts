@@ -75,7 +75,7 @@ describe('db.api', () => {
   })
 
   it('upsertNote invokes notes:upsert with record', () => {
-    const note = { id: 'note-1', title: 'N', content: 'body', x: 0, y: 0, width: 280, height: 200, workspace_id: 'ws-1', created_at: 1, updated_at: 1 }
+    const note = { id: 'note-1', title: 'N', content: 'body', theme: 'auto', x: 0, y: 0, width: 280, height: 200, workspace_id: 'ws-1', created_at: 1, updated_at: 1 }
     dbApi.upsertNote(note)
     expect(mockIpc.invoke).toHaveBeenCalledWith(IpcChannels.notesUpsert, note)
   })

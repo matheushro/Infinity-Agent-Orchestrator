@@ -26,6 +26,33 @@
   --traffic-max:   oklch(0.75 0.16 145);
 }
 
+/* Explicit light palette, mirroring the `:root` defaults. Needed so a note
+   forced to `light` (`.note-node.light`) resets back to the paper neutrals even
+   when it lives inside a `.dark` root — without it the note would inherit the
+   ancestor's dark variables and the theme toggle would appear to do nothing. */
+.light {
+  --bg:        oklch(0.985 0.004 80);
+  --bg-2:      oklch(0.975 0.005 80);
+  --canvas:    oklch(0.97  0.004 80);
+  --node-bg:   oklch(0.995 0.003 80);
+  --node-head: oklch(0.97  0.005 80);
+  --terminal:  oklch(0.98  0.004 80);
+  --term-ink:  oklch(0.30  0.012 250);
+  --fg:        oklch(0.20  0.015 260);
+  --fg-2:      oklch(0.45  0.012 260);
+  --fg-3:      oklch(0.62  0.010 260);
+  --line:      oklch(0.90  0.005 80);
+  --line-2:    oklch(0.93  0.005 80);
+  --dot:       oklch(0.86  0.006 80);
+  --accent:    oklch(0.62  0.16  260);
+  --accent-soft: oklch(0.93 0.04 260);
+  --edge:      oklch(0.75  0.020 260);
+  --shadow-color: 30 30 50;
+  --traffic-close: oklch(0.72 0.18 25);
+  --traffic-min:   oklch(0.82 0.16 85);
+  --traffic-max:   oklch(0.75 0.16 145);
+}
+
 .dark {
   --bg:        oklch(0.16  0.006 260);
   --bg-2:      oklch(0.185 0.007 260);

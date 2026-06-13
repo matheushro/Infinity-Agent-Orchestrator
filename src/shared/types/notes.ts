@@ -10,6 +10,11 @@ export interface NoteRecord {
   id: string
   title: string
   content: string
+  /**
+   * Visual theme for the note itself. `auto` follows the canvas/app theme,
+   * while `dark` / `light` force a fixed palette for this specific note.
+   */
+  theme: 'auto' | 'dark' | 'light'
   x: number
   y: number
   width: number

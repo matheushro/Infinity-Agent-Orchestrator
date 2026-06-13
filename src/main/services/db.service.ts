@@ -37,6 +37,13 @@ export function initDb(): void {
     // column already exists — no-op
   }
 
+  // Migration: add per-note theme overrides. Existing notes keep following the canvas.
+  try {
+    db.exec(`ALTER TABLE notes ADD COLUMN theme TEXT NOT NULL DEFAULT 'auto'`)
+  } catch {
+    // column already exists — no-op
+  }
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS terminals (
       id TEXT PRIMARY KEY,
@@ -74,6 +81,7 @@ export function initDb(): void {
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
       content TEXT NOT NULL,
+      theme TEXT NOT NULL DEFAULT 'auto',
       x REAL NOT NULL,
       y REAL NOT NULL,
       width REAL NOT NULL,
@@ -253,12 +261,13 @@ export function duplicateWorkspace(sourceId: string): WorkspaceRecord {
 
   const notes = db
     .prepare('SELECT * FROM notes WHERE workspace_id = ?')
-    .all(sourceId) as Array<NoteRecord>
+    .all(sourceId) as Array<Record<string, unknown>>
   const insertNote = db.prepare(
-    `INSERT INTO notes (id, title, content, x, y, width, height, workspace_id, created_at, updated_at)
-     VALUES (@id, @title, @content, @x, @y, @width, @height, @workspace_id, @created_at, @updated_at)`,
+    `INSERT INTO notes (id, title, content, theme, x, y, width, height, workspace_id, created_at, updated_at)
+     VALUES (@id, @title, @content, @theme, @x, @y, @width, @height, @workspace_id, @created_at, @updated_at)`,
   )
-  for (const note of notes) {
+  for (const noteRow of notes) {
+    const note = rowToNote(noteRow)
     insertNote.run({
       ...note,
       id: crypto.randomUUID(),
@@ -287,6 +296,22 @@ function rowToTerminal(row: Record<string, unknown>): TerminalRecord {
     workspace_id: row.workspace_id as string,
     // SQLite stores enabled as 0/1; older rows predating the column read as 1.
     enabled: row.enabled === undefined ? true : Boolean(row.enabled),
+  }
+}
+
+function rowToNote(row: Record<string, unknown>): NoteRecord {
+  return {
+    id: row.id as string,
+    title: row.title as string,
+    content: row.content as string,
+    theme: (row.theme as NoteRecord['theme'] | undefined) ?? 'auto',
+    x: row.x as number,
+    y: row.y as number,
+    width: row.width as number,
+    height: row.height as number,
+    workspace_id: row.workspace_id as string,
+    created_at: row.created_at as number,
+    updated_at: row.updated_at as number,
   }
 }
 
@@ -394,11 +419,13 @@ export function removeCanvasText(id: string): void {
 // ── Notes ────────────────────────────────────────────────────────────────────
 
 export function listNotes(workspaceId: string): NoteRecord[] {
-  return db
-    .prepare(
-      'SELECT id, title, content, x, y, width, height, workspace_id, created_at, updated_at FROM notes WHERE workspace_id = ? ORDER BY created_at',
-    )
-    .all(workspaceId) as NoteRecord[]
+  return (
+    db
+      .prepare(
+        'SELECT id, title, content, theme, x, y, width, height, workspace_id, created_at, updated_at FROM notes WHERE workspace_id = ? ORDER BY created_at',
+      )
+      .all(workspaceId) as Record<string, unknown>[]
+  ).map(rowToNote)
 }
 
 export function upsertNote(record: NoteRecord): void {
@@ -406,10 +433,10 @@ export function upsertNote(record: NoteRecord): void {
   // always refreshed so list ordering and "last edited" stay correct.
   const now = Date.now()
   db.prepare(
-    `INSERT INTO notes (id, title, content, x, y, width, height, workspace_id, created_at, updated_at)
-     VALUES (@id, @title, @content, @x, @y, @width, @height, @workspace_id, @created_at, @updated_at)
+    `INSERT INTO notes (id, title, content, theme, x, y, width, height, workspace_id, created_at, updated_at)
+     VALUES (@id, @title, @content, @theme, @x, @y, @width, @height, @workspace_id, @created_at, @updated_at)
      ON CONFLICT(id) DO UPDATE SET
-       title = @title, content = @content, x = @x, y = @y, width = @width, height = @height,
+       title = @title, content = @content, theme = @theme, x = @x, y = @y, width = @width, height = @height,
        workspace_id = @workspace_id, updated_at = @updated_at`,
   ).run({ ...record, created_at: record.created_at || now, updated_at: now })
 }
@@ -420,11 +447,12 @@ export function removeNote(id: string): void {
 }
 
 export function getNote(id: string): NoteRecord | undefined {
-  return db
+  const row = db
     .prepare(
-      'SELECT id, title, content, x, y, width, height, workspace_id, created_at, updated_at FROM notes WHERE id = ?',
+      'SELECT id, title, content, theme, x, y, width, height, workspace_id, created_at, updated_at FROM notes WHERE id = ?',
     )
-    .get(id) as NoteRecord | undefined
+    .get(id) as Record<string, unknown> | undefined
+  return row ? rowToNote(row) : undefined
 }
 
 // ── Note ↔ terminal links ─────────────────────────────────────────────────────

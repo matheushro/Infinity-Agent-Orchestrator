@@ -103,7 +103,7 @@ describe('db.ipc', () => {
   })
 
   it('notes:list calls listNotes and returns its result', async () => {
-    const notes = [{ id: 'note-1', title: 'N', content: '', x: 0, y: 0, width: 280, height: 200, workspace_id: 'ws-1', created_at: 1, updated_at: 1 }]
+    const notes = [{ id: 'note-1', title: 'N', content: '', theme: 'auto', x: 0, y: 0, width: 280, height: 200, workspace_id: 'ws-1', created_at: 1, updated_at: 1 }]
     vi.mocked(dbService.listNotes).mockReturnValue(notes as any)
     const result = await ipcHandlers.get(IpcChannels.notesList)!({}, 'ws-1')
     expect(dbService.listNotes).toHaveBeenCalledWith('ws-1')
@@ -111,7 +111,7 @@ describe('db.ipc', () => {
   })
 
   it('notes:upsert calls upsertNote with the record payload', async () => {
-    const note = { id: 'note-1', title: 'N', content: 'body', x: 0, y: 0, width: 280, height: 200, workspace_id: 'ws-1', created_at: 1, updated_at: 1 }
+    const note = { id: 'note-1', title: 'N', content: 'body', theme: 'auto', x: 0, y: 0, width: 280, height: 200, workspace_id: 'ws-1', created_at: 1, updated_at: 1 }
     await ipcHandlers.get(IpcChannels.notesUpsert)!({}, note)
     expect(dbService.upsertNote).toHaveBeenCalledWith(note)
   })

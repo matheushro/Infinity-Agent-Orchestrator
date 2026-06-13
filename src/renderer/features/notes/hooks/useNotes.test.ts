@@ -26,6 +26,7 @@ const baseNote: NoteRecord = {
   id: 'note-1',
   title: 'My note',
   content: '# Hi',
+  theme: 'auto',
   x: 10,
   y: 20,
   width: 280,
@@ -65,6 +66,7 @@ describe('useNotes', () => {
       id: 'note-new',
       title: DEFAULT_NOTE_TITLE,
       content: '',
+      theme: 'auto',
       x: 80,
       y: 70,
       width: 280,
@@ -134,6 +136,21 @@ describe('useNotes', () => {
     expect(result.current.notes[0].title).toBe('Renamed')
     expect(mockNoteRepository.persist).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'note-1', title: 'Renamed' }),
+    )
+  })
+
+  it('persists note theme overrides through updateNote', async () => {
+    mockNoteRepository.list.mockResolvedValue([baseNote])
+    const { result } = renderHook(() => useNotes('ws-1'))
+    await waitFor(() => expect(result.current.notes).toHaveLength(1))
+
+    act(() => {
+      result.current.updateNote('note-1', { theme: 'dark' })
+    })
+
+    expect(result.current.notes[0].theme).toBe('dark')
+    expect(mockNoteRepository.persist).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'note-1', theme: 'dark' }),
     )
   })
 

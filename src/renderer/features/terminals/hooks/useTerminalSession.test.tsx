@@ -41,6 +41,7 @@ const mocks = vi.hoisted(() => {
     loadAddon = vi.fn()
     write = vi.fn()
     dispose = vi.fn()
+    refresh = vi.fn()
     keyEventHandler: ((e: KeyboardEvent) => boolean) | null = null
     attachCustomKeyEventHandler = vi.fn((handler: (e: KeyboardEvent) => boolean) => {
       this.keyEventHandler = handler
@@ -572,6 +573,7 @@ describe('useTerminalSession', () => {
         },
       }),
     )
+    expect(terminal.refresh).toHaveBeenCalledWith(0, terminal.rows)
     expect(mocks.ptyApi.create).toHaveBeenCalledTimes(1)
     expect(mocks.terminalInstances).toHaveLength(1)
   })

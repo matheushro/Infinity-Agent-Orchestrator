@@ -32,6 +32,7 @@ const baseNote: NoteRecord = {
   id: 'note-1',
   title: 'My note',
   content: '',
+  theme: 'auto',
   x: 40,
   y: 50,
   width: 280,
@@ -44,6 +45,7 @@ const baseNote: NoteRecord = {
 function renderNode(overrides: Partial<React.ComponentProps<typeof NoteNode>> = {}) {
   const props = {
     note: baseNote,
+    globalTheme: 'dark' as const,
     selected: false,
     editing: false,
     scale: 1,
@@ -90,6 +92,26 @@ describe('NoteNode', () => {
   it('shows a placeholder for empty notes', () => {
     renderNode()
     expect(screen.getByText(/Empty note/i)).toBeInTheDocument()
+  })
+
+  it('follows the canvas theme when note theme is auto', () => {
+    const { container } = renderNode({
+      globalTheme: 'dark',
+      note: { ...baseNote, theme: 'auto' },
+    })
+
+    expect(container.querySelector('.note-node')).toHaveClass('dark')
+  })
+
+  it('forces its own light theme when configured explicitly', () => {
+    const { container } = renderNode({
+      globalTheme: 'dark',
+      note: { ...baseNote, theme: 'light' },
+    })
+
+    const node = container.querySelector('.note-node')
+    expect(node).toHaveClass('light')
+    expect(node).not.toHaveClass('dark')
   })
 
   it('copies the note name from the header', () => {
@@ -288,6 +310,36 @@ describe('NoteNode', () => {
 
     fireEvent.click(checkboxes[1])
     expect(onUpdate).toHaveBeenCalledWith('note-1', { content: '- [ ] first\n- [x] second' })
+  })
+
+  it('reuses the rendered Markdown subtree across re-renders that do not change content', async () => {
+    // Perf regression: react-markdown re-parses the whole document on every
+    // render, and NoteNode re-renders constantly (pan/zoom changes `scale`,
+    // dragging other nodes re-renders the Canvas). The rendered Markdown is
+    // memoised on note.content so an unrelated re-render keeps the very same
+    // DOM node — proving the expensive parse did not run again.
+    const { rerender, props } = renderNode({
+      note: { ...baseNote, content: '# Heading\n\nbody text' },
+      scale: 1,
+    })
+    const before = await screen.findByRole('heading', { name: 'Heading' })
+
+    rerender(<NoteNode {...props} scale={2} selected />)
+    const after = screen.getByRole('heading', { name: 'Heading' })
+
+    expect(after).toBe(before)
+  })
+
+  it('re-renders the Markdown when the content actually changes', async () => {
+    const { rerender, props } = renderNode({
+      note: { ...baseNote, content: '# Before' },
+    })
+    await screen.findByRole('heading', { name: 'Before' })
+
+    rerender(<NoteNode {...props} note={{ ...props.note, content: '# After' }} />)
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'After' })).toBeInTheDocument())
+    expect(screen.queryByRole('heading', { name: 'Before' })).not.toBeInTheDocument()
   })
 
   it('removes the note when the delete button is clicked', () => {

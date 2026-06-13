@@ -1041,6 +1041,7 @@ export function Canvas({
             <NoteNode
               key={note.id}
               note={note}
+              globalTheme={theme}
               selected={selectedNoteIds.includes(note.id)}
               editing={editingNoteId === note.id}
               searchOpen={searchingNoteId === note.id}

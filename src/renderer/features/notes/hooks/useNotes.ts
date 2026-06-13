@@ -44,6 +44,7 @@ export function useNotes(workspaceId: string): UseNotesResult {
         id,
         title: DEFAULT_NOTE_TITLE,
         content: '',
+        theme: 'auto',
         x: position.x,
         y: position.y,
         width: size?.width ?? DEFAULT_NOTE_WIDTH,

@@ -905,12 +905,13 @@ describe('send / inspect integration flow', () => {
 // ---------------------------------------------------------------------------
 
 function makeNote(overrides: Partial<{
-  id: string; title: string; content: string; workspace_id: string; created_at: number; updated_at: number
+  id: string; title: string; content: string; theme: 'auto' | 'dark' | 'light'; workspace_id: string; created_at: number; updated_at: number
 }> = {}) {
   return {
     id: 'note-1',
     title: 'Plan',
     content: '# Plan\nline two\nline three',
+    theme: 'auto',
     x: 0,
     y: 0,
     width: 280,

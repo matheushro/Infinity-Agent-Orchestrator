@@ -334,6 +334,7 @@ function makeNote(overrides: Partial<NoteRecord> = {}): NoteRecord {
     id: `note-${++seq}`,
     title: `Note ${seq}`,
     content: `# Heading ${seq}`,
+    theme: 'auto',
     x: 30,
     y: 40,
     width: 280,
@@ -860,7 +861,7 @@ describe('note persistence', () => {
     )
 
     const [found] = listNotes('default').filter((note) => note.id === 'note-1')
-    expect(found).toMatchObject({ title: 'Todo', content: '- [ ] task', x: 12, width: 300 })
+    expect(found).toMatchObject({ title: 'Todo', content: '- [ ] task', theme: 'auto', x: 12, width: 300 })
   })
 
   it('updates content/title on conflict while preserving created_at and bumping updated_at', () => {
@@ -886,6 +887,23 @@ describe('note persistence', () => {
     removeNote('note-gone')
 
     expect(listNotes('default').some((note) => note.id === 'note-gone')).toBe(false)
+  })
+
+  it('reads legacy note rows with no theme column as auto', () => {
+    store.notes.set('legacy-note', {
+      id: 'legacy-note',
+      title: 'Legacy',
+      content: 'old body',
+      x: 1,
+      y: 2,
+      width: 300,
+      height: 200,
+      workspace_id: 'default',
+      created_at: 1,
+      updated_at: 1,
+    })
+
+    expect(getNote('legacy-note')?.theme).toBe('auto')
   })
 
   it('copies notes into the duplicated workspace', () => {
