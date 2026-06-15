@@ -68,10 +68,10 @@ vi.mock('@renderer/features/canvas/components/Canvas', () => ({
 }))
 
 vi.mock('@renderer/features/terminals/components/NewTerminalModal', () => ({
-  NewTerminalModal: vi.fn(({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: (folder: string, command: string, name: string, theme: string) => void }) => (
+  NewTerminalModal: vi.fn(({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: (folder: string, command: string, name: string, theme: string, model: string) => void }) => (
     <div data-testid="new-terminal-modal">
       <button onClick={onCancel}>Cancel</button>
-      <button onClick={() => onConfirm('/tmp', 'claude', '', 'auto')}>Confirm</button>
+      <button onClick={() => onConfirm('/tmp', 'claude', '', 'auto', '')}>Confirm</button>
     </div>
   )),
 }))

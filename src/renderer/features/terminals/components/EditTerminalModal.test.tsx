@@ -28,15 +28,20 @@ vi.mock('@renderer/components/ui', async () => {
   return { ...actual, Modal: MockModal }
 })
 
+import type { CommandKey } from '../commands'
 import { EditTerminalModal } from './EditTerminalModal'
 
-function renderModal(overrides: { title?: string; prompt?: string } = {}) {
+function renderModal(
+  overrides: { title?: string; prompt?: string; command?: CommandKey; model?: string } = {},
+) {
   const onConfirm = vi.fn()
   const onClose = vi.fn()
   render(
     <EditTerminalModal
       title={overrides.title ?? 'Claude · repo'}
       prompt={overrides.prompt ?? 'old prompt'}
+      command={overrides.command ?? 'claude'}
+      model={overrides.model ?? ''}
       onConfirm={onConfirm}
       onClose={onClose}
     />,
@@ -74,7 +79,11 @@ describe('EditTerminalModal', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
-    expect(onConfirm).toHaveBeenCalledWith({ title: 'Tester', prompt: 'You are now a tester.' })
+    expect(onConfirm).toHaveBeenCalledWith({
+      title: 'Tester',
+      prompt: 'You are now a tester.',
+      model: '',
+    })
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
@@ -84,7 +93,7 @@ describe('EditTerminalModal', () => {
     fireEvent.change(screen.getByPlaceholderText('Terminal name'), { target: { value: '   ' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
-    expect(onConfirm).toHaveBeenCalledWith({ title: 'Reviewer', prompt: 'p' })
+    expect(onConfirm).toHaveBeenCalledWith({ title: 'Reviewer', prompt: 'p', model: '' })
   })
 
   it('allows clearing the prompt to an empty string', () => {
@@ -96,7 +105,35 @@ describe('EditTerminalModal', () => {
     )
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
-    expect(onConfirm).toHaveBeenCalledWith({ title: 'Reviewer', prompt: '' })
+    expect(onConfirm).toHaveBeenCalledWith({ title: 'Reviewer', prompt: '', model: '' })
+  })
+
+  it('pre-fills and forwards the pinned model unchanged', () => {
+    const { onConfirm } = renderModal({ command: 'claude', model: 'opus' })
+
+    expect(screen.getByRole('button', { name: 'Model' })).toHaveTextContent('Opus')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(onConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'opus' }),
+    )
+  })
+
+  it('shows a free-text model field for an agent with volatile ids and forwards it', () => {
+    const { onConfirm } = renderModal({ command: 'codex', model: '' })
+
+    const field = screen.getByRole('textbox', { name: 'Model' })
+    fireEvent.change(field, { target: { value: 'gpt-5.4' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-5.4' }))
+  })
+
+  it('hides the model field entirely for an agent that cannot pin a model', () => {
+    renderModal({ command: 'terminal' })
+
+    expect(screen.queryByText('Model')).not.toBeInTheDocument()
   })
 
   it('cancel closes without confirming', () => {

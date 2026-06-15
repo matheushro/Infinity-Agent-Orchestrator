@@ -1,17 +1,21 @@
 // Dialog for creating a new terminal: name, folder and agent command.
 import { useState } from 'react'
 import type { ReactNode } from 'react'
-import { Button, Modal } from '@renderer/components/ui'
+import { Button, Modal, Select } from '@renderer/components/ui'
+import { supportsModel } from '@shared/agents'
 import { COMMANDS } from '../commands'
-import type { CommandKey } from '../commands'
+import type { CommandDef, CommandKey } from '../commands'
 import type { TerminalStyle } from '../types'
 
 type Theme = TerminalStyle['theme']
 
+// Sentinel for "no pin" — '' leaves the agent on its own default model.
+const DEFAULT_MODEL = ''
+
 interface NewTerminalModalProps {
   defaultFolder?: string
   onCancel: () => void
-  onConfirm: (folder: string, command: CommandKey, name: string, theme: Theme) => void
+  onConfirm: (folder: string, command: CommandKey, name: string, theme: Theme, model: string) => void
 }
 
 const FIELD_STYLE = {
@@ -29,6 +33,18 @@ export function NewTerminalModal({
   const [command, setCommand] = useState<CommandKey>('claude')
   const [name, setName] = useState<string>('')
   const [theme, setTheme] = useState<Theme>('auto')
+  const [model, setModel] = useState<string>(DEFAULT_MODEL)
+
+  // Models the selected agent supports; switching agent resets the pin since a
+  // value valid for one agent is meaningless for another.
+  const agent: CommandDef = COMMANDS[command]
+  const models = agent.models ?? []
+  const modelOptions = [{ value: DEFAULT_MODEL, label: 'Default (agent decides)' }, ...models]
+
+  function selectCommand(next: CommandKey): void {
+    setCommand(next)
+    setModel(DEFAULT_MODEL)
+  }
 
   async function pickFolder(): Promise<void> {
     const selected = await window.dialogApi.selectFolder(folder || defaultFolder)
@@ -67,7 +83,7 @@ export function NewTerminalModal({
           return (
             <button
               key={c.key}
-              onClick={() => setCommand(c.key)}
+              onClick={() => selectCommand(c.key)}
               className="flex items-center gap-2 rounded-[8px] px-3 h-10 text-[12.5px] font-medium transition-colors"
               style={{
                 background: active
@@ -83,6 +99,29 @@ export function NewTerminalModal({
           )
         })}
       </div>
+
+      {supportsModel(agent) && (
+        <div className="mb-5">
+          <Label>Model</Label>
+          {models.length > 0 ? (
+            <Select
+              ariaLabel="Model"
+              value={model}
+              options={modelOptions}
+              onChange={setModel}
+            />
+          ) : (
+            <input
+              aria-label="Model"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              placeholder={agent.modelHint ?? 'Model id'}
+              className="w-full rounded-[8px] px-2.5 h-8 text-[12.5px] font-mono outline-none"
+              style={FIELD_STYLE}
+            />
+          )}
+        </div>
+      )}
 
       <Label>Theme</Label>
       <div
@@ -103,7 +142,7 @@ export function NewTerminalModal({
         </Button>
         <Button
           disabled={!folder}
-          onClick={() => onConfirm(folder, command, name.trim(), theme)}
+          onClick={() => onConfirm(folder, command, name.trim(), theme, model)}
         >
           Open
         </Button>

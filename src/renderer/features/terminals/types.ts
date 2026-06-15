@@ -23,6 +23,11 @@ export interface TerminalNodeData {
   command: CommandKey
   /** Base prompt (markdown) injected once when the agent launches. '' = none. */
   prompt: string
+  /**
+   * Model this terminal is pinned to, exported as the agent's model env var when
+   * the pty launches (see `@shared/agents`). '' = agent default (no pin).
+   */
+  model: string
   workspace_id: string
   /** Power state. When `false`, the node stays on the canvas but runs no pty/xterm. */
   enabled: boolean

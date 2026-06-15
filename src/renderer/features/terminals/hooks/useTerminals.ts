@@ -60,6 +60,7 @@ export function useTerminals(workspaceId: string): UseTerminalsResult {
           cwd: folder,
           command,
           prompt: '',
+          model: '',
           workspace_id: workspaceId,
           enabled: true,
         }

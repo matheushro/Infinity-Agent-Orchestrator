@@ -21,6 +21,14 @@ export interface TerminalRecord {
    * Persisted as TEXT in SQLite.
    */
   prompt: string
+  /**
+   * Model the agent is pinned to, delivered as the agent's model env var
+   * (e.g. `ANTHROPIC_MODEL`) into its pty — so the choice survives the agent's
+   * `/clear` and never leaks between terminals that share a global config.
+   * Empty string means "agent default" (no pin). Which env var/values apply is
+   * declared per agent in `@shared/agents`. Persisted as TEXT in SQLite.
+   */
+  model: string
   x: number
   y: number
   width: number

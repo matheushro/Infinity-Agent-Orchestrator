@@ -3,13 +3,24 @@
 // the next time the agent starts — editing it does not touch a running session.
 import { useState } from 'react'
 import type { ReactNode } from 'react'
-import { Button, Modal } from '@renderer/components/ui'
+import { Button, Modal, Select } from '@renderer/components/ui'
+import { supportsModel } from '@shared/agents'
+import { COMMANDS } from '../commands'
+import type { CommandDef, CommandKey } from '../types'
+
+// Sentinel for "no pin" — kept out of band from any real model value so the
+// Select can offer it as a first-class option.
+const DEFAULT_MODEL = ''
 
 interface EditTerminalModalProps {
   /** Current title, shown in the header and used as the fallback name. */
   title: string
   prompt: string
-  onConfirm: (patch: { title: string; prompt: string }) => void
+  /** Agent this terminal runs — selects which models the picker offers. */
+  command: CommandKey
+  /** Currently pinned model ('' = agent default). */
+  model: string
+  onConfirm: (patch: { title: string; prompt: string; model: string }) => void
   onClose: () => void
 }
 
@@ -22,14 +33,27 @@ const FIELD_STYLE = {
 export function EditTerminalModal({
   title,
   prompt,
+  command,
+  model,
   onConfirm,
   onClose,
 }: EditTerminalModalProps): JSX.Element {
   const [draftTitle, setDraftTitle] = useState(title)
   const [draftPrompt, setDraftPrompt] = useState(prompt)
+  const [draftModel, setDraftModel] = useState(model)
+
+  // How this agent picks a model: a curated dropdown where ids are stable
+  // (Claude/Gemini), a free-text field for agents whose ids are volatile
+  // (Codex/Cursor/Copilot/OpenCode), or nothing for a plain terminal.
+  const agent: CommandDef = COMMANDS[command]
+  const models = agent.models ?? []
+  const modelOptions = [
+    { value: DEFAULT_MODEL, label: 'Default (agent decides)' },
+    ...models,
+  ]
 
   function confirm(): void {
-    onConfirm({ title: draftTitle.trim() || title, prompt: draftPrompt })
+    onConfirm({ title: draftTitle.trim() || title, prompt: draftPrompt, model: draftModel })
     onClose()
   }
 
@@ -57,6 +81,34 @@ export function EditTerminalModal({
         Injected once when the agent starts. Restart the terminal to apply it to a
         running session.
       </p>
+
+      {supportsModel(agent) && (
+        <>
+          <Label>Model</Label>
+          {models.length > 0 ? (
+            <Select
+              ariaLabel="Model"
+              value={draftModel}
+              options={modelOptions}
+              onChange={setDraftModel}
+              className="mb-2"
+            />
+          ) : (
+            <input
+              aria-label="Model"
+              value={draftModel}
+              onChange={(e) => setDraftModel(e.target.value)}
+              placeholder={agent.modelHint ?? 'Model id'}
+              className="mb-2 w-full rounded-[8px] px-2.5 h-8 text-[12.5px] font-mono outline-none"
+              style={FIELD_STYLE}
+            />
+          )}
+          <p className="mb-4 text-[11px]" style={{ color: 'var(--fg-3)' }}>
+            Pins this terminal to a model so it stays put across the agent&apos;s
+            <code> /clear</code>. Restart the terminal to apply.
+          </p>
+        </>
+      )}
 
       <div className="flex justify-end gap-2">
         <Button variant="ghost" onClick={onClose}>

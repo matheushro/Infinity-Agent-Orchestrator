@@ -533,7 +533,7 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
               setModalOpen(false)
               setPendingCreatePos(null)
             }}
-            onConfirm={(folder, command, name, theme) => {
+            onConfirm={(folder, command, name, theme, model) => {
               setModalOpen(false)
               const id = createTerminal(
                 folder,
@@ -543,6 +543,7 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
                 pendingCreatePos ?? undefined,
               )
               if (theme !== 'auto') setTerminalStyle(id, { theme })
+              if (model) updateNode(id, { model })
               setPendingCreatePos(null)
             }}
           />
@@ -687,7 +688,11 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
           <EditTerminalModal
             title={promptEditorNode.title}
             prompt={promptEditorNode.prompt}
-            onConfirm={({ title, prompt }) => updateNode(promptEditorNode.id, { title, prompt })}
+            command={promptEditorNode.command}
+            model={promptEditorNode.model}
+            onConfirm={({ title, prompt, model }) =>
+              updateNode(promptEditorNode.id, { title, prompt, model })
+            }
             onClose={() => setPromptEditorFor(null)}
           />
         )}

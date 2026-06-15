@@ -51,6 +51,10 @@ export interface PtyCreateArgs {
   // promptFile.service). Empty/omitted means no prompt. Ignored for a plain
   // terminal (no command).
   prompt?: string
+  // Model to pin this terminal to, injected as the agent's model env var (see
+  // `@shared/agents` `modelEnv`). Empty/omitted leaves the agent on its own
+  // default. Ignored for agents without a model env var or a plain terminal.
+  model?: string
   // Persistence id of the terminal node this pty belongs to. The iao bridge
   // uses it to map a pty session to the user-visible terminal (title, edges).
   nodeId?: string

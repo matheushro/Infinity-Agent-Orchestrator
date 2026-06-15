@@ -335,6 +335,116 @@ describe('createPty — PATH / env injection', () => {
   })
 })
 
+describe('createPty — model env injection', () => {
+  // The runner's own env could carry ANTHROPIC_MODEL; clear it around each test
+  // so non-injection assertions see a truly absent var.
+  let savedModelEnv: string | undefined
+  beforeEach(() => {
+    savedModelEnv = process.env.ANTHROPIC_MODEL
+    delete process.env.ANTHROPIC_MODEL
+  })
+  afterEach(() => {
+    if (savedModelEnv === undefined) delete process.env.ANTHROPIC_MODEL
+    else process.env.ANTHROPIC_MODEL = savedModelEnv
+  })
+
+  it("injects the agent's model env var when a model is pinned", () => {
+    const proc = makeMockProc()
+    mockSpawn.mockReturnValue(proc as any)
+    mockExistsSync.mockReturnValue(true)
+
+    createPty(makeArgs({ command: 'claude', model: 'opus' }), makeCallbacks())
+
+    expect(mockSpawn.mock.calls[0][2].env.ANTHROPIC_MODEL).toBe('opus')
+  })
+
+  it('does NOT inject a model env var when no model is pinned', () => {
+    const proc = makeMockProc()
+    mockSpawn.mockReturnValue(proc as any)
+    mockExistsSync.mockReturnValue(true)
+
+    createPty(makeArgs({ command: 'claude', model: '' }), makeCallbacks())
+
+    expect(mockSpawn.mock.calls[0][2].env.ANTHROPIC_MODEL).toBeUndefined()
+  })
+
+  it('does NOT inject a model env var for an agent that declares none', () => {
+    const proc = makeMockProc()
+    mockSpawn.mockReturnValue(proc as any)
+    mockExistsSync.mockReturnValue(true)
+
+    // codex has no modelEnv in the registry, so the model rides the launch flag
+    // instead — no ANTHROPIC_MODEL is set.
+    createPty(makeArgs({ command: 'codex', model: 'gpt-5' }), makeCallbacks())
+
+    expect(mockSpawn.mock.calls[0][2].env.ANTHROPIC_MODEL).toBeUndefined()
+  })
+
+  it("injects Gemini's model env var (GEMINI_MODEL) when pinned", () => {
+    const proc = makeMockProc()
+    mockSpawn.mockReturnValue(proc as any)
+    mockExistsSync.mockReturnValue(true)
+
+    createPty(makeArgs({ command: 'gemini', model: 'gemini-2.5-pro' }), makeCallbacks())
+
+    expect(mockSpawn.mock.calls[0][2].env.GEMINI_MODEL).toBe('gemini-2.5-pro')
+  })
+})
+
+describe('createPty — model launch flag', () => {
+  it('appends the model flag for an agent that has no model env var', () => {
+    vi.useFakeTimers()
+    const proc = makeMockProc()
+    mockSpawn.mockReturnValue(proc as any)
+    mockExistsSync.mockReturnValue(true)
+
+    createPty(makeArgs({ command: 'codex', model: 'gpt-5.4' }), makeCallbacks())
+    vi.advanceTimersByTime(250)
+
+    expect(proc.write).toHaveBeenCalledWith('codex --model gpt-5.4\r')
+    vi.useRealTimers()
+  })
+
+  it('shell-quotes a model value that contains spaces', () => {
+    vi.useFakeTimers()
+    const proc = makeMockProc()
+    mockSpawn.mockReturnValue(proc as any)
+    mockExistsSync.mockReturnValue(true)
+
+    createPty(makeArgs({ command: 'cursor-agent', model: 'Claude 4 Sonnet' }), makeCallbacks())
+    vi.advanceTimersByTime(250)
+
+    expect(proc.write).toHaveBeenCalledWith("cursor-agent --model 'Claude 4 Sonnet'\r")
+    vi.useRealTimers()
+  })
+
+  it('keeps the launch line bare for an env-var agent (model rides the env)', () => {
+    vi.useFakeTimers()
+    const proc = makeMockProc()
+    mockSpawn.mockReturnValue(proc as any)
+    mockExistsSync.mockReturnValue(true)
+
+    createPty(makeArgs({ command: 'claude', model: 'opus' }), makeCallbacks())
+    vi.advanceTimersByTime(250)
+
+    expect(proc.write).toHaveBeenCalledWith('claude\r')
+    vi.useRealTimers()
+  })
+
+  it('writes a bare command when no model is pinned', () => {
+    vi.useFakeTimers()
+    const proc = makeMockProc()
+    mockSpawn.mockReturnValue(proc as any)
+    mockExistsSync.mockReturnValue(true)
+
+    createPty(makeArgs({ command: 'codex', model: '' }), makeCallbacks())
+    vi.advanceTimersByTime(250)
+
+    expect(proc.write).toHaveBeenCalledWith('codex\r')
+    vi.useRealTimers()
+  })
+})
+
 describe('createPty — command scheduling', () => {
   it('writes command + \\r to pty after 250ms', () => {
     vi.useFakeTimers()

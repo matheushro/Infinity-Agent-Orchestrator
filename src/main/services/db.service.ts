@@ -52,6 +52,7 @@ export function initDb(): void {
       command TEXT NOT NULL,
       shell TEXT NOT NULL,
       prompt TEXT NOT NULL DEFAULT '',
+      model TEXT NOT NULL DEFAULT '',
       x REAL NOT NULL,
       y REAL NOT NULL,
       width REAL NOT NULL,
@@ -141,6 +142,14 @@ export function initDb(): void {
   // Migration: add the per-terminal agent prompt. Existing rows default to ''.
   try {
     db.exec(`ALTER TABLE terminals ADD COLUMN prompt TEXT NOT NULL DEFAULT ''`)
+  } catch {
+    // column already exists — no-op
+  }
+
+  // Migration: add the per-terminal pinned model. Existing rows default to ''
+  // ("agent default" — no model env injected).
+  try {
+    db.exec(`ALTER TABLE terminals ADD COLUMN model TEXT NOT NULL DEFAULT ''`)
   } catch {
     // column already exists — no-op
   }
@@ -242,8 +251,8 @@ export function duplicateWorkspace(sourceId: string): WorkspaceRecord {
     .prepare('SELECT * FROM terminals WHERE active = 1 AND workspace_id = ?')
     .all(sourceId) as Array<Record<string, unknown>>
   const insert = db.prepare(
-    `INSERT INTO terminals (id, title, cwd, command, shell, prompt, x, y, width, height, active, created_at, workspace_id, position, enabled)
-     VALUES (@id, @title, @cwd, @command, @shell, @prompt, @x, @y, @width, @height, 1, @created_at, @workspace_id, @position, @enabled)`,
+    `INSERT INTO terminals (id, title, cwd, command, shell, prompt, model, x, y, width, height, active, created_at, workspace_id, position, enabled)
+     VALUES (@id, @title, @cwd, @command, @shell, @prompt, @model, @x, @y, @width, @height, 1, @created_at, @workspace_id, @position, @enabled)`,
   )
   const now = Date.now()
   for (const t of terminals) {
@@ -299,6 +308,7 @@ function rowToTerminal(row: Record<string, unknown>): TerminalRecord {
     shell: row.shell as string,
     // Older rows predating the column read as ''.
     prompt: (row.prompt as string | undefined) ?? '',
+    model: (row.model as string | undefined) ?? '',
     x: row.x as number,
     y: row.y as number,
     width: row.width as number,
@@ -345,10 +355,10 @@ export function upsertTerminal(record: TerminalRecord): void {
   const position = existing?.position ?? nextTerminalPosition(record.workspace_id)
 
   db.prepare(
-    `INSERT INTO terminals (id, title, cwd, command, shell, prompt, x, y, width, height, active, created_at, workspace_id, position, enabled)
-     VALUES (@id, @title, @cwd, @command, @shell, @prompt, @x, @y, @width, @height, 1, @created_at, @workspace_id, @position, @enabled)
+    `INSERT INTO terminals (id, title, cwd, command, shell, prompt, model, x, y, width, height, active, created_at, workspace_id, position, enabled)
+     VALUES (@id, @title, @cwd, @command, @shell, @prompt, @model, @x, @y, @width, @height, 1, @created_at, @workspace_id, @position, @enabled)
      ON CONFLICT(id) DO UPDATE SET
-       title = @title, cwd = @cwd, command = @command, shell = @shell, prompt = @prompt,
+       title = @title, cwd = @cwd, command = @command, shell = @shell, prompt = @prompt, model = @model,
        x = @x, y = @y, width = @width, height = @height, active = 1,
        workspace_id = @workspace_id, enabled = @enabled`,
   ).run({ ...record, created_at: Date.now(), position, enabled: record.enabled === false ? 0 : 1 })

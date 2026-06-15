@@ -117,7 +117,7 @@ describe('NewTerminalModal', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Open' }))
 
-    expect(onConfirm).toHaveBeenCalledWith(defaultFolder, 'claude', '', 'auto')
+    expect(onConfirm).toHaveBeenCalledWith(defaultFolder, 'claude', '', 'auto', '')
   })
 
   it('calls onConfirm with the current folder, command, and trimmed name', async () => {
@@ -138,7 +138,7 @@ describe('NewTerminalModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open' }))
 
     expect(onConfirm).toHaveBeenCalledTimes(1)
-    expect(onConfirm).toHaveBeenCalledWith(selectedFolder, 'codex', 'Repo terminal', 'auto')
+    expect(onConfirm).toHaveBeenCalledWith(selectedFolder, 'codex', 'Repo terminal', 'auto', '')
   })
 
   it('forwards the selected theme to onConfirm', async () => {
@@ -155,7 +155,48 @@ describe('NewTerminalModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Dark' }))
     fireEvent.click(screen.getByRole('button', { name: 'Open' }))
 
-    expect(onConfirm).toHaveBeenCalledWith(selectedFolder, 'claude', '', 'dark')
+    expect(onConfirm).toHaveBeenCalledWith(selectedFolder, 'claude', '', 'dark', '')
+  })
+
+  it('forwards the selected model to onConfirm', () => {
+    const defaultFolder = '/home/user/projects/default'
+    const { onConfirm } = renderModal(defaultFolder)
+
+    // claude (the default agent) exposes a model picker.
+    fireEvent.click(screen.getByRole('button', { name: 'Model' }))
+    fireEvent.click(screen.getByRole('option', { name: 'Opus' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open' }))
+
+    expect(onConfirm).toHaveBeenCalledWith(defaultFolder, 'claude', '', 'auto', 'opus')
+  })
+
+  it('swaps the dropdown for a free-text field and resets the pin when changing agents', () => {
+    const defaultFolder = '/home/user/projects/default'
+    const { onConfirm } = renderModal(defaultFolder)
+
+    // Claude: curated dropdown.
+    fireEvent.click(screen.getByRole('button', { name: 'Model' }))
+    fireEvent.click(screen.getByRole('option', { name: 'Opus' }))
+    // Codex: free-text field, and the previous pin is cleared.
+    fireEvent.click(screen.getByRole('button', { name: /Codex/ }))
+    expect(screen.queryByRole('button', { name: 'Model' })).not.toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Model' })).toHaveValue('')
+    fireEvent.click(screen.getByRole('button', { name: 'Open' }))
+
+    expect(onConfirm).toHaveBeenCalledWith(defaultFolder, 'codex', '', 'auto', '')
+  })
+
+  it('forwards a free-text model for agents without a curated list', () => {
+    const defaultFolder = '/home/user/projects/default'
+    const { onConfirm } = renderModal(defaultFolder)
+
+    fireEvent.click(screen.getByRole('button', { name: /Codex/ }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Model' }), {
+      target: { value: 'gpt-5.4' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Open' }))
+
+    expect(onConfirm).toHaveBeenCalledWith(defaultFolder, 'codex', '', 'auto', 'gpt-5.4')
   })
 
   it('calls onCancel from the cancel button', () => {

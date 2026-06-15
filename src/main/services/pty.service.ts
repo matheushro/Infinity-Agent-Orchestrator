@@ -10,7 +10,7 @@ import type {
   PtyDataPayload,
   PtyExitPayload
 } from '@shared/types/ipc'
-import { contextFileForCmd } from '@shared/agents'
+import { contextFileForCmd, modelEnvForCmd, modelArgForCmd } from '@shared/agents'
 import * as iaoService from './iao.service'
 import * as skillService from './skill.service'
 import { applyPrompt } from './promptFile.service'
@@ -29,6 +29,24 @@ function findOnPath(bin: string): string | null {
     if (existsSync(full)) return full
   }
   return null
+}
+
+/** Single-quote a value for safe interpolation into the launch shell line. */
+function quoteArg(value: string): string {
+  if (/^[A-Za-z0-9_./:@%+=,-]+$/.test(value)) return value
+  return `'${value.replace(/'/g, `'\\''`)}'`
+}
+
+/**
+ * Build the shell line that launches the agent. For agents that select their
+ * model via a flag and expose no model env var (Codex, Cursor, Copilot,
+ * OpenCode), append `<modelArg> <model>`. Env-var agents (Claude, Gemini)
+ * receive the model through their environment instead, so the line stays bare.
+ */
+function launchLine(command: string, model?: string): string {
+  if (!model || modelEnvForCmd(command)) return command
+  const arg = modelArgForCmd(command)
+  return arg ? `${command} ${arg} ${quoteArg(model)}` : command
 }
 
 /** Allow forcing bash/zsh; fall back if the requested shell does not exist. */
@@ -86,6 +104,17 @@ export function createPty(args: PtyCreateArgs, callbacks: PtyCallbacks): PtyCrea
   }
   if (skillPath) iaoEnv.IAO_SKILL_PATH = skillPath
 
+  // Pin the agent to a specific model. Agents with a model env var (Claude →
+  // ANTHROPIC_MODEL, Gemini → GEMINI_MODEL) get it injected per-pty, so the
+  // choice is isolated to this terminal and survives the agent's own `/clear` —
+  // it never inherits a model last selected in another terminal sharing the
+  // global config. Agents without one receive `--model <model>` on the launch
+  // line instead (see `launchLine`). No model leaves the agent on its default.
+  if (args.command && args.model) {
+    const modelEnv = modelEnvForCmd(args.command)
+    if (modelEnv) iaoEnv[modelEnv] = args.model
+  }
+
   const env: { [key: string]: string } = { ...(process.env as { [key: string]: string }), ...iaoEnv }
   // On macOS, GUI-launched apps inherit a minimal PATH from launchd. Spawning
   // as a login shell makes zsh/bash load /etc/zprofile (path_helper) and the
@@ -115,7 +144,8 @@ export function createPty(args: PtyCreateArgs, callbacks: PtyCallbacks): PtyCrea
   // prompt already lives in the agent's context file, so the launch command
   // carries no prompt and nothing is re-sent per turn.
   if (args.command) {
-    setTimeout(() => proc.write(`${args.command}\r`), LAUNCH_CMD_MS)
+    const line = launchLine(args.command, args.model)
+    setTimeout(() => proc.write(`${line}\r`), LAUNCH_CMD_MS)
   }
 
   return { id: args.id, shell: shellPath }

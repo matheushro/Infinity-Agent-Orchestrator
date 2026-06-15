@@ -276,6 +276,7 @@ export function useTerminalSession(
         cwd: node.cwd,
         command: COMMANDS[node.command].cmd,
         prompt: node.prompt,
+        model: node.model,
       })
       .then(() => {
         if (disposed) return

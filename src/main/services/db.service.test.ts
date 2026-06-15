@@ -288,6 +288,7 @@ function makeTerminal(overrides: Partial<TerminalRecord> = {}): TerminalRecord {
     command: 'claude',
     shell: 'bash',
     prompt: '',
+    model: '',
     x: 0,
     y: 0,
     width: 800,
@@ -554,6 +555,35 @@ describe('upsertTerminal', () => {
       created_at: 1, workspace_id: 'default', position: 0, enabled: 1,
     })
     expect(listActiveTerminals().find(r => r.id === 'legacy-prompt')?.prompt).toBe('')
+  })
+
+  it('persists the pinned model and reads it back', () => {
+    upsertTerminal(makeTerminal({ id: 'm-1', model: 'opus' }))
+    const found = listActiveTerminals().find(r => r.id === 'm-1')
+    expect(found?.model).toBe('opus')
+  })
+
+  it('defaults model to an empty string when none is given', () => {
+    upsertTerminal(makeTerminal({ id: 'm-default' }))
+    const found = listActiveTerminals().find(r => r.id === 'm-default')
+    expect(found?.model).toBe('')
+  })
+
+  it('updates the model on conflict (re-pin persists)', () => {
+    const t = makeTerminal({ id: 'm-edit', model: 'sonnet' })
+    upsertTerminal(t)
+    upsertTerminal({ ...t, model: 'opus' })
+    expect(listActiveTerminals().find(r => r.id === 'm-edit')?.model).toBe('opus')
+  })
+
+  it('reads legacy rows with no model column as an empty string', () => {
+    // Simulate a pre-migration row that has no `model` key at all.
+    store.terminals.set('legacy-model', {
+      id: 'legacy-model', title: 'Legacy', cwd: '/', command: 'claude',
+      shell: 'bash', prompt: '', x: 0, y: 0, width: 800, height: 600, active: 1,
+      created_at: 1, workspace_id: 'default', position: 0, enabled: 1,
+    })
+    expect(listActiveTerminals().find(r => r.id === 'legacy-model')?.model).toBe('')
   })
 })
 
