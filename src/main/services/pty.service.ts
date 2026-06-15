@@ -48,26 +48,30 @@ interface PtyCallbacks {
 /** Spawn a pty, route its output through the callbacks and fire the agent command. */
 export function createPty(args: PtyCreateArgs, callbacks: PtyCallbacks): PtyCreateResult {
   const shellPath = resolveShell(args.shell)
-  const workdir = args.cwd && existsSync(args.cwd) ? args.cwd : os.homedir()
+  const repoCwd = args.cwd && existsSync(args.cwd) ? args.cwd : os.homedir()
 
   // Ensure the IAO skill template is materialized in the project before the
   // agent starts, so it can pick the skill up on its own. Best-effort: a
   // failure here (missing template, unwritable cwd) must not block the pty.
   let skillPath: string | undefined
   try {
-    skillPath = skillService.ensureIAOSkill(workdir)
+    skillPath = skillService.ensureIAOSkill(repoCwd)
   } catch (err) {
     console.warn('[pty] iao skill setup skipped:', (err as Error).message)
   }
 
-  // Deliver the per-terminal prompt by writing it into the agent's native
-  // context file (CLAUDE.md / AGENTS.md / …) before the shell starts, so the
-  // agent reads its role from there instead of via a launch flag or REPL write.
-  // An empty prompt clears any stale block left by a previous role. Best-effort:
-  // applyPrompt swallows its own errors and never blocks the pty.
+  // Deliver the per-terminal prompt Maestri-style: write it into a private,
+  // gitignored role subdirectory and launch the agent there, so the repo's own
+  // CLAUDE.md/AGENTS.md is never touched and two terminals in the same folder can
+  // carry different prompts. The agent still merges the repo's root context file
+  // (agents resolve context by walking up from the cwd). An empty prompt — or any
+  // failure — keeps the agent in the repo root. `nodeId` keys the role dir so it
+  // stays stable across StrictMode remounts; `id` is the per-mount fallback.
+  let workdir = repoCwd
   if (args.command) {
     const prompt = args.prompt?.trim() ? args.prompt : ''
-    applyPrompt(workdir, contextFileForCmd(args.command), prompt)
+    const roleDir = applyPrompt(repoCwd, args.nodeId ?? args.id, contextFileForCmd(args.command), prompt)
+    if (roleDir) workdir = roleDir
   }
 
   // When the pty maps to a known canvas node, register it with the iao bridge

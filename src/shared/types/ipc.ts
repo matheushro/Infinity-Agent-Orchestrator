@@ -46,7 +46,8 @@ export interface PtyCreateArgs {
   rows: number
   cwd?: string
   command?: string
-  // Base prompt written into the agent's context file at launch (see
+  // Per-terminal prompt delivered via the agent's context file in a private,
+  // gitignored role subdirectory the agent is launched in (see
   // promptFile.service). Empty/omitted means no prompt. Ignored for a plain
   // terminal (no command).
   prompt?: string

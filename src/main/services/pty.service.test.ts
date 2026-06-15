@@ -386,17 +386,59 @@ describe('createPty — command scheduling', () => {
 // suite). A real, existing directory keeps workdir == cwd instead of falling
 // back to os.homedir().
 describe('createPty — file-based prompt delivery', () => {
-  it('writes the prompt into the agent context file via applyPrompt (claude → CLAUDE.md)', () => {
+  it('delivers the prompt via applyPrompt (repoCwd, roleId, claude → CLAUDE.md)', () => {
     const proc = makeMockProc()
     mockSpawn.mockReturnValue(proc as any)
     mockExistsSync.mockReturnValue(true)
 
     createPty(
-      makeArgs({ cwd: '/tmp', command: 'claude', prompt: 'You are a reviewer.' }),
+      makeArgs({ cwd: '/tmp', nodeId: 'node-7', command: 'claude', prompt: 'You are a reviewer.' }),
       makeCallbacks(),
     )
 
-    expect(mockApplyPrompt).toHaveBeenCalledWith('/tmp', 'CLAUDE.md', 'You are a reviewer.')
+    expect(mockApplyPrompt).toHaveBeenCalledWith('/tmp', 'node-7', 'CLAUDE.md', 'You are a reviewer.')
+  })
+
+  it('keys the role directory on nodeId, falling back to the pty id', () => {
+    const proc = makeMockProc()
+    mockSpawn.mockReturnValue(proc as any)
+    mockExistsSync.mockReturnValue(true)
+
+    // No nodeId → the per-mount pty id is used so the role still has a home.
+    createPty(makeArgs({ id: 'pty-1', cwd: '/tmp', command: 'claude', prompt: 'Role' }), makeCallbacks())
+
+    expect(mockApplyPrompt).toHaveBeenCalledWith('/tmp', 'pty-1', 'CLAUDE.md', 'Role')
+  })
+
+  it('launches the agent in the private role directory returned by applyPrompt', () => {
+    const proc = makeMockProc()
+    mockSpawn.mockReturnValue(proc as any)
+    mockExistsSync.mockReturnValue(true)
+    mockApplyPrompt.mockReturnValue('/tmp/.iao/roles/node-7')
+
+    createPty(
+      makeArgs({ cwd: '/tmp', nodeId: 'node-7', command: 'claude', prompt: 'Role' }),
+      makeCallbacks(),
+    )
+
+    expect(mockSpawn).toHaveBeenCalledWith(
+      expect.any(String), expectedShellArgs,
+      expect.objectContaining({ cwd: '/tmp/.iao/roles/node-7' }),
+    )
+  })
+
+  it('keeps the repo root as cwd when applyPrompt returns null (no role)', () => {
+    const proc = makeMockProc()
+    mockSpawn.mockReturnValue(proc as any)
+    mockExistsSync.mockReturnValue(true)
+    mockApplyPrompt.mockReturnValue(null)
+
+    createPty(makeArgs({ cwd: '/tmp', command: 'claude', prompt: '   ' }), makeCallbacks())
+
+    expect(mockSpawn).toHaveBeenCalledWith(
+      expect.any(String), expectedShellArgs,
+      expect.objectContaining({ cwd: '/tmp' }),
+    )
   })
 
   it('resolves the context file by command (codex → AGENTS.md)', () => {
@@ -404,9 +446,12 @@ describe('createPty — file-based prompt delivery', () => {
     mockSpawn.mockReturnValue(proc as any)
     mockExistsSync.mockReturnValue(true)
 
-    createPty(makeArgs({ cwd: '/tmp', command: 'codex', prompt: 'Be terse.' }), makeCallbacks())
+    createPty(
+      makeArgs({ cwd: '/tmp', nodeId: 'node-7', command: 'codex', prompt: 'Be terse.' }),
+      makeCallbacks(),
+    )
 
-    expect(mockApplyPrompt).toHaveBeenCalledWith('/tmp', 'AGENTS.md', 'Be terse.')
+    expect(mockApplyPrompt).toHaveBeenCalledWith('/tmp', 'node-7', 'AGENTS.md', 'Be terse.')
   })
 
   it('launches the agent command WITHOUT any embedded prompt and never re-sends it', () => {
@@ -430,9 +475,12 @@ describe('createPty — file-based prompt delivery', () => {
     mockSpawn.mockReturnValue(proc as any)
     mockExistsSync.mockReturnValue(true)
 
-    createPty(makeArgs({ cwd: '/tmp', command: 'codex', prompt: '   ' }), makeCallbacks())
+    createPty(
+      makeArgs({ cwd: '/tmp', nodeId: 'node-7', command: 'codex', prompt: '   ' }),
+      makeCallbacks(),
+    )
 
-    expect(mockApplyPrompt).toHaveBeenCalledWith('/tmp', 'AGENTS.md', '')
+    expect(mockApplyPrompt).toHaveBeenCalledWith('/tmp', 'node-7', 'AGENTS.md', '')
   })
 
   it('does NOT call applyPrompt for a plain terminal (no command)', () => {

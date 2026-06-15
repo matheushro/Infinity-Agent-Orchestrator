@@ -10,11 +10,12 @@ vi.mock('fs', async (importOriginal) => {
     readFileSync: vi.fn(),
     writeFileSync: vi.fn(),
     appendFileSync: vi.fn(),
+    rmSync: vi.fn(),
   }
   return { ...actual, ...overrides, default: { ...actual, ...overrides } }
 })
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, rmSync } from 'fs'
 import { applyPrompt } from './promptFile.service'
 
 const mockExistsSync = vi.mocked(existsSync)
@@ -22,14 +23,14 @@ const mockMkdirSync = vi.mocked(mkdirSync)
 const mockReadFileSync = vi.mocked(readFileSync)
 const mockWriteFileSync = vi.mocked(writeFileSync)
 const mockAppendFileSync = vi.mocked(appendFileSync)
+const mockRmSync = vi.mocked(rmSync)
 
 const CWD = '/project'
-const CLAUDE = '/project/CLAUDE.md'
+const ROLE = 'node-1'
+const ROLE_DIR = '/project/.iao/roles/node-1'
+const CLAUDE = '/project/.iao/roles/node-1/CLAUDE.md'
 const GIT = '/project/.git'
 const GITIGNORE = '/project/.gitignore'
-
-const BLOCK_START = '<!-- iao:prompt start -->'
-const BLOCK_END = '<!-- iao:prompt end -->'
 
 /** Configure existsSync (by path set) and readFileSync (by path→content map). */
 function mockFs(opts: { exists?: string[]; contents?: Record<string, string> } = {}): void {
@@ -48,112 +49,118 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
-describe('applyPrompt — creating the block', () => {
-  it('writes a fresh context file with the prompt wrapped in markers', () => {
-    mockFs({ exists: [GIT] }) // git repo, but no CLAUDE.md yet
+describe('applyPrompt — writing the role file into a private subdirectory', () => {
+  it('writes the prompt into <repo>/.iao/roles/<id>/<contextFile> and returns that dir', () => {
+    mockFs({ exists: [GIT] })
 
-    applyPrompt(CWD, 'CLAUDE.md', 'You are a reviewer.')
+    const dir = applyPrompt(CWD, ROLE, 'CLAUDE.md', 'You are a reviewer.')
 
-    expect(mockMkdirSync).toHaveBeenCalledWith(CWD, { recursive: true })
-    expect(written(CLAUDE)).toBe(`${BLOCK_START}\nYou are a reviewer.\n${BLOCK_END}\n`)
+    expect(dir).toBe(ROLE_DIR)
+    expect(mockMkdirSync).toHaveBeenCalledWith(ROLE_DIR, { recursive: true })
+    expect(written(CLAUDE)).toContain('You are a reviewer.')
+  })
+
+  it('never writes the repository\'s own context file', () => {
+    mockFs({ exists: [GIT] })
+
+    applyPrompt(CWD, ROLE, 'CLAUDE.md', 'You are a reviewer.')
+
+    // The repo-root CLAUDE.md / AGENTS.md must be untouched.
+    expect(written('/project/CLAUDE.md')).toBeUndefined()
+    expect(written('/project/AGENTS.md')).toBeUndefined()
+  })
+
+  it('gives two terminals in the same folder different role directories', () => {
+    mockFs({ exists: [GIT] })
+
+    const a = applyPrompt(CWD, 'node-a', 'CLAUDE.md', 'Role A')
+    const b = applyPrompt(CWD, 'node-b', 'CLAUDE.md', 'Role B')
+
+    expect(a).toBe('/project/.iao/roles/node-a')
+    expect(b).toBe('/project/.iao/roles/node-b')
+    expect(a).not.toBe(b)
+  })
+
+  it('trims surrounding whitespace from the prompt', () => {
+    mockFs({ exists: [GIT] })
+
+    applyPrompt(CWD, ROLE, 'CLAUDE.md', '  \n  Role here  \n  ')
+
+    expect(written(CLAUDE)).toContain('\nRole here\n')
+    expect(written(CLAUDE)).not.toContain('  Role here')
   })
 
   it('creates parent directories for a nested context file', () => {
     mockFs({ exists: [GIT] })
 
-    applyPrompt(CWD, '.github/copilot-instructions.md', 'Be terse.')
+    const dir = applyPrompt(CWD, ROLE, '.github/copilot-instructions.md', 'Be terse.')
 
-    expect(mockMkdirSync).toHaveBeenCalledWith('/project/.github', { recursive: true })
-    expect(written('/project/.github/copilot-instructions.md')).toContain('Be terse.')
+    expect(dir).toBe(ROLE_DIR)
+    expect(mockMkdirSync).toHaveBeenCalledWith(`${ROLE_DIR}/.github`, { recursive: true })
+    expect(written(`${ROLE_DIR}/.github/copilot-instructions.md`)).toContain('Be terse.')
   })
 
-  it('trims surrounding whitespace from the prompt before writing the block', () => {
+  it('resolves the context file name it is given (codex → AGENTS.md)', () => {
     mockFs({ exists: [GIT] })
 
-    applyPrompt(CWD, 'CLAUDE.md', '  \n  Role here  \n  ')
+    applyPrompt(CWD, ROLE, 'AGENTS.md', 'Be terse.')
 
-    expect(written(CLAUDE)).toBe(`${BLOCK_START}\nRole here\n${BLOCK_END}\n`)
+    expect(written(`${ROLE_DIR}/AGENTS.md`)).toContain('Be terse.')
   })
 })
 
-describe('applyPrompt — updating an existing block', () => {
-  it('replaces only the block and preserves user content around it', () => {
-    const existing = `# My project\n\nUser notes.\n\n${BLOCK_START}\nOLD ROLE\n${BLOCK_END}\n\nMore notes.\n`
-    mockFs({ exists: [CLAUDE, GIT], contents: { [CLAUDE]: existing } })
+describe('applyPrompt — empty prompt clears the role', () => {
+  it('removes a stale role file and returns null', () => {
+    mockFs({ exists: [GIT, CLAUDE] })
 
-    applyPrompt(CWD, 'CLAUDE.md', 'NEW ROLE')
+    const dir = applyPrompt(CWD, ROLE, 'CLAUDE.md', '   ')
 
-    const out = written(CLAUDE)!
-    expect(out).toContain('# My project')
-    expect(out).toContain('User notes.')
-    expect(out).toContain('More notes.')
-    expect(out).toContain('NEW ROLE')
-    expect(out).not.toContain('OLD ROLE')
+    expect(dir).toBeNull()
+    expect(mockRmSync).toHaveBeenCalledWith(CLAUDE)
+    expect(mockWriteFileSync).not.toHaveBeenCalled()
   })
 
-  it('appends a block to a user file that has none, keeping their content intact', () => {
-    mockFs({ exists: [CLAUDE, GIT], contents: { [CLAUDE]: '# My project\n' } })
+  it('does nothing when the prompt is empty and there is no role file', () => {
+    mockFs({ exists: [GIT] })
 
-    applyPrompt(CWD, 'CLAUDE.md', 'My role')
+    const dir = applyPrompt(CWD, ROLE, 'CLAUDE.md', '')
 
-    const out = written(CLAUDE)!
-    expect(out).toContain('# My project')
-    expect(out).toContain(`${BLOCK_START}\nMy role\n${BLOCK_END}`)
-  })
-})
-
-describe('applyPrompt — empty prompt removes the block', () => {
-  it('strips the block but keeps the user content around it', () => {
-    const existing = `# My project\n\n${BLOCK_START}\nOLD ROLE\n${BLOCK_END}\n`
-    mockFs({ exists: [CLAUDE, GIT], contents: { [CLAUDE]: existing } })
-
-    applyPrompt(CWD, 'CLAUDE.md', '')
-
-    const out = written(CLAUDE)!
-    expect(out).toContain('# My project')
-    expect(out).not.toContain(BLOCK_START)
-    expect(out).not.toContain('OLD ROLE')
-  })
-
-  it('does nothing when the prompt is empty and there is no block', () => {
-    mockFs({ exists: [CLAUDE, GIT], contents: { [CLAUDE]: '# My project\n' } })
-
-    applyPrompt(CWD, 'CLAUDE.md', '   ')
-
+    expect(dir).toBeNull()
+    expect(mockRmSync).not.toHaveBeenCalled()
     expect(mockWriteFileSync).not.toHaveBeenCalled()
   })
 })
 
 describe('applyPrompt — .gitignore handling', () => {
-  it('gitignores a context file that IAO created from scratch (inside a git repo)', () => {
+  it('adds .iao/ to .gitignore inside a git repo', () => {
     mockFs({ exists: [GIT] })
 
-    applyPrompt(CWD, 'CLAUDE.md', 'Role')
+    applyPrompt(CWD, ROLE, 'CLAUDE.md', 'Role')
 
-    expect(mockAppendFileSync).toHaveBeenCalledWith(GITIGNORE, 'CLAUDE.md\n')
+    expect(mockAppendFileSync).toHaveBeenCalledWith(GITIGNORE, '.iao/\n')
   })
 
-  it('does NOT touch .gitignore when the context file already belonged to the user', () => {
-    mockFs({ exists: [CLAUDE, GIT], contents: { [CLAUDE]: '# Mine\n' } })
+  it('does NOT touch .gitignore outside a git repo', () => {
+    mockFs({ exists: [] }) // no .git
 
-    applyPrompt(CWD, 'CLAUDE.md', 'Role')
+    applyPrompt(CWD, ROLE, 'CLAUDE.md', 'Role')
 
-    expect(mockAppendFileSync).not.toHaveBeenCalled()
-  })
-
-  it('does NOT create a .gitignore outside a git repo', () => {
-    mockFs({ exists: [] }) // no .git, no file
-
-    applyPrompt(CWD, 'CLAUDE.md', 'Role')
-
-    expect(mockWriteFileSync).toHaveBeenCalled() // the context file is still written
+    expect(mockWriteFileSync).toHaveBeenCalled() // the role file is still written
     expect(mockAppendFileSync).not.toHaveBeenCalled()
   })
 
   it('does NOT duplicate an entry already present in .gitignore', () => {
-    mockFs({ exists: [GIT, GITIGNORE], contents: { [GITIGNORE]: 'node_modules\nCLAUDE.md\n' } })
+    mockFs({ exists: [GIT, GITIGNORE], contents: { [GITIGNORE]: 'node_modules\n.iao/\n' } })
 
-    applyPrompt(CWD, 'CLAUDE.md', 'Role')
+    applyPrompt(CWD, ROLE, 'CLAUDE.md', 'Role')
+
+    expect(mockAppendFileSync).not.toHaveBeenCalled()
+  })
+
+  it('treats /.iao and .iao (no slash) as already ignored', () => {
+    mockFs({ exists: [GIT, GITIGNORE], contents: { [GITIGNORE]: '/.iao\n' } })
+
+    applyPrompt(CWD, ROLE, 'CLAUDE.md', 'Role')
 
     expect(mockAppendFileSync).not.toHaveBeenCalled()
   })
@@ -161,19 +168,23 @@ describe('applyPrompt — .gitignore handling', () => {
   it('appends a newline before the entry when .gitignore lacks a trailing newline', () => {
     mockFs({ exists: [GIT, GITIGNORE], contents: { [GITIGNORE]: 'node_modules' } })
 
-    applyPrompt(CWD, 'CLAUDE.md', 'Role')
+    applyPrompt(CWD, ROLE, 'CLAUDE.md', 'Role')
 
-    expect(mockAppendFileSync).toHaveBeenCalledWith(GITIGNORE, '\nCLAUDE.md\n')
+    expect(mockAppendFileSync).toHaveBeenCalledWith(GITIGNORE, '\n.iao/\n')
   })
 })
 
 describe('applyPrompt — best-effort', () => {
-  it('does not throw when a filesystem write fails', () => {
+  it('does not throw and returns null when a filesystem write fails', () => {
     mockFs({ exists: [GIT] })
     mockWriteFileSync.mockImplementation(() => {
       throw new Error('EACCES')
     })
 
-    expect(() => applyPrompt(CWD, 'CLAUDE.md', 'Role')).not.toThrow()
+    let dir: string | null = 'unset' as unknown as string
+    expect(() => {
+      dir = applyPrompt(CWD, ROLE, 'CLAUDE.md', 'Role')
+    }).not.toThrow()
+    expect(dir).toBeNull()
   })
 })
