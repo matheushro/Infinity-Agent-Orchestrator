@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { AGENTS, agentByCmd, contextFileForCmd, DEFAULT_CONTEXT_FILE } from './agents'
+import { AGENTS, agentByCmd, contextFileForCmd, addDirArgForCmd, DEFAULT_CONTEXT_FILE } from './agents'
 import type { AgentKey } from './agents'
 
 describe('AGENTS registry', () => {
@@ -71,6 +71,35 @@ describe('AGENTS registry', () => {
 
   it('the plain terminal declares no context file', () => {
     expect(AGENTS.terminal.contextFile).toBeUndefined()
+  })
+
+  it('declares the add-dir flag for agents that take one (Claude/Codex/Copilot --add-dir, Gemini --include-directories)', () => {
+    expect(AGENTS.claude.addDirArg).toBe('--add-dir')
+    expect(AGENTS.codex.addDirArg).toBe('--add-dir')
+    expect(AGENTS.copilot.addDirArg).toBe('--add-dir')
+    expect(AGENTS.gemini.addDirArg).toBe('--include-directories')
+  })
+
+  it('declares no add-dir flag for agents that gate access via config files instead (OpenCode/Cursor) or run no agent (terminal)', () => {
+    expect(AGENTS.opencode.addDirArg).toBeUndefined()
+    expect(AGENTS.cursor.addDirArg).toBeUndefined()
+    expect(AGENTS.terminal.addDirArg).toBeUndefined()
+  })
+})
+
+describe('addDirArgForCmd', () => {
+  it('resolves the add-dir flag by launch command', () => {
+    expect(addDirArgForCmd('claude')).toBe('--add-dir')
+    expect(addDirArgForCmd('codex')).toBe('--add-dir')
+    expect(addDirArgForCmd('copilot')).toBe('--add-dir')
+    expect(addDirArgForCmd('gemini')).toBe('--include-directories')
+  })
+
+  it('returns undefined for agents without the flag, a plain terminal, or an unknown command', () => {
+    expect(addDirArgForCmd('opencode')).toBeUndefined()
+    expect(addDirArgForCmd('cursor-agent')).toBeUndefined()
+    expect(addDirArgForCmd('')).toBeUndefined()
+    expect(addDirArgForCmd('nonexistent-cli')).toBeUndefined()
   })
 })
 

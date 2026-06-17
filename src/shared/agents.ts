@@ -44,6 +44,20 @@ export interface AgentDef {
    */
   modelArg?: string
   /**
+   * Launch flag that adds an extra directory to the agent's accessible/writable
+   * workspace (Claude, Codex, Copilot: `--add-dir`; Gemini:
+   * `--include-directories`). IAO launches each terminal inside its private role
+   * subdir so the agent reads its prompt from a context file there (see
+   * `contextFile`); that subdir becomes the agent's cwd, which would push the
+   * *project root* outside the workspace and make the agent prompt for access to
+   * every project file. IAO appends `<addDirArg> <repoRoot>` so the project root
+   * stays inside the workspace and edits behave as if the agent had been launched
+   * at the repo root — no per-file approval, no permission bypass. Agents that
+   * declare none (or deliver this via a config file rather than a launch flag,
+   * e.g. OpenCode/Cursor) keep their default behaviour: no flag is appended.
+   */
+  addDirArg?: string
+  /**
    * Curated models offered as a dropdown (only where the ids are stable, e.g.
    * Claude/Gemini). Agents that support a model (`modelEnv`/`modelArg`) but
    * declare no list get a free-text field instead, so volatile/provider-specific
@@ -65,6 +79,7 @@ export const AGENTS = {
     icon: '🧠',
     skillDir: '.codex/skills/iao',
     contextFile: 'AGENTS.md',
+    addDirArg: '--add-dir',
     modelArg: '--model',
     modelHint: 'e.g. gpt-5.4',
   },
@@ -75,6 +90,7 @@ export const AGENTS = {
     icon: '✳️',
     skillDir: '.claude/skills/iao',
     contextFile: 'CLAUDE.md',
+    addDirArg: '--add-dir',
     modelEnv: 'ANTHROPIC_MODEL',
     // Family aliases (not dated ids) so a pin tracks the latest of each tier and
     // does not rot when a new snapshot ships. Claude Code resolves these.
@@ -91,6 +107,8 @@ export const AGENTS = {
     icon: '✦',
     skillDir: '.gemini/skills/iao',
     contextFile: 'GEMINI.md',
+    // Gemini CLI adds extra workspace dirs with `--include-directories`, not `--add-dir`.
+    addDirArg: '--include-directories',
     // Gemini CLI reads GEMINI_MODEL (flag > GEMINI_MODEL > settings.json > default).
     modelEnv: 'GEMINI_MODEL',
     models: [
@@ -105,6 +123,7 @@ export const AGENTS = {
     icon: '🐙',
     skillDir: '.copilot/skills/iao',
     contextFile: '.github/copilot-instructions.md',
+    addDirArg: '--add-dir',
     modelArg: '--model',
     modelHint: 'e.g. claude-sonnet-4.5',
   },
@@ -176,6 +195,16 @@ export function modelEnvForCmd(cmd: string): string | undefined {
  */
 export function modelArgForCmd(cmd: string): string | undefined {
   return agentByCmd(cmd)?.modelArg
+}
+
+/**
+ * Resolve the flag an agent uses to add an extra workspace directory (e.g.
+ * `--add-dir`), by launch command. Returns undefined when the agent declares
+ * none — in which case IAO appends no directory flag and the agent keeps its
+ * default workspace behaviour.
+ */
+export function addDirArgForCmd(cmd: string): string | undefined {
+  return agentByCmd(cmd)?.addDirArg
 }
 
 /** True when the agent can be pinned to a model at all (env var or launch flag). */

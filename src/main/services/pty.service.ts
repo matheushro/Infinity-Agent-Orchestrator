@@ -10,7 +10,7 @@ import type {
   PtyDataPayload,
   PtyExitPayload
 } from '@shared/types/ipc'
-import { contextFileForCmd, modelEnvForCmd, modelArgForCmd } from '@shared/agents'
+import { contextFileForCmd, modelEnvForCmd, modelArgForCmd, addDirArgForCmd } from '@shared/agents'
 import * as iaoService from './iao.service'
 import * as skillService from './skill.service'
 import { applyPrompt } from './promptFile.service'
@@ -38,15 +38,30 @@ function quoteArg(value: string): string {
 }
 
 /**
- * Build the shell line that launches the agent. For agents that select their
- * model via a flag and expose no model env var (Codex, Cursor, Copilot,
- * OpenCode), append `<modelArg> <model>`. Env-var agents (Claude, Gemini)
- * receive the model through their environment instead, so the line stays bare.
+ * Build the shell line that launches the agent.
+ *
+ * Model: for agents that select their model via a flag and expose no model env
+ * var (Codex, Cursor, Copilot, OpenCode), append `<modelArg> <model>`. Env-var
+ * agents (Claude, Gemini) receive the model through their environment instead,
+ * so that part stays bare.
+ *
+ * Workspace: when the agent was launched in its private role subdir (`addDir`
+ * set to the repo root), append the agent's "add directory" flag so the project
+ * root is part of its accessible workspace — otherwise it sits *outside* the
+ * agent's cwd and the agent prompts before touching every project file. Agents
+ * without such a flag get nothing appended.
  */
-function launchLine(command: string, model?: string): string {
-  if (!model || modelEnvForCmd(command)) return command
-  const arg = modelArgForCmd(command)
-  return arg ? `${command} ${arg} ${quoteArg(model)}` : command
+function launchLine(command: string, model?: string, addDir?: string): string {
+  let line = command
+  if (model && !modelEnvForCmd(command)) {
+    const arg = modelArgForCmd(command)
+    if (arg) line += ` ${arg} ${quoteArg(model)}`
+  }
+  if (addDir) {
+    const dirArg = addDirArgForCmd(command)
+    if (dirArg) line += ` ${dirArg} ${quoteArg(addDir)}`
+  }
+  return line
 }
 
 /** Allow forcing bash/zsh; fall back if the requested shell does not exist. */
@@ -85,6 +100,11 @@ export function createPty(args: PtyCreateArgs, callbacks: PtyCallbacks): PtyCrea
   // (agents resolve context by walking up from the cwd). An empty prompt — or any
   // failure — keeps the agent in the repo root. `nodeId` keys the role dir so it
   // stays stable across StrictMode remounts; `id` is the per-mount fallback.
+  //
+  // The cwd then sits *under* the repo, so the repo root is outside the agent's
+  // workspace and it would prompt before touching every project file. We re-add
+  // the repo root via the agent's "add directory" flag (see `launchLine`) so
+  // edits behave as if the agent had launched at the repo root.
   let workdir = repoCwd
   if (args.command) {
     const prompt = args.prompt?.trim() ? args.prompt : ''
@@ -142,9 +162,12 @@ export function createPty(args: PtyCreateArgs, callbacks: PtyCallbacks): PtyCrea
 
   // Fire the selected command (Codex / Claude Code) once the shell is up. The
   // prompt already lives in the agent's context file, so the launch command
-  // carries no prompt and nothing is re-sent per turn.
+  // carries no prompt and nothing is re-sent per turn. When the agent was
+  // launched in a role subdir, re-add the repo root to its workspace so it does
+  // not prompt for every project file (see `launchLine`).
   if (args.command) {
-    const line = launchLine(args.command, args.model)
+    const addDir = workdir !== repoCwd ? repoCwd : undefined
+    const line = launchLine(args.command, args.model, addDir)
     setTimeout(() => proc.write(`${line}\r`), LAUNCH_CMD_MS)
   }
 

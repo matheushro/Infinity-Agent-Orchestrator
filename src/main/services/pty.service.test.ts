@@ -604,6 +604,98 @@ describe('createPty — file-based prompt delivery', () => {
   })
 })
 
+// ===========================================================================
+// createPty — workspace add-dir (role subdir → re-add repo root to workspace)
+// ===========================================================================
+
+// When the agent launches in its private role subdir, the repo root sits
+// *outside* its cwd and it would prompt before touching every project file.
+// IAO appends the agent's "add directory" flag pointing at the repo root so
+// edits behave as if it had launched at the root.
+describe('createPty — workspace add-dir', () => {
+  it('appends --add-dir <repoCwd> for Claude when launched in a role subdir', () => {
+    vi.useFakeTimers()
+    const proc = makeMockProc()
+    mockSpawn.mockReturnValue(proc as any)
+    mockExistsSync.mockReturnValue(true)
+    mockApplyPrompt.mockReturnValue('/tmp/.iao/roles/node-7')
+
+    createPty(
+      makeArgs({ cwd: '/tmp', nodeId: 'node-7', command: 'claude', prompt: 'Role' }),
+      makeCallbacks(),
+    )
+    vi.advanceTimersByTime(250)
+
+    expect(proc.write).toHaveBeenCalledWith('claude --add-dir /tmp\r')
+    vi.useRealTimers()
+  })
+
+  it('combines the model flag and --add-dir for a flag-model agent (codex)', () => {
+    vi.useFakeTimers()
+    const proc = makeMockProc()
+    mockSpawn.mockReturnValue(proc as any)
+    mockExistsSync.mockReturnValue(true)
+    mockApplyPrompt.mockReturnValue('/tmp/.iao/roles/node-7')
+
+    createPty(
+      makeArgs({ cwd: '/tmp', nodeId: 'node-7', command: 'codex', model: 'gpt-5.4', prompt: 'Role' }),
+      makeCallbacks(),
+    )
+    vi.advanceTimersByTime(250)
+
+    expect(proc.write).toHaveBeenCalledWith('codex --model gpt-5.4 --add-dir /tmp\r')
+    vi.useRealTimers()
+  })
+
+  it("uses Gemini's --include-directories flag instead of --add-dir", () => {
+    vi.useFakeTimers()
+    const proc = makeMockProc()
+    mockSpawn.mockReturnValue(proc as any)
+    mockExistsSync.mockReturnValue(true)
+    mockApplyPrompt.mockReturnValue('/tmp/.iao/roles/node-7')
+
+    createPty(
+      makeArgs({ cwd: '/tmp', nodeId: 'node-7', command: 'gemini', prompt: 'Role' }),
+      makeCallbacks(),
+    )
+    vi.advanceTimersByTime(250)
+
+    expect(proc.write).toHaveBeenCalledWith('gemini --include-directories /tmp\r')
+    vi.useRealTimers()
+  })
+
+  it('appends no directory flag for an agent that declares none (opencode)', () => {
+    vi.useFakeTimers()
+    const proc = makeMockProc()
+    mockSpawn.mockReturnValue(proc as any)
+    mockExistsSync.mockReturnValue(true)
+    mockApplyPrompt.mockReturnValue('/tmp/.iao/roles/node-7')
+
+    createPty(
+      makeArgs({ cwd: '/tmp', nodeId: 'node-7', command: 'opencode', prompt: 'Role' }),
+      makeCallbacks(),
+    )
+    vi.advanceTimersByTime(250)
+
+    expect(proc.write).toHaveBeenCalledWith('opencode\r')
+    vi.useRealTimers()
+  })
+
+  it('does NOT append --add-dir when there is no role subdir (agent already at repo root)', () => {
+    vi.useFakeTimers()
+    const proc = makeMockProc()
+    mockSpawn.mockReturnValue(proc as any)
+    mockExistsSync.mockReturnValue(true)
+    mockApplyPrompt.mockReturnValue(null)
+
+    createPty(makeArgs({ cwd: '/tmp', command: 'claude', prompt: '   ' }), makeCallbacks())
+    vi.advanceTimersByTime(250)
+
+    expect(proc.write).toHaveBeenCalledWith('claude\r')
+    vi.useRealTimers()
+  })
+})
+
 describe('createPty — ensureIAOSkill best-effort', () => {
   it('continues and spawns the pty even if ensureIAOSkill throws', () => {
     const proc = makeMockProc()
