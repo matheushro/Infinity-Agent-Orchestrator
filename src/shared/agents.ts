@@ -58,6 +58,16 @@ export interface AgentDef {
    */
   addDirArg?: string
   /**
+   * Extra launch tokens some agents need for `addDirArg` to actually take
+   * effect, emitted only when the add-dir flag is. Codex silently ignores
+   * additional writable roots unless its sandbox is at least `workspace-write`
+   * ("Ignoring --add-dir … the effective permissions do not allow additional
+   * writable roots"), so IAO pairs `--add-dir` with `--sandbox workspace-write`
+   * — the least-privilege mode the error itself recommends. Agents whose
+   * add-dir works in their default mode (Claude, Gemini, Copilot) declare none.
+   */
+  addDirExtraArgs?: string
+  /**
    * Curated models offered as a dropdown (only where the ids are stable, e.g.
    * Claude/Gemini). Agents that support a model (`modelEnv`/`modelArg`) but
    * declare no list get a free-text field instead, so volatile/provider-specific
@@ -80,6 +90,8 @@ export const AGENTS = {
     skillDir: '.codex/skills/iao',
     contextFile: 'AGENTS.md',
     addDirArg: '--add-dir',
+    // Codex drops --add-dir unless its sandbox allows extra writable roots.
+    addDirExtraArgs: '--sandbox workspace-write',
     modelArg: '--model',
     modelHint: 'e.g. gpt-5.4',
   },
@@ -205,6 +217,15 @@ export function modelArgForCmd(cmd: string): string | undefined {
  */
 export function addDirArgForCmd(cmd: string): string | undefined {
   return agentByCmd(cmd)?.addDirArg
+}
+
+/**
+ * Resolve the extra launch tokens an agent needs for its add-dir flag to take
+ * effect (e.g. Codex's `--sandbox workspace-write`), by launch command. Returns
+ * undefined when the agent needs none. Only meaningful alongside `addDirArg`.
+ */
+export function addDirExtraArgsForCmd(cmd: string): string | undefined {
+  return agentByCmd(cmd)?.addDirExtraArgs
 }
 
 /** True when the agent can be pinned to a model at all (env var or launch flag). */

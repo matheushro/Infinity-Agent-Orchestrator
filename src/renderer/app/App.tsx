@@ -181,6 +181,7 @@ export default function App(): JSX.Element {
             onDefaultShellChange={setDefaultShell}
             onDefaultProjectFolderChange={setDefaultProjectFolder}
             onMaxWorkspacesChange={setMaxWorkspaces}
+            onBackupImported={() => window.location.reload()}
             onClose={() => setSettingsOpen(false)}
           />
         )}

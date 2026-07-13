@@ -14,8 +14,12 @@ interface SettingsModalProps {
   onDefaultShellChange: (shell: ShellType) => void
   onDefaultProjectFolderChange: (folder: string) => void
   onMaxWorkspacesChange: (limit: number) => void
+  /** Called after a backup file was merged into the DB (App reloads the UI). */
+  onBackupImported: () => void
   onClose: () => void
 }
+
+type BackupStatus = { kind: 'ok' | 'error'; text: string }
 
 export function SettingsModal({
   theme,
@@ -26,9 +30,12 @@ export function SettingsModal({
   onDefaultShellChange,
   onDefaultProjectFolderChange,
   onMaxWorkspacesChange,
+  onBackupImported,
   onClose,
 }: SettingsModalProps): JSX.Element {
   const [workspaceLimitDraft, setWorkspaceLimitDraft] = useState(String(maxWorkspaces))
+  const [backupStatus, setBackupStatus] = useState<BackupStatus | null>(null)
+  const [backupBusy, setBackupBusy] = useState(false)
 
   useEffect(() => {
     setWorkspaceLimitDraft(String(maxWorkspaces))
@@ -37,6 +44,37 @@ export function SettingsModal({
   async function pickDefaultProjectFolder(): Promise<void> {
     const selected = await window.dialogApi.selectFolder(defaultProjectFolder)
     if (selected) onDefaultProjectFolderChange(selected)
+  }
+
+  async function exportBackup(): Promise<void> {
+    setBackupBusy(true)
+    setBackupStatus(null)
+    try {
+      const result = await window.backupApi.exportToFile()
+      if (!result.canceled) {
+        setBackupStatus({ kind: 'ok', text: `Exported to ${result.path}` })
+      }
+    } catch {
+      setBackupStatus({ kind: 'error', text: 'Export failed. Check the chosen location and try again.' })
+    } finally {
+      setBackupBusy(false)
+    }
+  }
+
+  async function importBackup(): Promise<void> {
+    setBackupBusy(true)
+    setBackupStatus(null)
+    try {
+      const result = await window.backupApi.importFromFile()
+      if (!result.canceled) {
+        setBackupStatus({ kind: 'ok', text: 'Import complete — reloading…' })
+        onBackupImported()
+      }
+    } catch {
+      setBackupStatus({ kind: 'error', text: 'Import failed: not a valid IAO backup file.' })
+    } finally {
+      setBackupBusy(false)
+    }
   }
 
   function commitWorkspaceLimit(value: string): void {
@@ -139,6 +177,29 @@ export function SettingsModal({
             style={FIELD_STYLE}
             aria-label="Workspace limit"
           />
+        </Field>
+
+        <Field
+          label="Backup"
+          hint="Export everything (workspaces, terminals, agents, prompts, notes, texts, links) to a JSON file, or import a previously exported one. Importing merges by id and reloads the app."
+        >
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" disabled={backupBusy} onClick={exportBackup}>
+              Export data…
+            </Button>
+            <Button variant="secondary" disabled={backupBusy} onClick={importBackup}>
+              Import data…
+            </Button>
+          </div>
+          {backupStatus && (
+            <span
+              role="status"
+              className="text-[11px] break-all"
+              style={{ color: backupStatus.kind === 'error' ? '#e5484d' : 'var(--accent)' }}
+            >
+              {backupStatus.text}
+            </span>
+          )}
         </Field>
       </div>
     </Modal>

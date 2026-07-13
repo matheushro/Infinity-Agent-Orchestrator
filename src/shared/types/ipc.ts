@@ -26,6 +26,8 @@ export const IpcChannels = {
   noteLinksUpsert: 'note-links:upsert',
   noteLinksRemove: 'note-links:remove',
   dialogSelectFolder: 'dialog:select-folder',
+  backupExport: 'backup:export',
+  backupImport: 'backup:import',
   workspacesList: 'workspaces:list',
   workspacesCreate: 'workspaces:create',
   workspacesDelete: 'workspaces:delete',

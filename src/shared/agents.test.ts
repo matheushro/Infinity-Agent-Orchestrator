@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { AGENTS, agentByCmd, contextFileForCmd, addDirArgForCmd, DEFAULT_CONTEXT_FILE } from './agents'
+import {
+  AGENTS,
+  agentByCmd,
+  contextFileForCmd,
+  addDirArgForCmd,
+  addDirExtraArgsForCmd,
+  DEFAULT_CONTEXT_FILE,
+} from './agents'
 import type { AgentKey } from './agents'
 
 describe('AGENTS registry', () => {
@@ -100,6 +107,21 @@ describe('addDirArgForCmd', () => {
     expect(addDirArgForCmd('cursor-agent')).toBeUndefined()
     expect(addDirArgForCmd('')).toBeUndefined()
     expect(addDirArgForCmd('nonexistent-cli')).toBeUndefined()
+  })
+})
+
+describe('addDirExtraArgsForCmd', () => {
+  it("returns codex's sandbox flag so --add-dir is honoured", () => {
+    expect(AGENTS.codex.addDirExtraArgs).toBe('--sandbox workspace-write')
+    expect(addDirExtraArgsForCmd('codex')).toBe('--sandbox workspace-write')
+  })
+
+  it('returns undefined for agents whose add-dir works in their default mode', () => {
+    expect(addDirExtraArgsForCmd('claude')).toBeUndefined()
+    expect(addDirExtraArgsForCmd('gemini')).toBeUndefined()
+    expect(addDirExtraArgsForCmd('copilot')).toBeUndefined()
+    expect(addDirExtraArgsForCmd('')).toBeUndefined()
+    expect(addDirExtraArgsForCmd('nonexistent-cli')).toBeUndefined()
   })
 })
 

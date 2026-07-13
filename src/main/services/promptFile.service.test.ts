@@ -107,6 +107,32 @@ describe('applyPrompt — writing the role file into a private subdirectory', ()
 
     expect(written(`${ROLE_DIR}/AGENTS.md`)).toContain('Be terse.')
   })
+
+  it('appends a footer forcing the agent to also read the repo-root context file', () => {
+    mockFs({ exists: [GIT] })
+
+    applyPrompt(CWD, ROLE, 'CLAUDE.md', 'You are a reviewer.')
+
+    const content = written(CLAUDE) ?? ''
+    // The role prompt still comes first…
+    expect(content.indexOf('You are a reviewer.')).toBeGreaterThanOrEqual(0)
+    // …followed by an instruction to also load the project root's own context file.
+    expect(content).toContain('Project context — required')
+    expect(content).toContain('repository root')
+    expect(content.indexOf('You are a reviewer.')).toBeLessThan(
+      content.indexOf('Project context — required'),
+    )
+  })
+
+  it('names the agent\'s own context file in the footer (codex → AGENTS.md)', () => {
+    mockFs({ exists: [GIT] })
+
+    applyPrompt(CWD, ROLE, 'AGENTS.md', 'Be terse.')
+
+    const content = written(`${ROLE_DIR}/AGENTS.md`) ?? ''
+    expect(content).toContain('`AGENTS.md` at the repository root')
+    expect(content).not.toContain('CLAUDE.md')
+  })
 })
 
 describe('applyPrompt — empty prompt clears the role', () => {

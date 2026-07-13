@@ -13,6 +13,7 @@ const defaultProps = {
   onDefaultShellChange: vi.fn(),
   onDefaultProjectFolderChange: vi.fn(),
   onMaxWorkspacesChange: vi.fn(),
+  onBackupImported: vi.fn(),
   onClose: vi.fn(),
 }
 
@@ -21,11 +22,16 @@ beforeEach(() => {
   window.dialogApi = {
     selectFolder: vi.fn(),
   }
+  window.backupApi = {
+    exportToFile: vi.fn(),
+    importFromFile: vi.fn(),
+  }
 })
 
 afterEach(() => {
   vi.restoreAllMocks()
   delete window.dialogApi
+  delete window.backupApi
 })
 
 describe('SettingsModal', () => {
@@ -95,6 +101,72 @@ describe('SettingsModal', () => {
     fireEvent.keyDown(input, { key: 'Enter' })
 
     expect(defaultProps.onMaxWorkspacesChange).toHaveBeenCalledWith(9)
+  })
+
+  it('exports a backup and shows the written path', async () => {
+    vi.mocked(window.backupApi.exportToFile).mockResolvedValueOnce({
+      canceled: false,
+      path: '/home/user/iao-backup.json',
+      counts: { workspaces: 1, terminals: 2, canvasTexts: 0, notes: 3, edges: 1, noteLinks: 1 },
+    })
+    render(<SettingsModal {...defaultProps} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Export data/ }))
+
+    await waitFor(() => {
+      expect(window.backupApi.exportToFile).toHaveBeenCalledTimes(1)
+      expect(screen.getByRole('status')).toHaveTextContent('/home/user/iao-backup.json')
+    })
+  })
+
+  it('shows nothing when the export dialog is canceled', async () => {
+    vi.mocked(window.backupApi.exportToFile).mockResolvedValueOnce({ canceled: true })
+    render(<SettingsModal {...defaultProps} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Export data/ }))
+
+    await waitFor(() => expect(window.backupApi.exportToFile).toHaveBeenCalledTimes(1))
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  it('imports a backup and notifies the app to reload', async () => {
+    vi.mocked(window.backupApi.importFromFile).mockResolvedValueOnce({
+      canceled: false,
+      path: '/home/user/iao-backup.json',
+      counts: { workspaces: 1, terminals: 2, canvasTexts: 0, notes: 3, edges: 1, noteLinks: 1 },
+    })
+    render(<SettingsModal {...defaultProps} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Import data/ }))
+
+    await waitFor(() => {
+      expect(window.backupApi.importFromFile).toHaveBeenCalledTimes(1)
+      expect(defaultProps.onBackupImported).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  it('does not reload when the import dialog is canceled', async () => {
+    vi.mocked(window.backupApi.importFromFile).mockResolvedValueOnce({ canceled: true })
+    render(<SettingsModal {...defaultProps} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Import data/ }))
+
+    await waitFor(() => expect(window.backupApi.importFromFile).toHaveBeenCalledTimes(1))
+    expect(defaultProps.onBackupImported).not.toHaveBeenCalled()
+  })
+
+  it('shows an error and does not reload when the import fails', async () => {
+    vi.mocked(window.backupApi.importFromFile).mockRejectedValueOnce(
+      new Error('Unsupported backup version: 99'),
+    )
+    render(<SettingsModal {...defaultProps} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Import data/ }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent(/Import failed/)
+    })
+    expect(defaultProps.onBackupImported).not.toHaveBeenCalled()
   })
 
   it('keeps focus while editing the workspace limit input', () => {

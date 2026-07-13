@@ -270,6 +270,7 @@ import {
   deleteWorkspace,
   duplicateWorkspace,
   setWorkspaceEnabled,
+  runInTransaction,
 } from './db.service'
 import type { CanvasTextRecord } from '@shared/types/canvas'
 import type { NoteRecord, NoteLinkRecord } from '@shared/types/notes'
@@ -1060,5 +1061,15 @@ describe('note links', () => {
     expect(getNote('n1')?.title).toBe('Doc')
     expect(getTerminal('t1')?.title).toBe('Self')
     expect(getNote('missing')).toBeFalsy()
+  })
+
+  it('runInTransaction executes the callback and returns its result', () => {
+    const result = runInTransaction(() => {
+      upsertTerminal(makeTerminal({ id: 't-tx' }))
+      return 'done'
+    })
+
+    expect(result).toBe('done')
+    expect(getTerminal('t-tx')).toBeTruthy()
   })
 })

@@ -177,6 +177,14 @@ export function initDb(): void {
   )
 }
 
+/**
+ * Run several persistence calls atomically. Used by backup import so a file
+ * that fails halfway through never leaves the database partially merged.
+ */
+export function runInTransaction<T>(fn: () => T): T {
+  return db.transaction(fn)()
+}
+
 // ── Workspaces ──────────────────────────────────────────────────────────────
 
 function rowToWorkspace(row: Record<string, unknown>): WorkspaceRecord {

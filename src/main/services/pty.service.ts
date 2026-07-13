@@ -10,7 +10,13 @@ import type {
   PtyDataPayload,
   PtyExitPayload
 } from '@shared/types/ipc'
-import { contextFileForCmd, modelEnvForCmd, modelArgForCmd, addDirArgForCmd } from '@shared/agents'
+import {
+  contextFileForCmd,
+  modelEnvForCmd,
+  modelArgForCmd,
+  addDirArgForCmd,
+  addDirExtraArgsForCmd,
+} from '@shared/agents'
 import * as iaoService from './iao.service'
 import * as skillService from './skill.service'
 import { applyPrompt } from './promptFile.service'
@@ -48,8 +54,10 @@ function quoteArg(value: string): string {
  * Workspace: when the agent was launched in its private role subdir (`addDir`
  * set to the repo root), append the agent's "add directory" flag so the project
  * root is part of its accessible workspace — otherwise it sits *outside* the
- * agent's cwd and the agent prompts before touching every project file. Agents
- * without such a flag get nothing appended.
+ * agent's cwd and the agent prompts before touching every project file. Some
+ * agents (Codex) also need extra tokens for that flag to take effect (a sandbox
+ * mode that permits additional writable roots); those are appended alongside it.
+ * Agents without such a flag get nothing appended.
  */
 function launchLine(command: string, model?: string, addDir?: string): string {
   let line = command
@@ -59,7 +67,11 @@ function launchLine(command: string, model?: string, addDir?: string): string {
   }
   if (addDir) {
     const dirArg = addDirArgForCmd(command)
-    if (dirArg) line += ` ${dirArg} ${quoteArg(addDir)}`
+    if (dirArg) {
+      line += ` ${dirArg} ${quoteArg(addDir)}`
+      const extra = addDirExtraArgsForCmd(command)
+      if (extra) line += ` ${extra}`
+    }
   }
   return line
 }

@@ -23,6 +23,7 @@ vi.mock('electron', () => ({
 vi.mock('./pty.ipc', () => ({ registerPtyIpc: vi.fn() }))
 vi.mock('./db.ipc', () => ({ registerDbIpc: vi.fn() }))
 vi.mock('./dialog.ipc', () => ({ registerDialogIpc: vi.fn() }))
+vi.mock('./backup.ipc', () => ({ registerBackupIpc: vi.fn() }))
 vi.mock('./workspace.ipc', () => ({ registerWorkspaceIpc: vi.fn() }))
 vi.mock('./window.ipc', () => ({
   registerWindowIpc: vi.fn(),
@@ -34,6 +35,7 @@ import { unregisterIpcHandlers } from './index'
 import { registerPtyIpc } from './pty.ipc'
 import { registerDbIpc } from './db.ipc'
 import { registerDialogIpc } from './dialog.ipc'
+import { registerBackupIpc } from './backup.ipc'
 import { app, ipcMain } from 'electron'
 
 describe('ipc/index', () => {
@@ -47,6 +49,7 @@ describe('ipc/index', () => {
     expect(registerPtyIpc).toHaveBeenCalledOnce()
     expect(registerDbIpc).toHaveBeenCalledOnce()
     expect(registerDialogIpc).toHaveBeenCalledOnce()
+    expect(registerBackupIpc).toHaveBeenCalledOnce()
     expect(app.once).toHaveBeenCalledWith('before-quit', unregisterIpcHandlers)
   })
 
@@ -61,6 +64,8 @@ describe('ipc/index', () => {
     expect(ipcMain.removeHandler).toHaveBeenCalledWith(IpcChannels.edgesUpsert)
     expect(ipcMain.removeHandler).toHaveBeenCalledWith(IpcChannels.edgesRemove)
     expect(ipcMain.removeHandler).toHaveBeenCalledWith(IpcChannels.dialogSelectFolder)
+    expect(ipcMain.removeHandler).toHaveBeenCalledWith(IpcChannels.backupExport)
+    expect(ipcMain.removeHandler).toHaveBeenCalledWith(IpcChannels.backupImport)
 
     expect(ipcMain.removeAllListeners).toHaveBeenCalledWith(IpcChannels.ptyInput)
     expect(ipcMain.removeAllListeners).toHaveBeenCalledWith(IpcChannels.ptyResize)

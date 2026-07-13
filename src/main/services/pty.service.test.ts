@@ -630,7 +630,7 @@ describe('createPty — workspace add-dir', () => {
     vi.useRealTimers()
   })
 
-  it('combines the model flag and --add-dir for a flag-model agent (codex)', () => {
+  it('combines the model flag, --add-dir and codex\'s sandbox flag for a flag-model agent (codex)', () => {
     vi.useFakeTimers()
     const proc = makeMockProc()
     mockSpawn.mockReturnValue(proc as any)
@@ -643,7 +643,10 @@ describe('createPty — workspace add-dir', () => {
     )
     vi.advanceTimersByTime(250)
 
-    expect(proc.write).toHaveBeenCalledWith('codex --model gpt-5.4 --add-dir /tmp\r')
+    // Codex ignores --add-dir unless its sandbox permits extra writable roots.
+    expect(proc.write).toHaveBeenCalledWith(
+      'codex --model gpt-5.4 --add-dir /tmp --sandbox workspace-write\r',
+    )
     vi.useRealTimers()
   })
 

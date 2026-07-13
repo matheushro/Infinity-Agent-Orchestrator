@@ -6,6 +6,7 @@ import type { CanvasTextRecord } from './canvas'
 import type { NoteRecord, NoteLinkRecord } from './notes'
 import type { PtyCreateArgs, PtyCreateResult } from './ipc'
 import type { WorkspaceRecord } from './workspace'
+import type { BackupFileResult } from './backup'
 
 export interface PtyApi {
   create(args: PtyCreateArgs): Promise<PtyCreateResult>
@@ -56,6 +57,16 @@ export interface WorkspaceApi {
 
 export interface DialogApi {
   selectFolder(defaultPath?: string): Promise<string | null>
+}
+
+export interface BackupApi {
+  /** Save-dialog → write every table to a JSON backup file. */
+  exportToFile(): Promise<BackupFileResult>
+  /**
+   * Open-dialog → merge a backup file into the database (upsert by id; nothing
+   * is deleted). Rejects when the chosen file is not a valid IAO backup.
+   */
+  importFromFile(): Promise<BackupFileResult>
 }
 
 export interface WindowApi {

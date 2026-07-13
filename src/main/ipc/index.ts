@@ -4,6 +4,7 @@ import { IpcChannels } from '@shared/types/ipc'
 import { registerPtyIpc } from './pty.ipc'
 import { registerDbIpc } from './db.ipc'
 import { registerDialogIpc } from './dialog.ipc'
+import { registerBackupIpc } from './backup.ipc'
 import { registerWorkspaceIpc } from './workspace.ipc'
 import { registerWindowIpc } from './window.ipc'
 
@@ -22,6 +23,8 @@ const HANDLED_CHANNELS = [
   IpcChannels.noteLinksUpsert,
   IpcChannels.noteLinksRemove,
   IpcChannels.dialogSelectFolder,
+  IpcChannels.backupExport,
+  IpcChannels.backupImport,
   IpcChannels.workspacesList,
   IpcChannels.workspacesCreate,
   IpcChannels.workspacesDelete,
@@ -49,6 +52,7 @@ export function registerIpcHandlers(): void {
   registerPtyIpc()
   registerDbIpc()
   registerDialogIpc()
+  registerBackupIpc()
   registerWorkspaceIpc()
   registerWindowIpc()
   app.once('before-quit', unregisterIpcHandlers)
