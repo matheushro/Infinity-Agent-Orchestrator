@@ -2,6 +2,7 @@
 import { ipcMain } from 'electron'
 import { IpcChannels } from '@shared/types/ipc'
 import type { CanvasTextRecord } from '@shared/types/canvas'
+import type { ModelRecord } from '@shared/types/model'
 import type { NoteRecord, NoteLinkRecord } from '@shared/types/notes'
 import type { EdgeRecord, TerminalRecord } from '@shared/types/terminal'
 import * as dbService from '../services/db.service'
@@ -45,4 +46,9 @@ export function registerDbIpc(): void {
   ipcMain.handle(IpcChannels.noteLinksRemove, (_event, id: string) =>
     dbService.removeNoteLink(id),
   )
+  ipcMain.handle(IpcChannels.modelsList, () => dbService.listModels())
+  ipcMain.handle(IpcChannels.modelsUpsert, (_event, record: ModelRecord) =>
+    dbService.upsertModel(record),
+  )
+  ipcMain.handle(IpcChannels.modelsRemove, (_event, id: string) => dbService.removeModel(id))
 }

@@ -9,6 +9,7 @@ const store = vi.hoisted(() => ({
   notes: new Map<string, Record<string, unknown>>(),
   noteLinks: new Map<string, Record<string, unknown>>(),
   workspaces: new Map<string, Record<string, unknown>>(),
+  models: new Map<string, Record<string, unknown>>(),
 }))
 
 const executedSql: string[] = []
@@ -89,12 +90,37 @@ vi.mock('better-sqlite3', () => {
               return Array.from(store.workspaces.values())
                 .sort((a, b) => (a.created_at as number) - (b.created_at as number))
             }
+            if (sql.includes('FROM models')) {
+              return Array.from(store.models.values())
+                .sort(
+                  (a, b) =>
+                    String(a.agent).localeCompare(String(b.agent))
+                    || (a.created_at as number) - (b.created_at as number),
+                )
+                .map(({ id, agent, value, label }) => ({ id, agent, value, label }))
+            }
             return []
           },
 
           get(...args: unknown[]): Record<string, unknown> | null {
             if (sql.includes('COUNT(*) as n FROM workspaces')) {
               return { n: store.workspaces.size }
+            }
+            if (sql.includes('COUNT(*) AS n FROM models')) {
+              return { n: store.models.size }
+            }
+            if (sql.startsWith('SELECT id FROM models WHERE agent = ? AND value = ?')) {
+              // Mirrors the column's COLLATE NOCASE: uniqueness ignores case.
+              const [agent, value] = args as [string, string]
+              for (const m of store.models.values()) {
+                if (
+                  m.agent === agent
+                  && String(m.value).toLowerCase() === value.toLowerCase()
+                ) {
+                  return { id: m.id }
+                }
+              }
+              return null
             }
             if (sql.includes('MAX(position)') && sql.includes('FROM workspaces')) {
               let max = -1
@@ -200,6 +226,16 @@ vi.mock('better-sqlite3', () => {
               if (terminal?.workspace_id === workspaceId) {
                 store.terminals.set(id, { ...terminal, position })
               }
+            } else if (sql.startsWith('INSERT INTO models')) {
+              const rec = args[0] as Record<string, unknown>
+              const existing = store.models.get(rec.id as string)
+              // ON CONFLICT(id) DO UPDATE keeps the original created_at.
+              store.models.set(
+                rec.id as string,
+                existing ? { ...existing, ...rec, created_at: existing.created_at } : { ...rec },
+              )
+            } else if (sql.includes('DELETE FROM models WHERE id = ?')) {
+              store.models.delete(args[0] as string)
             } else if (sql.startsWith('INSERT INTO note_links')) {
               const rec = args[0] as Record<string, unknown>
               // ON CONFLICT(note_id, terminal_id) DO NOTHING
@@ -244,6 +280,9 @@ vi.mock('better-sqlite3', () => {
 
 import {
   initDb,
+  listModels,
+  upsertModel,
+  removeModel,
   listActiveTerminals,
   upsertTerminal,
   reorderTerminals,
@@ -357,6 +396,7 @@ beforeEach(() => {
   store.notes.clear()
   store.noteLinks.clear()
   store.workspaces.clear()
+  store.models.clear()
   executedSql.length = 0
   initDb() // initializes the module-level `db` instance (mock: no-op schema ops)
 })
@@ -1071,5 +1111,96 @@ describe('note links', () => {
 
     expect(result).toBe('done')
     expect(getTerminal('t-tx')).toBeTruthy()
+  })
+})
+
+// ===========================================================================
+// Model catalog
+// ===========================================================================
+
+describe('model catalog', () => {
+  it('seeds the curated agent models on a fresh database', () => {
+    // beforeEach cleared the store and re-ran initDb, so this is a first run.
+    const claude = listModels().filter((m) => m.agent === 'claude')
+
+    expect(claude.map((m) => m.value)).toEqual(['opus', 'sonnet', 'haiku'])
+    expect(claude[0].label).toBe('Opus')
+    expect(listModels().filter((m) => m.agent === 'gemini').map((m) => m.value)).toEqual([
+      'gemini-2.5-pro',
+      'gemini-2.5-flash',
+    ])
+  })
+
+  it('leaves agents without a curated list empty for the user to fill in', () => {
+    const seededAgents = new Set(listModels().map((m) => m.agent))
+
+    expect(seededAgents.has('codex')).toBe(false)
+    expect(seededAgents.has('copilot')).toBe(false)
+    expect(seededAgents.has('terminal')).toBe(false)
+  })
+
+  it('does not re-seed on the next launch, so deleted models stay deleted', () => {
+    const opus = listModels().find((m) => m.value === 'opus')!
+    removeModel(opus.id)
+
+    initDb() // simulates reopening the app
+
+    expect(listModels().some((m) => m.value === 'opus')).toBe(false)
+  })
+
+  it('registers a new model for an agent', () => {
+    upsertModel({ id: 'm-1', agent: 'codex', value: 'gpt-5.4', label: 'gpt-5.4' })
+
+    expect(listModels().filter((m) => m.agent === 'codex')).toEqual([
+      { id: 'm-1', agent: 'codex', value: 'gpt-5.4', label: 'gpt-5.4' },
+    ])
+  })
+
+  it('ignores a duplicate value for the same agent, whatever the case', () => {
+    upsertModel({ id: 'm-1', agent: 'codex', value: 'gpt-5.4', label: 'gpt-5.4' })
+    upsertModel({ id: 'm-2', agent: 'codex', value: 'GPT-5.4', label: 'GPT-5.4' })
+
+    const codex = listModels().filter((m) => m.agent === 'codex')
+    expect(codex).toHaveLength(1)
+    expect(codex[0].id).toBe('m-1')
+  })
+
+  it('keeps the same value registered separately per agent', () => {
+    upsertModel({ id: 'm-1', agent: 'codex', value: 'gpt-5.4', label: 'gpt-5.4' })
+    upsertModel({ id: 'm-2', agent: 'copilot', value: 'gpt-5.4', label: 'gpt-5.4' })
+
+    expect(listModels().filter((m) => m.value === 'gpt-5.4')).toHaveLength(2)
+  })
+
+  it('trims the stored value and falls back to it as the label', () => {
+    upsertModel({ id: 'm-1', agent: 'codex', value: '  gpt-5.4  ', label: '   ' })
+
+    expect(listModels().find((m) => m.id === 'm-1')).toMatchObject({
+      value: 'gpt-5.4',
+      label: 'gpt-5.4',
+    })
+  })
+
+  it('ignores an empty value — "agent default" is not a catalog entry', () => {
+    const before = listModels().length
+    upsertModel({ id: 'm-empty', agent: 'codex', value: '   ', label: '' })
+
+    expect(listModels()).toHaveLength(before)
+  })
+
+  it('updates an existing row when re-upserted under the same id', () => {
+    upsertModel({ id: 'm-1', agent: 'codex', value: 'gpt-5.4', label: 'gpt-5.4' })
+    upsertModel({ id: 'm-1', agent: 'codex', value: 'gpt-5.5', label: 'GPT 5.5' })
+
+    expect(listModels().filter((m) => m.agent === 'codex')).toEqual([
+      { id: 'm-1', agent: 'codex', value: 'gpt-5.5', label: 'GPT 5.5' },
+    ])
+  })
+
+  it('removes a model by id', () => {
+    upsertModel({ id: 'm-1', agent: 'codex', value: 'gpt-5.4', label: 'gpt-5.4' })
+    removeModel('m-1')
+
+    expect(listModels().some((m) => m.id === 'm-1')).toBe(false)
   })
 })

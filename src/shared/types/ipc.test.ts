@@ -68,7 +68,13 @@ describe('IpcChannels — completude e consistência', () => {
     expect(IpcChannels.notesChanged).toBe('notes:changed')
   })
 
-  it('IpcChannels contém exatamente os 37 canais conhecidos (sem canais fantasma)', () => {
+  it('contém os canais do catálogo de modelos', () => {
+    expect(IpcChannels.modelsList).toBe('models:list')
+    expect(IpcChannels.modelsUpsert).toBe('models:upsert')
+    expect(IpcChannels.modelsRemove).toBe('models:remove')
+  })
+
+  it('IpcChannels contém exatamente os 40 canais conhecidos (sem canais fantasma)', () => {
     const expected = [
       'pty:create', 'pty:input', 'pty:resize', 'pty:kill', 'pty:data', 'pty:exit',
       'db:list-active', 'db:upsert', 'db:remove', 'db:reorder-terminals',
@@ -76,6 +82,7 @@ describe('IpcChannels — completude e consistência', () => {
       'canvas-texts:list', 'canvas-texts:upsert', 'canvas-texts:remove',
       'notes:list', 'notes:upsert', 'notes:remove', 'notes:changed',
       'note-links:list', 'note-links:upsert', 'note-links:remove',
+      'models:list', 'models:upsert', 'models:remove',
       'dialog:select-folder',
       'backup:export', 'backup:import',
       'workspaces:list', 'workspaces:create', 'workspaces:delete',

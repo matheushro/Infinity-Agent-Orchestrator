@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest'
 
-import { fireEvent, render, screen, cleanup } from '@testing-library/react'
+import { fireEvent, render, screen, cleanup, waitFor } from '@testing-library/react'
 import { type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -49,8 +49,33 @@ function renderModal(
   return { onConfirm, onClose }
 }
 
+// The model picker reads the user's catalog through the db bridge.
+const catalog = [
+  { id: 'm-1', agent: 'claude', value: 'opus', label: 'Opus' },
+  { id: 'm-2', agent: 'claude', value: 'sonnet', label: 'Sonnet' },
+  { id: 'm-3', agent: 'codex', value: 'gpt-5.4', label: 'gpt-5.4' },
+]
+
+/** Suggestions currently offered by the model field's datalist. */
+function suggestions(): string[] {
+  return Array.from(document.querySelectorAll('datalist option')).map(
+    (o) => o.getAttribute('value') ?? '',
+  )
+}
+
+/** The catalog loads asynchronously — wait for it before touching the field. */
+async function waitForCatalog(agent: string): Promise<void> {
+  const expected = catalog.filter((m) => m.agent === agent).map((m) => m.value)
+  await waitFor(() => expect(suggestions()).toEqual(expected))
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
+  window.dbApi = {
+    listModels: vi.fn().mockResolvedValue(catalog),
+    upsertModel: vi.fn().mockResolvedValue(undefined),
+    removeModel: vi.fn().mockResolvedValue(undefined),
+  } as unknown as typeof window.dbApi
 })
 
 afterEach(() => {
@@ -108,26 +133,48 @@ describe('EditTerminalModal', () => {
     expect(onConfirm).toHaveBeenCalledWith({ title: 'Reviewer', prompt: '', model: '' })
   })
 
-  it('pre-fills and forwards the pinned model unchanged', () => {
+  it('pre-fills and forwards the pinned model unchanged', async () => {
     const { onConfirm } = renderModal({ command: 'claude', model: 'opus' })
+    await waitForCatalog('claude')
 
-    expect(screen.getByRole('button', { name: 'Model' })).toHaveTextContent('Opus')
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('opus')
 
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
-    expect(onConfirm).toHaveBeenCalledWith(
-      expect.objectContaining({ model: 'opus' }),
+    expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({ model: 'opus' }))
+    expect(window.dbApi.upsertModel).not.toHaveBeenCalled()
+  })
+
+  it('suggests only the registered models of this terminal’s agent', async () => {
+    renderModal({ command: 'codex', model: '' })
+
+    await waitForCatalog('codex')
+  })
+
+  it('registers a model typed by hand and forwards it', async () => {
+    const { onConfirm } = renderModal({ command: 'codex', model: '' })
+    await waitForCatalog('codex')
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), {
+      target: { value: 'gpt-5.5' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-5.5' }))
+    expect(window.dbApi.upsertModel).toHaveBeenCalledWith(
+      expect.objectContaining({ agent: 'codex', value: 'gpt-5.5', label: 'gpt-5.5' }),
     )
   })
 
-  it('shows a free-text model field for an agent with volatile ids and forwards it', () => {
-    const { onConfirm } = renderModal({ command: 'codex', model: '' })
+  it('unpins the terminal when the model is cleared, registering nothing', async () => {
+    const { onConfirm } = renderModal({ command: 'claude', model: 'opus' })
+    await waitForCatalog('claude')
 
-    const field = screen.getByRole('textbox', { name: 'Model' })
-    fireEvent.change(field, { target: { value: 'gpt-5.4' } })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), { target: { value: '  ' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
-    expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-5.4' }))
+    expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({ model: '' }))
+    expect(window.dbApi.upsertModel).not.toHaveBeenCalled()
   })
 
   it('hides the model field entirely for an agent that cannot pin a model', () => {

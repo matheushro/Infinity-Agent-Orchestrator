@@ -4,6 +4,7 @@ import { Sidebar } from './components/Sidebar'
 import { SettingsModal } from './components/SettingsModal'
 import { Topbar } from './components/Topbar'
 import { WorkspaceCanvas, type WorkspaceCanvasHandle } from './components/WorkspaceCanvas'
+import { ManageModelsModal } from '@renderer/features/terminals/components/ManageModelsModal'
 import { useWorkspaces } from '@renderer/features/workspaces/hooks/useWorkspaces'
 import { useTerminalStyles } from '@renderer/features/terminals/hooks/useTerminalStyles'
 import { PtyActivityProvider } from '@renderer/features/workspaces/context/PtyActivityContext'
@@ -35,6 +36,9 @@ export default function App(): JSX.Element {
   const [theme, setTheme] = useLocalStorage<CanvasTheme>('canvasTheme', 'dark')
   const [sidebarCollapsed, setSidebarCollapsed] = useLocalStorage('sidebarCollapsed', false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // The model catalog editor replaces the settings modal rather than stacking
+  // on top of it — two open modals would both answer the same Escape key.
+  const [modelsOpen, setModelsOpen] = useState(false)
 
   // Aggregated node list from all workspace canvases — used by the Sidebar.
   const [nodesByWorkspace, setNodesByWorkspace] = useState<Record<string, TerminalNodeData[]>>({})
@@ -181,8 +185,21 @@ export default function App(): JSX.Element {
             onDefaultShellChange={setDefaultShell}
             onDefaultProjectFolderChange={setDefaultProjectFolder}
             onMaxWorkspacesChange={setMaxWorkspaces}
+            onManageModels={() => {
+              setSettingsOpen(false)
+              setModelsOpen(true)
+            }}
             onBackupImported={() => window.location.reload()}
             onClose={() => setSettingsOpen(false)}
+          />
+        )}
+
+        {modelsOpen && (
+          <ManageModelsModal
+            onClose={() => {
+              setModelsOpen(false)
+              setSettingsOpen(true)
+            }}
           />
         )}
       </div>

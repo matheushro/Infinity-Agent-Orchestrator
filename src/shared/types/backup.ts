@@ -2,6 +2,7 @@
 // JSON file (workspaces, terminals — including agent command/prompt/model —,
 // canvas texts, notes, edges, note links).
 import type { CanvasTextRecord } from './canvas'
+import type { ModelRecord } from './model'
 import type { NoteRecord, NoteLinkRecord } from './notes'
 import type { EdgeRecord, TerminalRecord } from './terminal'
 import type { WorkspaceRecord } from './workspace'
@@ -20,6 +21,13 @@ export interface BackupData {
   notes: NoteRecord[]
   edges: EdgeRecord[]
   noteLinks: NoteLinkRecord[]
+  /**
+   * The registered model catalog. Optional so files exported before the
+   * catalog existed still import — they are treated as carrying no models,
+   * which leaves the local catalog untouched. Kept at `BACKUP_VERSION` 1 for
+   * that reason: the addition is backward *and* forward compatible.
+   */
+  models?: ModelRecord[]
 }
 
 /** How many records of each kind an export/import touched. */
@@ -30,6 +38,7 @@ export interface BackupCounts {
   notes: number
   edges: number
   noteLinks: number
+  models: number
 }
 
 /**

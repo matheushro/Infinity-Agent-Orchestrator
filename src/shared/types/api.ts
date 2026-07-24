@@ -4,6 +4,7 @@
 import type { EdgeRecord, TerminalRecord } from './terminal'
 import type { CanvasTextRecord } from './canvas'
 import type { NoteRecord, NoteLinkRecord } from './notes'
+import type { ModelRecord } from './model'
 import type { PtyCreateArgs, PtyCreateResult } from './ipc'
 import type { WorkspaceRecord } from './workspace'
 import type { BackupFileResult } from './backup'
@@ -35,6 +36,15 @@ export interface DbApi {
   listNoteLinks(): Promise<NoteLinkRecord[]>
   upsertNoteLink(record: NoteLinkRecord): Promise<void>
   removeNoteLink(id: string): Promise<void>
+  /** Every registered model, ordered by agent then registration time. */
+  listModels(): Promise<ModelRecord[]>
+  /**
+   * Register a model (or rename an existing one by id). Silently ignored when
+   * the agent already has that value registered — uniqueness is per
+   * (agent, value), case-insensitive.
+   */
+  upsertModel(record: ModelRecord): Promise<void>
+  removeModel(id: string): Promise<void>
   /**
    * Subscribe to note/link mutations driven from outside the renderer (e.g. an
    * agent using the `iao note` CLI). Fires after the main process has persisted

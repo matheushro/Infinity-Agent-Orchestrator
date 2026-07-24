@@ -21,6 +21,9 @@ export const dbApi: DbApi = {
   listNoteLinks: () => ipcRenderer.invoke(IpcChannels.noteLinksList),
   upsertNoteLink: (record) => ipcRenderer.invoke(IpcChannels.noteLinksUpsert, record),
   removeNoteLink: (id) => ipcRenderer.invoke(IpcChannels.noteLinksRemove, id),
+  listModels: () => ipcRenderer.invoke(IpcChannels.modelsList),
+  upsertModel: (record) => ipcRenderer.invoke(IpcChannels.modelsUpsert, record),
+  removeModel: (id) => ipcRenderer.invoke(IpcChannels.modelsRemove, id),
   onNotesChanged(cb) {
     const handler = (_event: IpcRendererEvent): void => cb()
     ipcRenderer.on(IpcChannels.notesChanged, handler)

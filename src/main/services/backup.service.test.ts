@@ -26,6 +26,8 @@ vi.mock('./db.service', () => ({
   listNotes: vi.fn(() => []),
   listEdges: vi.fn(() => []),
   listNoteLinks: vi.fn(() => []),
+  listModels: vi.fn(() => []),
+  upsertModel: vi.fn(),
   runInTransaction: vi.fn((fn: () => unknown) => fn()),
   createWorkspace: vi.fn(),
   renameWorkspace: vi.fn(),
@@ -59,6 +61,7 @@ const note = {
 }
 const link = { id: 'l1', note_id: 'n1', terminal_id: 't1' }
 const danglingLink = { id: 'l2', note_id: 'n1', terminal_id: 'ghost' }
+const model = { id: 'm1', agent: 'claude', value: 'opus', label: 'Opus' }
 
 function makeBackup(overrides: Partial<BackupData> = {}): BackupData {
   return {
@@ -70,6 +73,7 @@ function makeBackup(overrides: Partial<BackupData> = {}): BackupData {
     notes: [note],
     edges: [edge],
     noteLinks: [link],
+    models: [model],
     ...overrides,
   }
 }
@@ -84,6 +88,7 @@ beforeEach(() => {
   vi.mocked(dbService.listNotes).mockReturnValue([])
   vi.mocked(dbService.listEdges).mockReturnValue([])
   vi.mocked(dbService.listNoteLinks).mockReturnValue([])
+  vi.mocked(dbService.listModels).mockReturnValue([])
   vi.mocked(dbService.runInTransaction).mockImplementation(((fn: () => unknown) =>
     fn()) as typeof dbService.runInTransaction)
 })
@@ -98,10 +103,12 @@ describe('collectBackup', () => {
     vi.mocked(dbService.listNotes).mockReturnValue([note])
     vi.mocked(dbService.listEdges).mockReturnValue([edge])
     vi.mocked(dbService.listNoteLinks).mockReturnValue([link])
+    vi.mocked(dbService.listModels).mockReturnValue([model])
 
     const data = collectBackup()
 
     expect(data.version).toBe(BACKUP_VERSION)
+    expect(data.models).toEqual([model])
     expect(data.workspaces).toEqual([ws1])
     expect(data.terminals).toEqual([t1, t2])
     expect(data.canvasTexts).toEqual([text])
@@ -150,6 +157,18 @@ describe('parseBackup', () => {
     expect(() => parseBackup(JSON.stringify(data))).toThrow(/missing "notes"/)
   })
 
+  it('accepts a file exported before the model catalog existed', () => {
+    const legacy = makeBackup() as unknown as Record<string, unknown>
+    delete legacy.models
+
+    expect(parseBackup(JSON.stringify(legacy))).not.toHaveProperty('models')
+  })
+
+  it('rejects model entries without a string id when the array is present', () => {
+    const data = makeBackup({ models: [{ ...model, id: 7 as unknown as string }] })
+    expect(() => parseBackup(JSON.stringify(data))).toThrow(/"models" entry without an id/)
+  })
+
   it('rejects entries without a string id', () => {
     const data = makeBackup({ terminals: [{ ...t1, id: 7 as unknown as string }] })
     expect(() => parseBackup(JSON.stringify(data))).toThrow(/"terminals" entry without an id/)
@@ -173,6 +192,7 @@ describe('applyBackup', () => {
     expect(dbService.upsertCanvasText).toHaveBeenCalledWith(text)
     expect(dbService.upsertNote).toHaveBeenCalledWith(note)
     expect(dbService.upsertNoteLink).toHaveBeenCalledWith(link)
+    expect(dbService.upsertModel).toHaveBeenCalledWith(model)
     expect(counts).toEqual({
       workspaces: 1,
       terminals: 2,
@@ -180,6 +200,7 @@ describe('applyBackup', () => {
       notes: 1,
       edges: 1,
       noteLinks: 1,
+      models: 1,
     })
   })
 
@@ -220,7 +241,19 @@ describe('applyBackup', () => {
       notes: 0,
       edges: 0,
       noteLinks: 0,
+      models: 1,
     })
+  })
+
+  it('imports a file exported before models existed, leaving the catalog alone', () => {
+    vi.mocked(dbService.listWorkspaces).mockReturnValue([])
+    const legacy = makeBackup() as unknown as Record<string, unknown>
+    delete legacy.models
+
+    const counts = applyBackup(legacy as unknown as BackupData)
+
+    expect(dbService.upsertModel).not.toHaveBeenCalled()
+    expect(counts.models).toBe(0)
   })
 })
 
@@ -252,7 +285,15 @@ describe('exportToFile', () => {
     expect(result).toEqual({
       canceled: false,
       path: '/tmp/iao.json',
-      counts: { workspaces: 1, terminals: 1, canvasTexts: 0, notes: 0, edges: 0, noteLinks: 0 },
+      counts: {
+        workspaces: 1,
+        terminals: 1,
+        canvasTexts: 0,
+        notes: 0,
+        edges: 0,
+        noteLinks: 0,
+        models: 0,
+      },
     })
   })
 
@@ -290,7 +331,15 @@ describe('importFromFile', () => {
     expect(result).toEqual({
       canceled: false,
       path: '/tmp/iao.json',
-      counts: { workspaces: 1, terminals: 2, canvasTexts: 1, notes: 1, edges: 1, noteLinks: 1 },
+      counts: {
+        workspaces: 1,
+        terminals: 2,
+        canvasTexts: 1,
+        notes: 1,
+        edges: 1,
+        noteLinks: 1,
+        models: 1,
+      },
     })
   })
 

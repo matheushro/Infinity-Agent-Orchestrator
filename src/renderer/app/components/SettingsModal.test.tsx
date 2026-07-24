@@ -13,6 +13,7 @@ const defaultProps = {
   onDefaultShellChange: vi.fn(),
   onDefaultProjectFolderChange: vi.fn(),
   onMaxWorkspacesChange: vi.fn(),
+  onManageModels: vi.fn(),
   onBackupImported: vi.fn(),
   onClose: vi.fn(),
 }
@@ -35,6 +36,17 @@ afterEach(() => {
 })
 
 describe('SettingsModal', () => {
+  it('opens the model catalog editor from the Models section', () => {
+    render(<SettingsModal {...defaultProps} />)
+
+    expect(screen.getByText('Models')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Manage models/ }))
+
+    expect(defaultProps.onManageModels).toHaveBeenCalledTimes(1)
+    // Opening the editor is the parent's job — settings does not close itself.
+    expect(defaultProps.onClose).not.toHaveBeenCalled()
+  })
+
   it('renders the default project folder setting', () => {
     render(<SettingsModal {...defaultProps} />)
 
@@ -107,7 +119,7 @@ describe('SettingsModal', () => {
     vi.mocked(window.backupApi.exportToFile).mockResolvedValueOnce({
       canceled: false,
       path: '/home/user/iao-backup.json',
-      counts: { workspaces: 1, terminals: 2, canvasTexts: 0, notes: 3, edges: 1, noteLinks: 1 },
+      counts: { workspaces: 1, terminals: 2, canvasTexts: 0, notes: 3, edges: 1, noteLinks: 1, models: 2 },
     })
     render(<SettingsModal {...defaultProps} />)
 
@@ -133,7 +145,7 @@ describe('SettingsModal', () => {
     vi.mocked(window.backupApi.importFromFile).mockResolvedValueOnce({
       canceled: false,
       path: '/home/user/iao-backup.json',
-      counts: { workspaces: 1, terminals: 2, canvasTexts: 0, notes: 3, edges: 1, noteLinks: 1 },
+      counts: { workspaces: 1, terminals: 2, canvasTexts: 0, notes: 3, edges: 1, noteLinks: 1, models: 2 },
     })
     render(<SettingsModal {...defaultProps} />)
 

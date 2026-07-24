@@ -2,7 +2,9 @@
 import { app } from 'electron'
 import { join } from 'path'
 import Database from 'better-sqlite3'
+import { AGENTS, type AgentDef } from '@shared/agents'
 import type { CanvasTextRecord } from '@shared/types/canvas'
+import type { ModelRecord } from '@shared/types/model'
 import type { NoteRecord, NoteLinkRecord } from '@shared/types/notes'
 import type { EdgeRecord, TerminalRecord } from '@shared/types/terminal'
 import type { WorkspaceRecord } from '@shared/types/workspace'
@@ -107,6 +109,20 @@ export function initDb(): void {
     )
   `)
 
+  // The user-owned model catalog. One row per model string an agent can be
+  // pinned to. `value COLLATE NOCASE` makes the UNIQUE index case-insensitive,
+  // so re-typing `Opus` never creates a second `opus` row.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS models (
+      id TEXT PRIMARY KEY,
+      agent TEXT NOT NULL,
+      value TEXT NOT NULL COLLATE NOCASE,
+      label TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      UNIQUE(agent, value)
+    )
+  `)
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS edges (
       id TEXT PRIMARY KEY,
@@ -153,6 +169,8 @@ export function initDb(): void {
   } catch {
     // column already exists — no-op
   }
+
+  seedModels()
 
   // Seed: if no workspaces exist, create a default one and assign orphaned terminals.
   const count = (
@@ -398,6 +416,70 @@ function nextTerminalPosition(workspaceId: string): number {
     .prepare('SELECT COALESCE(MAX(position), -1) AS m FROM terminals WHERE workspace_id = ?')
     .get(workspaceId) as { m: number }
   return row.m + 1
+}
+
+// ── Models ───────────────────────────────────────────────────────────────────
+
+/**
+ * First-run seed of the model catalog from the agent registry, so the pickers
+ * are not empty on a fresh install. Only agents that ship a curated `models`
+ * list contribute (Claude, Gemini); the rest start empty and are filled in by
+ * the user. Runs only while the table is completely empty, so a user who
+ * deletes a seeded model never sees it come back on the next launch.
+ */
+function seedModels(): void {
+  const { n } = db.prepare('SELECT COUNT(*) AS n FROM models').get() as { n: number }
+  if (n > 0) return
+
+  const insert = db.prepare(
+    'INSERT INTO models (id, agent, value, label, created_at) VALUES (@id, @agent, @value, @label, @created_at)',
+  )
+  const now = Date.now()
+  const defs: AgentDef[] = Object.values(AGENTS)
+  for (const agent of defs) {
+    for (const model of agent.models ?? []) {
+      insert.run({
+        id: crypto.randomUUID(),
+        agent: agent.key,
+        value: model.value,
+        label: model.label,
+        created_at: now,
+      })
+    }
+  }
+}
+
+export function listModels(): ModelRecord[] {
+  return db
+    .prepare('SELECT id, agent, value, label FROM models ORDER BY agent, created_at')
+    .all() as ModelRecord[]
+}
+
+/**
+ * Register a model, or rename one by id. Values are trimmed; an empty value is
+ * ignored. When the agent already has that value under a *different* id the
+ * call is a no-op — the existing registration wins, which is what makes
+ * "typing a model in a terminal registers it" idempotent.
+ */
+export function upsertModel(record: ModelRecord): void {
+  const value = record.value.trim()
+  if (!value) return
+  const label = record.label.trim() || value
+
+  const existing = db
+    .prepare('SELECT id FROM models WHERE agent = ? AND value = ?')
+    .get(record.agent, value) as { id: string } | undefined
+  if (existing && existing.id !== record.id) return
+
+  db.prepare(
+    `INSERT INTO models (id, agent, value, label, created_at)
+     VALUES (@id, @agent, @value, @label, @created_at)
+     ON CONFLICT(id) DO UPDATE SET agent = @agent, value = @value, label = @label`,
+  ).run({ ...record, value, label, created_at: Date.now() })
+}
+
+export function removeModel(id: string): void {
+  db.prepare('DELETE FROM models WHERE id = ?').run(id)
 }
 
 // ── Edges ────────────────────────────────────────────────────────────────────

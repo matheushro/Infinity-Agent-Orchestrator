@@ -60,11 +60,36 @@ function renderModal(defaultFolder = '') {
   return { onCancel, onConfirm }
 }
 
+// The model picker reads the user's catalog through the db bridge.
+const catalog = [
+  { id: 'm-1', agent: 'claude', value: 'opus', label: 'Opus' },
+  { id: 'm-2', agent: 'claude', value: 'sonnet', label: 'Sonnet' },
+  { id: 'm-3', agent: 'codex', value: 'gpt-5.4', label: 'gpt-5.4' },
+]
+
+/** Suggestions currently offered by the model field's datalist. */
+function suggestions(): string[] {
+  return Array.from(document.querySelectorAll('datalist option')).map((o) =>
+    o.getAttribute('value') ?? '',
+  )
+}
+
+/** The catalog loads asynchronously — wait for it before touching the field. */
+async function waitForCatalog(agent = 'claude'): Promise<void> {
+  const expected = catalog.filter((m) => m.agent === agent).map((m) => m.value)
+  await waitFor(() => expect(suggestions()).toEqual(expected))
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   window.dialogApi = {
     selectFolder: vi.fn(),
   }
+  window.dbApi = {
+    listModels: vi.fn().mockResolvedValue(catalog),
+    upsertModel: vi.fn().mockResolvedValue(undefined),
+    removeModel: vi.fn().mockResolvedValue(undefined),
+  } as unknown as typeof window.dbApi
 })
 
 afterEach(() => {
@@ -158,45 +183,69 @@ describe('NewTerminalModal', () => {
     expect(onConfirm).toHaveBeenCalledWith(selectedFolder, 'claude', '', 'dark', '')
   })
 
-  it('forwards the selected model to onConfirm', () => {
-    const defaultFolder = '/home/user/projects/default'
-    const { onConfirm } = renderModal(defaultFolder)
+  it('suggests only the registered models of the selected agent', async () => {
+    renderModal('/home/user/projects/default')
 
-    // claude (the default agent) exposes a model picker.
-    fireEvent.click(screen.getByRole('button', { name: 'Model' }))
-    fireEvent.click(screen.getByRole('option', { name: 'Opus' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Open' }))
-
-    expect(onConfirm).toHaveBeenCalledWith(defaultFolder, 'claude', '', 'auto', 'opus')
-  })
-
-  it('swaps the dropdown for a free-text field and resets the pin when changing agents', () => {
-    const defaultFolder = '/home/user/projects/default'
-    const { onConfirm } = renderModal(defaultFolder)
-
-    // Claude: curated dropdown.
-    fireEvent.click(screen.getByRole('button', { name: 'Model' }))
-    fireEvent.click(screen.getByRole('option', { name: 'Opus' }))
-    // Codex: free-text field, and the previous pin is cleared.
-    fireEvent.click(screen.getByRole('button', { name: /Codex/ }))
-    expect(screen.queryByRole('button', { name: 'Model' })).not.toBeInTheDocument()
-    expect(screen.getByRole('textbox', { name: 'Model' })).toHaveValue('')
-    fireEvent.click(screen.getByRole('button', { name: 'Open' }))
-
-    expect(onConfirm).toHaveBeenCalledWith(defaultFolder, 'codex', '', 'auto', '')
-  })
-
-  it('forwards a free-text model for agents without a curated list', () => {
-    const defaultFolder = '/home/user/projects/default'
-    const { onConfirm } = renderModal(defaultFolder)
+    await waitForCatalog('claude')
 
     fireEvent.click(screen.getByRole('button', { name: /Codex/ }))
-    fireEvent.change(screen.getByRole('textbox', { name: 'Model' }), {
-      target: { value: 'gpt-5.4' },
+    await waitFor(() => expect(suggestions()).toEqual(['gpt-5.4']))
+  })
+
+  it('forwards a model picked from the catalog without re-registering it', async () => {
+    const defaultFolder = '/home/user/projects/default'
+    const { onConfirm } = renderModal(defaultFolder)
+    await waitForCatalog()
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), {
+      target: { value: 'opus' },
     })
     fireEvent.click(screen.getByRole('button', { name: 'Open' }))
 
-    expect(onConfirm).toHaveBeenCalledWith(defaultFolder, 'codex', '', 'auto', 'gpt-5.4')
+    expect(onConfirm).toHaveBeenCalledWith(defaultFolder, 'claude', '', 'auto', 'opus')
+    expect(window.dbApi.upsertModel).not.toHaveBeenCalled()
+  })
+
+  it('registers a model typed by hand, so the next terminal offers it', async () => {
+    const defaultFolder = '/home/user/projects/default'
+    const { onConfirm } = renderModal(defaultFolder)
+    await waitForCatalog()
+
+    fireEvent.click(screen.getByRole('button', { name: /Codex/ }))
+    fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), {
+      target: { value: 'gpt-5.5' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Open' }))
+
+    expect(onConfirm).toHaveBeenCalledWith(defaultFolder, 'codex', '', 'auto', 'gpt-5.5')
+    expect(window.dbApi.upsertModel).toHaveBeenCalledWith(
+      expect.objectContaining({ agent: 'codex', value: 'gpt-5.5', label: 'gpt-5.5' }),
+    )
+  })
+
+  it('resets the pin when changing agents, since a model is agent-specific', async () => {
+    const defaultFolder = '/home/user/projects/default'
+    const { onConfirm } = renderModal(defaultFolder)
+    await waitForCatalog()
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), {
+      target: { value: 'opus' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Codex/ }))
+
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open' }))
+    expect(onConfirm).toHaveBeenCalledWith(defaultFolder, 'codex', '', 'auto', '')
+  })
+
+  it('hides the model field entirely for a plain terminal', async () => {
+    renderModal('/home/user/projects/default')
+    await waitForCatalog()
+
+    fireEvent.click(screen.getByRole('button', { name: /^⌨️Terminal$/ }))
+
+    expect(screen.queryByRole('combobox', { name: 'Model' })).not.toBeInTheDocument()
   })
 
   it('calls onCancel from the cancel button', () => {

@@ -1,11 +1,13 @@
 // Dialog for creating a new terminal: name, folder and agent command.
 import { useState } from 'react'
 import type { ReactNode } from 'react'
-import { Button, Modal, Select } from '@renderer/components/ui'
+import { Button, Modal } from '@renderer/components/ui'
 import { supportsModel } from '@shared/agents'
 import { COMMANDS } from '../commands'
 import type { CommandDef, CommandKey } from '../commands'
+import { useModels } from '../hooks/useModels'
 import type { TerminalStyle } from '../types'
+import { ModelField } from './ModelField'
 
 type Theme = TerminalStyle['theme']
 
@@ -34,16 +36,21 @@ export function NewTerminalModal({
   const [name, setName] = useState<string>('')
   const [theme, setTheme] = useState<Theme>('auto')
   const [model, setModel] = useState<string>(DEFAULT_MODEL)
+  const { modelsFor, register } = useModels()
 
   // Models the selected agent supports; switching agent resets the pin since a
   // value valid for one agent is meaningless for another.
   const agent: CommandDef = COMMANDS[command]
-  const models = agent.models ?? []
-  const modelOptions = [{ value: DEFAULT_MODEL, label: 'Default (agent decides)' }, ...models]
 
   function selectCommand(next: CommandKey): void {
     setCommand(next)
     setModel(DEFAULT_MODEL)
+  }
+
+  function confirm(): void {
+    // A model typed by hand joins the catalog, so the next terminal offers it.
+    void register(command, model)
+    onConfirm(folder, command, name.trim(), theme, model.trim())
   }
 
   async function pickFolder(): Promise<void> {
@@ -103,23 +110,16 @@ export function NewTerminalModal({
       {supportsModel(agent) && (
         <div className="mb-5">
           <Label>Model</Label>
-          {models.length > 0 ? (
-            <Select
-              ariaLabel="Model"
-              value={model}
-              options={modelOptions}
-              onChange={setModel}
-            />
-          ) : (
-            <input
-              aria-label="Model"
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              placeholder={agent.modelHint ?? 'Model id'}
-              className="w-full rounded-[8px] px-2.5 h-8 text-[12.5px] font-mono outline-none"
-              style={FIELD_STYLE}
-            />
-          )}
+          <ModelField
+            agent={agent}
+            value={model}
+            options={modelsFor(command)}
+            onChange={setModel}
+          />
+          <p className="mt-1.5 text-[11px]" style={{ color: 'var(--fg-3)' }}>
+            Pick a registered model or type a new one — it gets saved for next time.
+            Leave empty to let the agent decide.
+          </p>
         </div>
       )}
 
@@ -140,10 +140,7 @@ export function NewTerminalModal({
         <Button variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
-        <Button
-          disabled={!folder}
-          onClick={() => onConfirm(folder, command, name.trim(), theme, model)}
-        >
+        <Button disabled={!folder} onClick={confirm}>
           Open
         </Button>
       </div>

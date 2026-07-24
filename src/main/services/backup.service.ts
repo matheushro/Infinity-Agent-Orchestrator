@@ -41,6 +41,7 @@ export function collectBackup(): BackupData {
     notes,
     edges,
     noteLinks,
+    models: dbService.listModels(),
   }
 }
 
@@ -71,6 +72,14 @@ export function parseBackup(json: string): BackupData {
     if (!Array.isArray(rows)) throw new Error(`Backup file is missing "${key}"`)
     if (rows.some((r) => !r || typeof (r as { id?: unknown }).id !== 'string')) {
       throw new Error(`Backup file has a "${key}" entry without an id`)
+    }
+  }
+  // `models` postdates the format and stays optional (absent = no models), but
+  // when present it is validated like any other array.
+  if (data.models !== undefined) {
+    if (!Array.isArray(data.models)) throw new Error('Backup file is missing "models"')
+    if (data.models.some((r) => !r || typeof (r as { id?: unknown }).id !== 'string')) {
+      throw new Error('Backup file has a "models" entry without an id')
     }
   }
   return data as unknown as BackupData
@@ -114,6 +123,11 @@ export function applyBackup(data: BackupData): BackupCounts {
     )
     for (const link of noteLinks) dbService.upsertNoteLink(link)
 
+    // Models carry no foreign keys — an entry for an agent this build doesn't
+    // know is harmless (it simply never shows in a picker), so none are filtered.
+    const models = data.models ?? []
+    for (const model of models) dbService.upsertModel(model)
+
     return {
       workspaces: data.workspaces.length,
       terminals: terminals.length,
@@ -121,6 +135,7 @@ export function applyBackup(data: BackupData): BackupCounts {
       notes: notes.length,
       edges: edges.length,
       noteLinks: noteLinks.length,
+      models: models.length,
     }
   })
 }
@@ -133,6 +148,7 @@ function countsOf(data: BackupData): BackupCounts {
     notes: data.notes.length,
     edges: data.edges.length,
     noteLinks: data.noteLinks.length,
+    models: data.models?.length ?? 0,
   }
 }
 

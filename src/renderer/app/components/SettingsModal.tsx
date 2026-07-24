@@ -14,6 +14,8 @@ interface SettingsModalProps {
   onDefaultShellChange: (shell: ShellType) => void
   onDefaultProjectFolderChange: (folder: string) => void
   onMaxWorkspacesChange: (limit: number) => void
+  /** Opens the model catalog editor (App swaps this modal for that one). */
+  onManageModels: () => void
   /** Called after a backup file was merged into the DB (App reloads the UI). */
   onBackupImported: () => void
   onClose: () => void
@@ -30,6 +32,7 @@ export function SettingsModal({
   onDefaultShellChange,
   onDefaultProjectFolderChange,
   onMaxWorkspacesChange,
+  onManageModels,
   onBackupImported,
   onClose,
 }: SettingsModalProps): JSX.Element {
@@ -177,6 +180,17 @@ export function SettingsModal({
             style={FIELD_STYLE}
             aria-label="Workspace limit"
           />
+        </Field>
+
+        <Field
+          label="Models"
+          hint="The model strings each agent offers when pinning a terminal. Typing an unknown model into a terminal registers it here too."
+        >
+          <div>
+            <Button variant="secondary" onClick={onManageModels}>
+              Manage models…
+            </Button>
+          </div>
         </Field>
 
         <Field
