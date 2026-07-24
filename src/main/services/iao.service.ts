@@ -404,6 +404,18 @@ function handleRequest(req: IncomingMessage, res: ServerResponse): void {
         .catch((err) => send(res, 500, { error: (err as Error).message }))
       return
     }
+    if (route === 'POST /notes/link') {
+      readBody(req)
+        .then((body) => handleNoteLink(session, body, res))
+        .catch((err) => send(res, 500, { error: (err as Error).message }))
+      return
+    }
+    if (route === 'POST /notes/unlink') {
+      readBody(req)
+        .then((body) => handleNoteUnlink(session, body, res))
+        .catch((err) => send(res, 500, { error: (err as Error).message }))
+      return
+    }
     if (route === 'POST /notes/rename') {
       readBody(req)
         .then((body) => handleNoteRename(session, body, res))
@@ -806,6 +818,67 @@ function handleNoteDelete(
   send(res, 200, { deleted: true, note: { id: note.id, title: note.title } })
 }
 
+// Share an accessible note with another connected agent by linking the note to
+// that agent's terminal — the note↔terminal grant that lets both sides read and
+// edit it, so agents can exchange information through the note. The note must be
+// linked to the caller (you can only share what you can reach) and the target
+// must be an agent connected to the caller by an edge (same trust boundary as
+// `iao send`).
+function handleNoteLink(
+  session: SessionEntry,
+  body: Record<string, unknown>,
+  res: ServerResponse
+): void {
+  const noteName = String(body.target ?? '').trim()
+  const agentName = String(body.agent ?? '').trim()
+  if (!noteName) return send(res, 400, { error: 'note name required' })
+  if (!agentName) return send(res, 400, { error: 'agent name required' })
+
+  const note = resolveLinkedNote(session.nodeId, noteName)
+  if (!note) return sendNoteDenied(res, noteName)
+
+  const target = resolveLinkedAgent(session.nodeId, agentName)
+  if (!target) return send(res, 404, { error: `no linked agent matches "${agentName}"` })
+
+  const alreadyLinked = dbService.isNoteLinkedToTerminal(note.id, target.id)
+  if (!alreadyLinked) {
+    dbService.linkNoteToTerminal(note.id, target.id)
+    broadcastNotesChanged()
+  }
+  send(res, 200, {
+    note: { id: note.id, title: note.title },
+    agent: { id: target.id, title: target.title },
+    alreadyLinked
+  })
+}
+
+// Revoke a share: drop the link between an accessible note and a connected
+// agent's terminal. Same access rules as handleNoteLink.
+function handleNoteUnlink(
+  session: SessionEntry,
+  body: Record<string, unknown>,
+  res: ServerResponse
+): void {
+  const noteName = String(body.target ?? '').trim()
+  const agentName = String(body.agent ?? '').trim()
+  if (!noteName) return send(res, 400, { error: 'note name required' })
+  if (!agentName) return send(res, 400, { error: 'agent name required' })
+
+  const note = resolveLinkedNote(session.nodeId, noteName)
+  if (!note) return sendNoteDenied(res, noteName)
+
+  const target = resolveLinkedAgent(session.nodeId, agentName)
+  if (!target) return send(res, 404, { error: `no linked agent matches "${agentName}"` })
+
+  dbService.unlinkNoteFromTerminal(note.id, target.id)
+  broadcastNotesChanged()
+  send(res, 200, {
+    note: { id: note.id, title: note.title },
+    agent: { id: target.id, title: target.title },
+    unlinked: true
+  })
+}
+
 function sendNoteDenied(res: ServerResponse, name: string): void {
   send(res, 403, {
     error: `access denied: no note named "${name}" is linked to this terminal. ` +
@@ -1077,6 +1150,8 @@ function helpText() {
     '  iao note write "Note Name" "content"       Replace a linked note\\'s entire content',
     '  iao note edit "Note Name" "old" "new"      Replace text within a linked note',
     '  iao note rename "Old Name" "New Name"      Rename a linked note',
+    '  iao note link "Note Name" "Agent Name"     Share a linked note with a connected agent',
+    '  iao note unlink "Note Name" "Agent Name"   Stop sharing a note with a connected agent',
     '  iao note delete "Note Name"                Delete a linked note (removes its links)',
     '  iao help                                   Show this help',
     '  iao debug                                  Show diagnostic info about the bridge',
@@ -1293,6 +1368,28 @@ async function main() {
           console.log('Renamed note to "' + body.note.title + '".')
           return
         }
+        case 'link': {
+          if (args.length < 2) die('usage: iao note link "Note Name" "Agent Name"')
+          const name = args[0]
+          const agent = args.slice(1).join(' ')
+          const { status, body } = await request('POST', '/notes/link', { target: name, agent })
+          if (status !== 200) die((body && body.error) || ('http ' + status))
+          if (body.alreadyLinked) {
+            console.log('Note "' + body.note.title + '" is already shared with "' + body.agent.title + '".')
+          } else {
+            console.log('Shared note "' + body.note.title + '" with "' + body.agent.title + '" — they can now read and edit it.')
+          }
+          return
+        }
+        case 'unlink': {
+          if (args.length < 2) die('usage: iao note unlink "Note Name" "Agent Name"')
+          const name = args[0]
+          const agent = args.slice(1).join(' ')
+          const { status, body } = await request('POST', '/notes/unlink', { target: name, agent })
+          if (status !== 200) die((body && body.error) || ('http ' + status))
+          console.log('Unshared note "' + body.note.title + '" from "' + body.agent.title + '".')
+          return
+        }
         case 'delete': {
           if (args.length < 1) die('usage: iao note delete "Note Name"')
           const name = args.join(' ')
@@ -1302,7 +1399,7 @@ async function main() {
           return
         }
         default:
-          die('unknown note subcommand "' + (sub || '') + '". Try: iao note list | create | read | write | edit | rename | delete')
+          die('unknown note subcommand "' + (sub || '') + '". Try: iao note list | create | read | write | edit | rename | link | unlink | delete')
       }
       return
     }

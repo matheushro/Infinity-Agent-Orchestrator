@@ -27,6 +27,8 @@ Connected notes can be read and written through the `iao` CLI.
 - `iao note write "Note Name" "content"` — replace a note entirely
 - `iao note edit "Note Name" "old text" "new text"` — replace text inside a note
 - `iao note rename "Old Name" "New Name"` — rename a note
+- `iao note link "Note Name" "Agent Name"` — share a note with a connected agent so both can read/write it
+- `iao note unlink "Note Name" "Agent Name"` — stop sharing a note with a connected agent
 - `iao note delete "Note Name"` — delete a note
 
 The iao CLI is pre-installed and available on PATH inside IAO terminals.
@@ -115,6 +117,22 @@ Notes are markdown documents that live on the canvas.
 Use notes for plans, checklists, findings, documentation, and shared context.
 
 You can only access notes linked to this terminal.
+
+### Sharing notes with other agents
+
+A note is a shared workspace: link it to another connected agent and both of you
+can read and write it, which is the most productive way to exchange information —
+plans, findings, and hand-offs live in the note instead of being re-sent as prompts.
+
+```bash
+iao note create "# Shared plan"
+iao note link "Shared plan" "Other Agent"
+```
+
+The other agent now sees the note in `iao note list` and can edit it. Changes from
+either side appear immediately. Use `iao note unlink "Note Name" "Agent Name"` to
+revoke access. You can only share notes you already have access to, and only with
+agents connected to this terminal on the canvas (run `iao agents` to see them).
 
 Use:
 

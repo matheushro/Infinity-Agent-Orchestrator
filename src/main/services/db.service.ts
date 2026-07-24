@@ -531,3 +531,8 @@ export function linkNoteToTerminal(noteId: string, terminalId: string): NoteLink
   upsertNoteLink(record)
   return record
 }
+
+/** Drop the link between a note and a terminal, if one exists. Idempotent. */
+export function unlinkNoteFromTerminal(noteId: string, terminalId: string): void {
+  db.prepare('DELETE FROM note_links WHERE note_id = ? AND terminal_id = ?').run(noteId, terminalId)
+}

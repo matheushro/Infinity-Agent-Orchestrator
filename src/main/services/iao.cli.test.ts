@@ -537,6 +537,58 @@ describe('CLI bundle', () => {
     expect(cli.stdout()).toContain('Deleted note "Plan".')
   })
 
+  it('note link posts the note and agent names and confirms the share', async () => {
+    const cli = await loadCli({
+      env: { ...ENV },
+      responses: [{ statusCode: 200, body: { note: { id: 'n1', title: 'Plan' }, agent: { id: 'a1', title: 'Beta' }, alreadyLinked: false } }],
+      argv: ['node', 'iao', 'note', 'link', 'Plan', 'Beta']
+    })
+
+    await cli.runMain()
+
+    expect(cli.rpcCalls[0]).toMatchObject({ method: 'POST', path: '/notes/link' })
+    expect(cli.rpcCalls[0].body).toEqual({ target: 'Plan', agent: 'Beta' })
+    expect(cli.stdout()).toContain('Shared note "Plan" with "Beta"')
+  })
+
+  it('note link reports when the note is already shared', async () => {
+    const cli = await loadCli({
+      env: { ...ENV },
+      responses: [{ statusCode: 200, body: { note: { id: 'n1', title: 'Plan' }, agent: { id: 'a1', title: 'Beta' }, alreadyLinked: true } }],
+      argv: ['node', 'iao', 'note', 'link', 'Plan', 'Beta']
+    })
+
+    await cli.runMain()
+
+    expect(cli.stdout()).toContain('is already shared with "Beta".')
+  })
+
+  it('note unlink posts the note and agent names and confirms the revoke', async () => {
+    const cli = await loadCli({
+      env: { ...ENV },
+      responses: [{ statusCode: 200, body: { note: { id: 'n1', title: 'Plan' }, agent: { id: 'a1', title: 'Beta' }, unlinked: true } }],
+      argv: ['node', 'iao', 'note', 'unlink', 'Plan', 'Beta']
+    })
+
+    await cli.runMain()
+
+    expect(cli.rpcCalls[0]).toMatchObject({ method: 'POST', path: '/notes/unlink' })
+    expect(cli.rpcCalls[0].body).toEqual({ target: 'Plan', agent: 'Beta' })
+    expect(cli.stdout()).toContain('Unshared note "Plan" from "Beta".')
+  })
+
+  it('note link requires both a note name and an agent name', async () => {
+    const cli = await loadCli({
+      env: { ...ENV },
+      argv: ['node', 'iao', 'note', 'link', 'Plan']
+    })
+
+    await cli.runMain()
+
+    expect(cli.stderr()).toContain('usage: iao note link "Note Name" "Agent Name"')
+    expect(cli.rpcCalls).toHaveLength(0)
+  })
+
   it('note read surfaces the access-denied error from the bridge', async () => {
     const cli = await loadCli({
       env: { ...ENV },

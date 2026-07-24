@@ -25,6 +25,8 @@ vi.mock('./db.service', () => ({
   listNotesForTerminal: vi.fn(() => []),
   upsertNote: vi.fn(),
   linkNoteToTerminal: vi.fn(),
+  unlinkNoteFromTerminal: vi.fn(),
+  isNoteLinkedToTerminal: vi.fn(() => false),
   removeNote: vi.fn()
 }))
 
@@ -50,6 +52,8 @@ const mockGetTerminal = vi.mocked(dbService.getTerminal)
 const mockListNotesForTerminal = vi.mocked(dbService.listNotesForTerminal)
 const mockUpsertNote = vi.mocked(dbService.upsertNote)
 const mockLinkNoteToTerminal = vi.mocked(dbService.linkNoteToTerminal)
+const mockUnlinkNoteFromTerminal = vi.mocked(dbService.unlinkNoteFromTerminal)
+const mockIsNoteLinkedToTerminal = vi.mocked(dbService.isNoteLinkedToTerminal)
 const mockRemoveNote = vi.mocked(dbService.removeNote)
 const mockWriteToPty = vi.mocked(ptyService.writeToPty)
 const mockMkdirSync = vi.mocked(mkdirSync)
@@ -1109,6 +1113,129 @@ describe('POST /notes/delete', () => {
     })
     expect(status).toBe(403)
     expect(mockRemoveNote).not.toHaveBeenCalled()
+  })
+})
+
+describe('POST /notes/link', () => {
+  it('shares a linked note with a connected agent by linking it to their terminal', async () => {
+    const { socketPath } = await startIaoServer()
+    const env = registerPtySession('pty-1', 'node-1')
+    mockListNotesForTerminal.mockReturnValue([makeNote()])
+    mockListEdges.mockReturnValue([makeEdge('node-1', 'node-2')])
+    mockListActive.mockReturnValue([
+      makeTerminal({ id: 'node-1', title: 'Alpha' }),
+      makeTerminal({ id: 'node-2', title: 'Beta' })
+    ])
+    mockIsNoteLinkedToTerminal.mockReturnValue(false)
+
+    const { status, body } = await request(socketPath, 'POST', '/notes/link', {
+      token: env.IAO_TOKEN, body: { target: 'Plan', agent: 'Beta' }
+    })
+
+    expect(status).toBe(200)
+    expect((body as any).note.title).toBe('Plan')
+    expect((body as any).agent.title).toBe('Beta')
+    expect((body as any).alreadyLinked).toBe(false)
+    expect(mockLinkNoteToTerminal).toHaveBeenCalledWith('note-1', 'node-2')
+  })
+
+  it('is idempotent: reports alreadyLinked and does not re-link', async () => {
+    const { socketPath } = await startIaoServer()
+    const env = registerPtySession('pty-1', 'node-1')
+    mockListNotesForTerminal.mockReturnValue([makeNote()])
+    mockListEdges.mockReturnValue([makeEdge('node-1', 'node-2')])
+    mockListActive.mockReturnValue([
+      makeTerminal({ id: 'node-1', title: 'Alpha' }),
+      makeTerminal({ id: 'node-2', title: 'Beta' })
+    ])
+    mockIsNoteLinkedToTerminal.mockReturnValue(true)
+
+    const { status, body } = await request(socketPath, 'POST', '/notes/link', {
+      token: env.IAO_TOKEN, body: { target: 'Plan', agent: 'Beta' }
+    })
+
+    expect(status).toBe(200)
+    expect((body as any).alreadyLinked).toBe(true)
+    expect(mockLinkNoteToTerminal).not.toHaveBeenCalled()
+  })
+
+  it('denies (403) when the note is not linked to the caller', async () => {
+    const { socketPath } = await startIaoServer()
+    const env = registerPtySession('pty-1', 'node-1')
+    mockListNotesForTerminal.mockReturnValue([])
+    mockListEdges.mockReturnValue([makeEdge('node-1', 'node-2')])
+    mockListActive.mockReturnValue([
+      makeTerminal({ id: 'node-1', title: 'Alpha' }),
+      makeTerminal({ id: 'node-2', title: 'Beta' })
+    ])
+
+    const { status } = await request(socketPath, 'POST', '/notes/link', {
+      token: env.IAO_TOKEN, body: { target: 'Plan', agent: 'Beta' }
+    })
+    expect(status).toBe(403)
+    expect(mockLinkNoteToTerminal).not.toHaveBeenCalled()
+  })
+
+  it('returns 404 when the target agent is not connected to the caller', async () => {
+    const { socketPath } = await startIaoServer()
+    const env = registerPtySession('pty-1', 'node-1')
+    mockListNotesForTerminal.mockReturnValue([makeNote()])
+    mockListEdges.mockReturnValue([]) // no edge → no linked agent
+    mockListActive.mockReturnValue([makeTerminal({ id: 'node-2', title: 'Beta' })])
+
+    const { status } = await request(socketPath, 'POST', '/notes/link', {
+      token: env.IAO_TOKEN, body: { target: 'Plan', agent: 'Beta' }
+    })
+    expect(status).toBe(404)
+    expect(mockLinkNoteToTerminal).not.toHaveBeenCalled()
+  })
+
+  it('returns 400 when the agent name is missing', async () => {
+    const { socketPath } = await startIaoServer()
+    const env = registerPtySession('pty-1', 'node-1')
+    mockListNotesForTerminal.mockReturnValue([makeNote()])
+    const { status } = await request(socketPath, 'POST', '/notes/link', {
+      token: env.IAO_TOKEN, body: { target: 'Plan' }
+    })
+    expect(status).toBe(400)
+  })
+})
+
+describe('POST /notes/unlink', () => {
+  it('revokes a share by unlinking the note from the connected agent', async () => {
+    const { socketPath } = await startIaoServer()
+    const env = registerPtySession('pty-1', 'node-1')
+    mockListNotesForTerminal.mockReturnValue([makeNote()])
+    mockListEdges.mockReturnValue([makeEdge('node-1', 'node-2')])
+    mockListActive.mockReturnValue([
+      makeTerminal({ id: 'node-1', title: 'Alpha' }),
+      makeTerminal({ id: 'node-2', title: 'Beta' })
+    ])
+
+    const { status, body } = await request(socketPath, 'POST', '/notes/unlink', {
+      token: env.IAO_TOKEN, body: { target: 'Plan', agent: 'Beta' }
+    })
+
+    expect(status).toBe(200)
+    expect((body as any).unlinked).toBe(true)
+    expect(mockUnlinkNoteFromTerminal).toHaveBeenCalledWith('note-1', 'node-2')
+  })
+
+  it('denies (403) when the note is not linked to the caller', async () => {
+    const { socketPath } = await startIaoServer()
+    const env = registerPtySession('pty-1', 'node-1')
+    mockListNotesForTerminal.mockReturnValue([])
+    mockListEdges.mockReturnValue([makeEdge('node-1', 'node-2')])
+    mockListActive.mockReturnValue([
+      makeTerminal({ id: 'node-1', title: 'Alpha' }),
+      makeTerminal({ id: 'node-2', title: 'Beta' })
+    ])
+
+    const { status } = await request(socketPath, 'POST', '/notes/unlink', {
+      token: env.IAO_TOKEN, body: { target: 'Plan', agent: 'Beta' }
+    })
+    expect(status).toBe(403)
+    expect(mockUnlinkNoteFromTerminal).not.toHaveBeenCalled()
   })
 })
 
