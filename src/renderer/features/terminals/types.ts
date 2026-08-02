@@ -47,6 +47,15 @@ export const DEFAULT_TERMINAL_STYLE: TerminalStyle = {
   fontSize: 13,
 }
 
+/** True when a style carries no customization, so it can be dropped instead of stored. */
+export function isDefaultTerminalStyle(style: TerminalStyle): boolean {
+  return (
+    style.theme === DEFAULT_TERMINAL_STYLE.theme &&
+    style.fontFamily === DEFAULT_TERMINAL_STYLE.fontFamily &&
+    style.fontSize === DEFAULT_TERMINAL_STYLE.fontSize
+  )
+}
+
 export const FONT_FAMILY_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'ui-monospace, SFMono-Regular, Menlo, monospace', label: 'System mono' },
   { value: '"JetBrains Mono", ui-monospace, monospace', label: 'JetBrains Mono' },

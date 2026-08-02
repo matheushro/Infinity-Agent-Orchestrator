@@ -11,9 +11,8 @@ function renderMenu(overrides: { enabled?: boolean } = {}) {
   const onDuplicate = vi.fn()
   const onLink = vi.fn()
   const onToggleEnabled = vi.fn()
-  const onEditPrompt = vi.fn()
+  const onSettings = vi.fn()
   const onDelete = vi.fn()
-  const onStyle = vi.fn()
   const onOpenInVSCode = vi.fn()
 
   render(
@@ -26,9 +25,8 @@ function renderMenu(overrides: { enabled?: boolean } = {}) {
       onDuplicate={onDuplicate}
       onLink={onLink}
       onToggleEnabled={onToggleEnabled}
-      onEditPrompt={onEditPrompt}
+      onSettings={onSettings}
       onDelete={onDelete}
-      onStyle={onStyle}
       onOpenInVSCode={onOpenInVSCode}
     />,
   )
@@ -43,9 +41,8 @@ function renderMenu(overrides: { enabled?: boolean } = {}) {
     onDuplicate,
     onLink,
     onToggleEnabled,
-    onEditPrompt,
+    onSettings,
     onDelete,
-    onStyle,
     onOpenInVSCode,
     menu,
     overlay,
@@ -70,9 +67,8 @@ describe('TerminalContextMenu', () => {
     expect(screen.getByRole('button', { name: 'Restart terminal' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Duplicate terminal' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Link to terminal/note' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Edit agent prompt…' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Terminal settings…' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Open on VS Code' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Customize style…' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Delete terminal' })).toBeInTheDocument()
   })
 
@@ -95,11 +91,10 @@ describe('TerminalContextMenu', () => {
 
   it.each([
     ['Restart terminal', 'onRestart'],
-    ['Edit agent prompt…', 'onEditPrompt'],
+    ['Terminal settings…', 'onSettings'],
     ['Duplicate terminal', 'onDuplicate'],
     ['Link to terminal/note', 'onLink'],
     ['Open on VS Code', 'onOpenInVSCode'],
-    ['Customize style…', 'onStyle'],
     ['Delete terminal', 'onDelete'],
   ] as const)('clicking %s triggers its callback and closes', (label, callbackName) => {
     const props = renderMenu()

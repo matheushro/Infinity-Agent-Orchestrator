@@ -1,58 +1,24 @@
-// A movable/resizable Markdown note on the canvas. Two states:
-//  - view: header title + rendered Markdown (double-click body to edit)
-//  - edit: raw Markdown <textarea> (Esc or blur leaves edit mode and saves)
-// Task-list checkboxes stay interactive in view mode and rewrite the raw
-// Markdown when toggled. Mirrors CanvasText's prop shape so Canvas wiring is
-// identical to the text element.
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
+// A movable/resizable Markdown note on the canvas.
+//
+// The body is a single Obsidian-style Live Preview surface: the Markdown is
+// always rendered — headings, bold, lists, checkboxes, tables — and typing a
+// marker formats the text instantly. There is no "raw text" editing mode; the
+// syntax of a construct is only revealed while the caret is inside it.
+// Double-click still arms editing (the canvas needs plain clicks for
+// select/link/delete); Esc or blur leaves editing and saves.
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { Rnd } from 'react-rnd'
-import ReactMarkdown, { type Components } from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import { IChevDown, IClose, ICopy, ISearch } from '@renderer/components/ui'
+import { IClose, ICopy } from '@renderer/components/ui'
 import type { NoteRecord } from '@shared/types/notes'
 import type { CanvasTool } from '@renderer/features/canvas/components/Canvas'
 import type { CanvasTheme } from '@renderer/features/canvas/types'
-import { toggleTaskAt } from '../lib/markdown'
 import { useNoteSearch } from '../hooks/useNoteSearch'
-import type { TextMatch } from '../lib/noteSearch'
+import type { MarkdownEditorHandle } from '../hooks/useMarkdownEditor'
+import { MarkdownEditor } from './MarkdownEditor'
+import { NoteSearchBar } from './NoteSearchBar'
 
-// Hoisted so the array identity is stable across renders — a fresh `[remarkGfm]`
-// literal would make react-markdown reprocess the document on every render.
-const REMARK_PLUGINS = [remarkGfm]
-
-function EditorSearchHighlight({
-  text,
-  matches,
-  currentIndex,
-}: {
-  text: string
-  matches: TextMatch[]
-  currentIndex: number
-}): JSX.Element {
-  const parts: JSX.Element[] = []
-  let offset = 0
-
-  matches.forEach((match, index) => {
-    if (match.start > offset) {
-      parts.push(<span key={`text-${offset}`}>{text.slice(offset, match.start)}</span>)
-    }
-    parts.push(
-      <mark
-        key={`match-${match.start}`}
-        className={index === currentIndex ? 'is-active' : undefined}
-      >
-        {text.slice(match.start, match.end)}
-      </mark>,
-    )
-    offset = match.end
-  })
-
-  if (offset < text.length) {
-    parts.push(<span key={`text-${offset}`}>{text.slice(offset)}</span>)
-  }
-
-  return <>{parts}</>
-}
+const EMPTY_PLACEHOLDER = 'Empty note — double-click to edit'
+const EDITING_PLACEHOLDER = 'Write Markdown…'
 
 interface NoteNodeProps {
   note: NoteRecord
@@ -102,40 +68,61 @@ export const NoteNode = memo(function NoteNode({
   const isLinkSource = linkSource === note.id
   const resolvedTheme = note.theme === 'auto' ? globalTheme : note.theme
   const isDark = resolvedTheme === 'dark'
-  const [draft, setDraft] = useState(note.content)
+  const [text, setText] = useState(note.content)
   const [editingTitle, setEditingTitle] = useState(false)
   const [draftTitle, setDraftTitle] = useState(note.title)
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
-  const previewRef = useRef<HTMLDivElement | null>(null)
+  const editorRef = useRef<MarkdownEditorHandle>(null)
   const searchBarRef = useRef<HTMLDivElement | null>(null)
-  const editorHighlightRef = useRef<HTMLDivElement | null>(null)
+  const textRef = useRef(text)
   const finishingRef = useRef(false)
+  textRef.current = text
+
   const search = useNoteSearch({
     open: searchOpen,
     requestId: searchRequestId,
-    editing,
-    text: editing ? draft : note.content,
-    textareaRef,
-    previewRef,
+    text,
+    editorRef,
     onClose: onSearchClose,
   })
 
+  // While editing, the editor owns the text; outside of it the record does (a
+  // rehydrate or an edit from a linked agent must show up immediately).
   useEffect(() => {
-    if (!editing) return
-    finishingRef.current = false
-    setDraft(note.content)
-    if (searchOpen) return
-    requestAnimationFrame(() => {
-      textareaRef.current?.focus()
-    })
-  }, [editing, note.content, searchOpen])
+    if (editing) return
+    setText(note.content)
+  }, [editing, note.content])
 
-  function commitContent(): void {
+  useEffect(() => {
+    if (editing) finishingRef.current = false
+  }, [editing])
+
+  const commitContent = useCallback(() => {
     if (finishingRef.current) return
     finishingRef.current = true
-    if (draft !== note.content) onUpdate(note.id, { content: draft })
+    if (textRef.current !== note.content) onUpdate(note.id, { content: textRef.current })
     onEditingComplete()
-  }
+  }, [note.content, note.id, onUpdate, onEditingComplete])
+
+  // Edits reach here from typing (while editing) and from toggling a task
+  // checkbox (possible at rest too — that one saves straight away, since there
+  // is no blur coming to commit it).
+  const handleChange = useCallback(
+    (next: string) => {
+      setText(next)
+      textRef.current = next
+      if (!editing && next !== note.content) onUpdate(note.id, { content: next })
+    },
+    [editing, note.content, note.id, onUpdate],
+  )
+
+  const handleBlur = useCallback(
+    (event: FocusEvent) => {
+      // Clicking into the find bar must not end the edit.
+      if (searchBarRef.current?.contains(event.relatedTarget as Node | null)) return
+      commitContent()
+    },
+    [commitContent],
+  )
 
   function commitTitle(): void {
     const next = draftTitle.trim() || note.title
@@ -143,77 +130,6 @@ export const NoteNode = memo(function NoteNode({
     setDraftTitle(next)
     setEditingTitle(false)
   }
-
-  // The Markdown components MUST be referentially stable: react-markdown uses
-  // each override function as the rendered element's component *type*, so a
-  // fresh object/closure per render makes React unmount+remount every checkbox
-  // on each render. That remount mid-click (mousedown lands on the old node,
-  // mouseup on the freshly-mounted one) means the browser never fires `click`,
-  // so toggling silently did nothing. We keep one stable `markdownComponents`
-  // and read the latest note/handler through a ref so the closures stay fresh.
-  const latestRef = useRef({ id: note.id, content: note.content, onUpdate })
-  latestRef.current = { id: note.id, content: note.content, onUpdate }
-
-  const markdownComponents = useMemo<Components>(
-    () => ({
-      input: ({ node: _node, ...props }) => {
-        if (props.type === 'checkbox') {
-          return (
-            <input
-              type="checkbox"
-              checked={Boolean(props.checked)}
-              // The task index is derived at click time from the checkbox's
-              // position among its siblings (DOM order == document order ==
-              // toggleTaskAt's ordinals). Computing it during render with a
-              // counter is impure and breaks under StrictMode's double render.
-              onChange={(event) => {
-                const container = event.currentTarget.closest('.note-markdown')
-                const boxes = Array.from(
-                  container?.querySelectorAll('input[type="checkbox"]') ?? [],
-                )
-                const index = boxes.indexOf(event.currentTarget)
-                if (index < 0) return
-                const { id, content, onUpdate: update } = latestRef.current
-                update(id, { content: toggleTaskAt(content, index) })
-              }}
-              onClick={(event) => event.stopPropagation()}
-              onMouseDown={(event) => event.stopPropagation()}
-            />
-          )
-        }
-        return <input {...props} />
-      },
-      // Render links as text-styled anchors but never let them navigate the app
-      // window (no external-shell handling in step 1).
-      a: ({ node: _node, children, ...props }) => (
-        <a {...props} onClick={(event) => event.preventDefault()} rel="noreferrer">
-          {children}
-        </a>
-      ),
-    }),
-    [],
-  )
-
-  // Rendering Markdown runs the full remark/rehype pipeline, which is O(document
-  // size) and react-markdown re-runs it on *every* render. NoteNode re-renders
-  // constantly — pan/zoom changes `scale`, dragging any other node re-renders
-  // the whole Canvas, etc. — so a large note would re-parse on every frame and
-  // tank the app's frame rate. Memoising the rendered subtree on `note.content`
-  // means the parse only happens when the text actually changes; the stable
-  // element reference also lets React skip reconciling it on unrelated renders.
-  const renderedMarkdown = useMemo(
-    () =>
-      note.content.trim() ? (
-        <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={markdownComponents}>
-          {note.content}
-        </ReactMarkdown>
-      ) : (
-        <span className="text-[12px]" style={{ color: 'var(--fg-3)' }}>
-          Empty note — double-click to edit
-        </span>
-      ),
-    [note.content, markdownComponents],
-  )
 
   return (
     <Rnd
@@ -286,7 +202,9 @@ export const NoteNode = memo(function NoteNode({
       style={{
         background: 'var(--node-bg)',
         border: isLinkSource ? '1px solid var(--accent)' : '1px solid var(--line)',
-        boxShadow: isLinkSource ? '0 0 0 2px color-mix(in oklch, var(--accent) 40%, transparent)' : undefined,
+        boxShadow: isLinkSource
+          ? '0 0 0 2px color-mix(in oklch, var(--accent) 40%, transparent)'
+          : undefined,
         cursor: isLinking ? 'crosshair' : isDelete ? 'not-allowed' : undefined,
         zIndex: editing || selected ? 20 : 2,
       }}
@@ -363,138 +281,32 @@ export const NoteNode = memo(function NoteNode({
         </div>
 
         {searchOpen && (
-          <div
-            ref={searchBarRef}
-            className="note-search flex h-9 shrink-0 items-center gap-1.5 px-2"
-            style={{
-              background: 'var(--node-head)',
-              borderBottom: '1px solid var(--line)',
-            }}
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <ISearch size={13} style={{ color: 'var(--fg-3)' }} aria-hidden="true" />
-            <input
-              ref={search.inputRef}
-              type="text"
-              value={search.query}
-              onChange={(event) => search.setQuery(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Escape') {
-                  event.preventDefault()
-                  search.close()
-                } else if (event.key === 'Enter') {
-                  event.preventDefault()
-                  if (event.shiftKey) search.previous()
-                  else search.next()
-                }
-              }}
-              placeholder="Find in note"
-              aria-label="Find in note"
-              className="min-w-0 flex-1 bg-transparent text-[12px] outline-none"
-              style={{ color: 'var(--fg)' }}
-            />
-            <span
-              className="min-w-[42px] text-right text-[10.5px] tabular-nums"
-              style={{
-                color:
-                  search.matchCount === 0 && search.query
-                    ? 'var(--traffic-close)'
-                    : 'var(--fg-3)',
-              }}
-              aria-live="polite"
-            >
-              {!search.query
-                ? ''
-                : search.matchCount === 0
-                  ? '0/0'
-                  : `${search.currentIndex + 1}/${search.matchCount}`}
-            </span>
-            <button
-              type="button"
-              className="icon-btn !h-6 !w-6"
-              onClick={search.previous}
-              disabled={search.matchCount === 0}
-              title="Previous result (Shift+Enter)"
-              aria-label="Previous result"
-            >
-              <IChevDown size={12} style={{ transform: 'rotate(180deg)' }} />
-            </button>
-            <button
-              type="button"
-              className="icon-btn !h-6 !w-6"
-              onClick={search.next}
-              disabled={search.matchCount === 0}
-              title="Next result (Enter)"
-              aria-label="Next result"
-            >
-              <IChevDown size={12} />
-            </button>
-            <button
-              type="button"
-              className="icon-btn !h-6 !w-6"
-              onClick={search.close}
-              title="Close search (Escape)"
-              aria-label="Close search"
-            >
-              <IClose size={11} />
-            </button>
-          </div>
+          <NoteSearchBar
+            containerRef={searchBarRef}
+            inputRef={search.inputRef}
+            query={search.query}
+            matchCount={search.matchCount}
+            currentIndex={search.currentIndex}
+            onQueryChange={search.setQuery}
+            onNext={search.next}
+            onPrevious={search.previous}
+            onClose={search.close}
+          />
         )}
 
-        {editing ? (
-          <div className="relative min-h-0 flex-1">
-            {searchOpen && search.query && (
-              <div
-                ref={editorHighlightRef}
-                className="note-editor note-editor-highlight pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words p-3"
-                aria-hidden="true"
-              >
-                <EditorSearchHighlight
-                  text={draft}
-                  matches={search.matches}
-                  currentIndex={search.currentIndex}
-                />
-              </div>
-            )}
-            <textarea
-              ref={textareaRef}
-              value={draft}
-              placeholder="Write Markdown…"
-              onChange={(e) => setDraft(e.target.value)}
-              onBlur={(event) => {
-                if (searchBarRef.current?.contains(event.relatedTarget as Node | null)) return
-                commitContent()
-              }}
-              onScroll={(event) => {
-                if (!editorHighlightRef.current) return
-                editorHighlightRef.current.scrollTop = event.currentTarget.scrollTop
-                editorHighlightRef.current.scrollLeft = event.currentTarget.scrollLeft
-              }}
-              onMouseDown={(e) => e.stopPropagation()}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') {
-                  e.preventDefault()
-                  commitContent()
-                }
-              }}
-              className="note-editor relative h-full w-full resize-none bg-transparent outline-none p-3 nice-scroll"
-              style={{ color: 'var(--fg)' }}
-            />
-          </div>
-        ) : (
-          <div
-            ref={previewRef}
-            tabIndex={-1}
-            className="note-markdown min-h-0 flex-1 overflow-auto p-3 nice-scroll"
-            style={{ color: 'var(--fg)' }}
-            onDoubleClick={(e) => {
-              e.stopPropagation()
-              onEdit(note.id)
-            }}
-          >
-            {renderedMarkdown}
-          </div>
-        )}
+        <MarkdownEditor
+          ref={editorRef}
+          value={text}
+          editable={editing}
+          placeholder={editing ? EDITING_PLACEHOLDER : EMPTY_PLACEHOLDER}
+          onChange={handleChange}
+          onEscape={commitContent}
+          onBlur={handleBlur}
+          onRequestEdit={(coords) => {
+            onEdit(note.id)
+            editorRef.current?.focusAt(coords)
+          }}
+        />
       </div>
     </Rnd>
   )

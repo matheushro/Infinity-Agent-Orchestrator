@@ -184,23 +184,23 @@ body {
 }
 
 /* ── Notes ──────────────────────────────────────────────────────────────── */
-.note-editor {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12.5px;
-  line-height: 1.5;
+/* Live-preview body (CodeMirror). Everything inside `.cm-*` is themed from
+   lib/livePreview/theme.ts so it can follow a note's own light/dark palette;
+   only the mounting box lives here. */
+.note-live {
+  cursor: text;
 }
-.note-editor::placeholder { color: var(--fg-3); }
-.note-editor-highlight {
-  color: transparent;
+.note-live .cm-editor {
+  height: 100%;
 }
-.note-editor-highlight mark {
-  background: color-mix(in oklch, var(--accent) 42%, transparent);
-  border-radius: 2px;
-  color: transparent;
+/* The element that actually scrolls is CodeMirror's own scroller. */
+.note-live .cm-scroller::-webkit-scrollbar { width: 8px; height: 8px; }
+.note-live .cm-scroller::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 8px;
 }
-.note-editor-highlight mark.is-active {
-  background: var(--accent);
-}
+.note-live .cm-scroller::-webkit-scrollbar-thumb:hover { background: var(--fg-3); }
+.note-live .cm-scroller::-webkit-scrollbar-track { background: transparent; }
 
 .note-markdown {
   font-size: 13px;
@@ -480,12 +480,3 @@ body.is-panning,
 body.is-panning * { cursor: grabbing !important; user-select: none; }
 body.is-dragging,
 body.is-dragging * { user-select: none; }
-::highlight(note-search-match) {
-  background: color-mix(in oklch, var(--accent) 42%, transparent);
-  color: inherit;
-}
-
-::highlight(note-search-active) {
-  background: var(--accent);
-  color: var(--accent-fg, #fff);
-}

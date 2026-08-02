@@ -11,8 +11,8 @@ Use to add a new command users can launch in a terminal (alongside `codex` / `cl
    ```
    - `key` — stable identifier, also added to the `CommandKey` union.
    - `cmd` — the exact string written into the pty after the shell starts.
-   - `label` / `icon` — shown in `NewTerminalModal`.
-3. That's it. `NewTerminalModal` renders all `COMMANDS` automatically, `useTerminals`
+   - `label` / `icon` — shown in `TerminalSettingsModal`.
+3. That's it. `TerminalSettingsModal` renders all `COMMANDS` automatically, `useTerminals`
    uses `COMMANDS[command].label` for default titles, and `useTerminalSession` writes
    `COMMANDS[command].cmd` into the pty.
 

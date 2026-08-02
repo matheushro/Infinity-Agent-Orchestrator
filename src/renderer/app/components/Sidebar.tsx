@@ -40,8 +40,8 @@ interface SidebarProps {
   onTerminalDelete: (workspaceId: string, terminalId: string) => void
   onTerminalToggleEnabled: (workspaceId: string, terminalId: string) => void
   onTerminalLink: (workspaceId: string, terminalId: string) => void
-  onTerminalStyle: (workspaceId: string, terminalId: string) => void
-  onTerminalEditPrompt: (workspaceId: string, terminalId: string) => void
+  /** Opens the one terminal dialog (name/folder/agent/model/prompt/style). */
+  onTerminalSettings: (workspaceId: string, terminalId: string) => void
   onTerminalOpenInVSCode: (workspaceId: string, terminal: TerminalNodeData) => void
 }
 
@@ -277,8 +277,7 @@ function ExpandedSidebar({
   onTerminalDelete,
   onTerminalToggleEnabled,
   onTerminalLink,
-  onTerminalStyle,
-  onTerminalEditPrompt,
+  onTerminalSettings,
   onTerminalOpenInVSCode,
   terminalOrderByWorkspace,
 }: SidebarStateProps): JSX.Element {
@@ -645,16 +644,12 @@ function ExpandedSidebar({
             onTerminalLink(termCtxMenu.terminal.workspace_id, termCtxMenu.terminal.id)
             setTermCtxMenu(null)
           }}
-          onEditPrompt={() => {
-            onTerminalEditPrompt(termCtxMenu.terminal.workspace_id, termCtxMenu.terminal.id)
+          onSettings={() => {
+            onTerminalSettings(termCtxMenu.terminal.workspace_id, termCtxMenu.terminal.id)
             setTermCtxMenu(null)
           }}
           onDelete={() => {
             onTerminalDelete(termCtxMenu.terminal.workspace_id, termCtxMenu.terminal.id)
-            setTermCtxMenu(null)
-          }}
-          onStyle={() => {
-            onTerminalStyle(termCtxMenu.terminal.workspace_id, termCtxMenu.terminal.id)
             setTermCtxMenu(null)
           }}
           onOpenInVSCode={() => {

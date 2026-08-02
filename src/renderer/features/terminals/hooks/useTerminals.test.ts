@@ -131,6 +131,26 @@ describe('useTerminals — createTerminal', () => {
     )
   })
 
+  it('stamps the prompt and model chosen in the create dialog on the new node', async () => {
+    const { result } = renderHook(() => useTerminals('ws-1'))
+    await waitFor(() => expect(mockTerminalRepository.listActive).toHaveBeenCalled())
+
+    act(() => {
+      result.current.createTerminal('/home/user/project', 'claude', '', 'bash', undefined, {
+        prompt: 'You are a reviewer.',
+        model: 'opus',
+      })
+    })
+
+    // They must be on the node before its first render: the pty is created from
+    // node.prompt/node.model, so a later update would launch the agent bare.
+    expect(result.current.nodes[0].prompt).toBe('You are a reviewer.')
+    expect(result.current.nodes[0].model).toBe('opus')
+    expect(mockTerminalRepository.persist).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: 'You are a reviewer.', model: 'opus' }),
+    )
+  })
+
   it('auto-generates title from command label + folderName when name is empty', async () => {
     const { result } = renderHook(() => useTerminals('ws-1'))
     await waitFor(() => expect(mockTerminalRepository.listActive).toHaveBeenCalled())

@@ -3,6 +3,11 @@ export interface TextMatch {
   end: number
 }
 
+/**
+ * Case-insensitive, non-overlapping matches of `query` in `text`, in document
+ * order. Offsets are into the note's Markdown source — the live-preview editor
+ * renders that very string, so they map straight onto editor positions.
+ */
 export function findTextMatches(text: string, query: string): TextMatch[] {
   if (!query) return []
 
@@ -16,42 +21,4 @@ export function findTextMatches(text: string, query: string): TextMatch[] {
   }
 
   return matches
-}
-
-interface TextSegment {
-  node: Text
-  start: number
-  end: number
-}
-
-export function createTextRanges(root: HTMLElement, query: string): Range[] {
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
-  const segments: TextSegment[] = []
-  let text = ''
-  let node = walker.nextNode()
-
-  while (node) {
-    const value = node.textContent ?? ''
-    if (value) {
-      const start = text.length
-      text += value
-      segments.push({ node: node as Text, start, end: text.length })
-    }
-    node = walker.nextNode()
-  }
-
-  return findTextMatches(text, query).flatMap((match) => {
-    const startSegment = segments.find(
-      (segment) => match.start >= segment.start && match.start < segment.end,
-    )
-    const endSegment = segments.find(
-      (segment) => match.end > segment.start && match.end <= segment.end,
-    )
-    if (!startSegment || !endSegment) return []
-
-    const range = document.createRange()
-    range.setStart(startSegment.node, match.start - startSegment.start)
-    range.setEnd(endSegment.node, match.end - endSegment.start)
-    return [range]
-  })
 }

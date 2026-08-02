@@ -11,17 +11,20 @@ import {
   useState,
 } from 'react'
 import { Canvas, type CanvasTool } from '@renderer/features/canvas/components/Canvas'
-import { EditTerminalModal } from '@renderer/features/terminals/components/EditTerminalModal'
-import { NewTerminalModal } from '@renderer/features/terminals/components/NewTerminalModal'
 import { TerminalContextMenu } from '@renderer/features/terminals/components/TerminalContextMenu'
-import { TerminalStyleModal } from '@renderer/features/terminals/components/TerminalStyleModal'
+import {
+  TerminalSettingsModal,
+  createDraft,
+  type TerminalSettingsDraft,
+} from '@renderer/features/terminals/components/TerminalSettingsModal'
+import { isDefaultTerminalStyle } from '@renderer/features/terminals/types'
 import { useTerminals } from '@renderer/features/terminals/hooks/useTerminals'
 import { useCanvasTexts } from '@renderer/features/canvas/hooks/useCanvasTexts'
 import { useNotes } from '@renderer/features/notes/hooks/useNotes'
 import { useNoteLinks } from '@renderer/features/notes/hooks/useNoteLinks'
 import { useEdges } from '@renderer/features/canvas/hooks/useEdges'
 import { ITrash } from '@renderer/components/ui'
-import type { TerminalNodeData } from '@renderer/features/terminals/types'
+import type { TerminalNodeData, TerminalStyle } from '@renderer/features/terminals/types'
 import type { ShellType } from '@renderer/features/terminals/types'
 import type { CanvasTheme } from '@renderer/features/canvas/types'
 import type { WorkspaceRecord } from '@shared/types/workspace'
@@ -81,8 +84,8 @@ export interface WorkspaceCanvasHandle {
   deleteTerminal: (id: string) => void
   toggleTerminalEnabled: (id: string) => void
   startLinkFrom: (id: string) => void
-  openStyleEditor: (id: string) => void
-  openPromptEditor: (id: string) => void
+  /** Opens the single terminal dialog (name/folder/agent/model/prompt/style). */
+  openTerminalSettings: (id: string) => void
 }
 
 export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvasProps>(
@@ -143,7 +146,9 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
     const [focusRequest, setFocusRequest] = useState<string | null>(null)
     const [tool, setTool] = useState<CanvasTool>('select')
     const [linkSource, setLinkSource] = useState<string | null>(null)
-    const [modalOpen, setModalOpen] = useState(false)
+    // A single dialog serves both "new terminal" and "edit this terminal", so
+    // only one piece of state describes which one is open.
+    const [settingsTarget, setSettingsTarget] = useState<'new' | string | null>(null)
     const [pendingCreatePos, setPendingCreatePos] = useState<{
       x: number
       y: number
@@ -155,8 +160,6 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
     const [noteCtxMenu, setNoteCtxMenu] = useState<NoteContextMenuState | null>(null)
     const [edgeCtxMenu, setEdgeCtxMenu] = useState<EdgeContextMenuState | null>(null)
     const [canvasMenu, setCanvasMenu] = useState<CanvasMenuState | null>(null)
-    const [styleEditorFor, setStyleEditorFor] = useState<string | null>(null)
-    const [promptEditorFor, setPromptEditorFor] = useState<string | null>(null)
     // Per-terminal restart counter; bumping a node's value rebuilds its pty/xterm
     // session from scratch, as if the terminal had just been opened.
     const [restartSignals, setRestartSignals] = useState<Record<string, number>>({})
@@ -166,6 +169,16 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
     const restartTerminal = useCallback((id: string): void => {
       setRestartSignals((prev) => ({ ...prev, [id]: (prev[id] ?? 0) + 1 }))
     }, [])
+
+    // An untouched style is dropped rather than stored, so "Reset style" really
+    // puts the terminal back on the app defaults instead of freezing today's.
+    const applyStyle = useCallback(
+      (id: string, style: TerminalStyle): void => {
+        if (isDefaultTerminalStyle(style)) removeTerminalStyle(id)
+        else setTerminalStyle(id, style)
+      },
+      [removeTerminalStyle, setTerminalStyle],
+    )
 
     // Bubble node list up so the parent sidebar can display them.
     useEffect(() => {
@@ -187,7 +200,7 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
         if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'n') {
           e.preventDefault()
           setPendingCreatePos(null)
-          setModalOpen(true)
+          setSettingsTarget('new')
         }
         if (
           (e.metaKey || e.ctrlKey) &&
@@ -359,7 +372,7 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
     useImperativeHandle(ref, () => ({
       openNewTerminalModal() {
         setPendingCreatePos(null)
-        setModalOpen(true)
+        setSettingsTarget('new')
       },
       duplicateTerminal(id: string) {
         const duplicateId = duplicateTerminal(id)
@@ -378,18 +391,64 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
         setTool('link')
         setLinkSource(id)
       },
-      openStyleEditor(id: string) {
-        setStyleEditorFor(id)
-      },
-      openPromptEditor(id: string) {
-        setPromptEditorFor(id)
+      openTerminalSettings(id: string) {
+        setSettingsTarget(id)
       },
     }))
 
-    const styleEditorNode = styleEditorFor ? nodes.find((n) => n.id === styleEditorFor) : null
-    const promptEditorNode = promptEditorFor
-      ? nodes.find((n) => n.id === promptEditorFor)
-      : null
+    const editingNode =
+      settingsTarget && settingsTarget !== 'new'
+        ? (nodes.find((n) => n.id === settingsTarget) ?? null)
+        : null
+
+    // The one draft the dialog opens with — defaults when creating, the node's
+    // current values when editing.
+    const settingsDraft: TerminalSettingsDraft | null = editingNode
+      ? {
+          name: editingNode.title,
+          folder: editingNode.cwd,
+          command: editingNode.command,
+          model: editingNode.model,
+          prompt: editingNode.prompt,
+          style: getTerminalStyle(editingNode.id),
+        }
+      : settingsTarget === 'new'
+        ? createDraft(defaultProjectFolder)
+        : null
+
+    function closeSettings(): void {
+      setSettingsTarget(null)
+      setPendingCreatePos(null)
+    }
+
+    function confirmSettings(draft: TerminalSettingsDraft): void {
+      if (editingNode) {
+        updateNode(editingNode.id, {
+          title: draft.name,
+          cwd: draft.folder,
+          command: draft.command,
+          model: draft.model,
+          prompt: draft.prompt,
+        })
+        applyStyle(editingNode.id, draft.style)
+        // cwd/agent/model/prompt only reach the shell at launch, so saving
+        // rebuilds the session instead of leaving the edit half-applied.
+        restartTerminal(editingNode.id)
+        closeSettings()
+        return
+      }
+
+      const id = createTerminal(
+        draft.folder,
+        draft.command,
+        draft.name,
+        shell,
+        pendingCreatePos ?? undefined,
+        { prompt: draft.prompt, model: draft.model },
+      )
+      applyStyle(id, draft.style)
+      closeSettings()
+    }
 
     return (
       <div
@@ -476,7 +535,7 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
             if (type === 'terminal') {
               // Defer creation to the modal; carry the drawn footprint through.
               setPendingCreatePos(rect)
-              setModalOpen(true)
+              setSettingsTarget('new')
               return
             }
             // Notes have no creation modal — create immediately at the drawn rect
@@ -526,26 +585,12 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
           theme={theme}
         />
 
-        {modalOpen && (
-          <NewTerminalModal
-            defaultFolder={defaultProjectFolder}
-            onCancel={() => {
-              setModalOpen(false)
-              setPendingCreatePos(null)
-            }}
-            onConfirm={(folder, command, name, theme, model) => {
-              setModalOpen(false)
-              const id = createTerminal(
-                folder,
-                command,
-                name,
-                shell,
-                pendingCreatePos ?? undefined,
-              )
-              if (theme !== 'auto') setTerminalStyle(id, { theme })
-              if (model) updateNode(id, { model })
-              setPendingCreatePos(null)
-            }}
+        {settingsDraft && (
+          <TerminalSettingsModal
+            mode={editingNode ? 'edit' : 'create'}
+            initial={settingsDraft}
+            onCancel={closeSettings}
+            onConfirm={confirmSettings}
           />
         )}
 
@@ -574,8 +619,8 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
               setCtxMenu(null)
             }}
             onLink={() => startLinkFrom(ctxMenu.nodeId)}
-            onEditPrompt={() => {
-              setPromptEditorFor(ctxMenu.nodeId)
+            onSettings={() => {
+              setSettingsTarget(ctxMenu.nodeId)
               setCtxMenu(null)
             }}
             onOpenInVSCode={() => {
@@ -588,10 +633,6 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
               setSelectedIds((prev) => prev.filter((p) => p !== id))
               removeNode(id)
               removeTerminalStyle(id)
-              setCtxMenu(null)
-            }}
-            onStyle={() => {
-              setStyleEditorFor(ctxMenu.nodeId)
               setCtxMenu(null)
             }}
           />
@@ -647,7 +688,7 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
             onClose={() => setCanvasMenu(null)}
             onNewTerminal={() => {
               setPendingCreatePos({ x: canvasMenu.worldX, y: canvasMenu.worldY })
-              setModalOpen(true)
+              setSettingsTarget('new')
               setCanvasMenu(null)
             }}
             onNewNote={() => {
@@ -674,28 +715,6 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
           />
         )}
 
-        {styleEditorNode && (
-          <TerminalStyleModal
-            terminalTitle={styleEditorNode.title}
-            value={getTerminalStyle(styleEditorNode.id)}
-            onChange={(patch) => setTerminalStyle(styleEditorNode.id, patch)}
-            onReset={() => removeTerminalStyle(styleEditorNode.id)}
-            onClose={() => setStyleEditorFor(null)}
-          />
-        )}
-
-        {promptEditorNode && (
-          <EditTerminalModal
-            title={promptEditorNode.title}
-            prompt={promptEditorNode.prompt}
-            command={promptEditorNode.command}
-            model={promptEditorNode.model}
-            onConfirm={({ title, prompt, model }) =>
-              updateNode(promptEditorNode.id, { title, prompt, model })
-            }
-            onClose={() => setPromptEditorFor(null)}
-          />
-        )}
       </div>
     )
   },

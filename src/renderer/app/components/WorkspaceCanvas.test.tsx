@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { WorkspaceRecord } from '@shared/types/workspace'
 import type { CanvasTextRecord } from '@shared/types/canvas'
 import type { TerminalNodeData } from '@renderer/features/terminals/types'
+import type { TerminalSettingsDraft } from '@renderer/features/terminals/components/TerminalSettingsModal'
 import type { WorkspaceCanvasHandle } from './WorkspaceCanvas'
 
 // ── Mocks ─────────────────────────────────────────────────────────────────
@@ -67,21 +68,44 @@ vi.mock('@renderer/features/canvas/components/Canvas', () => ({
   Canvas: vi.fn(() => <div data-testid="canvas-inner" />),
 }))
 
-vi.mock('@renderer/features/terminals/components/NewTerminalModal', () => ({
-  NewTerminalModal: vi.fn(({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: (folder: string, command: string, name: string, theme: string, model: string) => void }) => (
-    <div data-testid="new-terminal-modal">
-      <button onClick={onCancel}>Cancel</button>
-      <button onClick={() => onConfirm('/tmp', 'claude', '', 'auto', '')}>Confirm</button>
-    </div>
-  )),
-}))
+// The one dialog now covers create and edit; `createDraft` stays real so the
+// create defaults (folder, agent, style) still flow through it.
+vi.mock('@renderer/features/terminals/components/TerminalSettingsModal', async () => {
+  const actual = await vi.importActual<
+    typeof import('@renderer/features/terminals/components/TerminalSettingsModal')
+  >('@renderer/features/terminals/components/TerminalSettingsModal')
+
+  return {
+    ...actual,
+    TerminalSettingsModal: vi.fn(
+      ({
+        mode,
+        initial,
+        onCancel,
+        onConfirm,
+      }: {
+        mode: 'create' | 'edit'
+        initial: TerminalSettingsDraft
+        onCancel: () => void
+        onConfirm: (draft: TerminalSettingsDraft) => void
+      }) => (
+        <div data-testid="terminal-settings-modal" data-mode={mode}>
+          <button onClick={onCancel}>Cancel</button>
+          <button
+            onClick={() =>
+              onConfirm({ ...initial, prompt: 'You are a reviewer.', model: 'opus' })
+            }
+          >
+            Confirm
+          </button>
+        </div>
+      ),
+    ),
+  }
+})
 
 vi.mock('@renderer/features/terminals/components/TerminalContextMenu', () => ({
   TerminalContextMenu: vi.fn(() => null),
-}))
-
-vi.mock('@renderer/features/terminals/components/TerminalStyleModal', () => ({
-  TerminalStyleModal: vi.fn(() => null),
 }))
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -188,7 +212,7 @@ describe('WorkspaceCanvas', () => {
     expect(onFocusConsumed).not.toHaveBeenCalled()
   })
 
-  it('10.7 openNewTerminalModal() via ref causes NewTerminalModal to render', async () => {
+  it('10.7 openNewTerminalModal() via ref causes TerminalSettingsModal to render', async () => {
     const ref = createRef<WorkspaceCanvasHandle>()
     render(<WorkspaceCanvas {...defaultProps} ref={ref} />)
 
@@ -196,10 +220,10 @@ describe('WorkspaceCanvas', () => {
       ref.current?.openNewTerminalModal()
     })
 
-    await waitFor(() => expect(screen.getByTestId('new-terminal-modal')).toBeTruthy())
+    await waitFor(() => expect(screen.getByTestId('terminal-settings-modal')).toBeTruthy())
   })
 
-  it('passes the default project folder to NewTerminalModal', async () => {
+  it('opens the settings dialog in create mode with the default project folder', async () => {
     const ref = createRef<WorkspaceCanvasHandle>()
     render(
       <WorkspaceCanvas
@@ -213,10 +237,15 @@ describe('WorkspaceCanvas', () => {
       ref.current?.openNewTerminalModal()
     })
 
-    const { NewTerminalModal } = await import('@renderer/features/terminals/components/NewTerminalModal')
+    const { TerminalSettingsModal } = await import(
+      '@renderer/features/terminals/components/TerminalSettingsModal'
+    )
     await waitFor(() => {
-      expect(vi.mocked(NewTerminalModal)).toHaveBeenLastCalledWith(
-        expect.objectContaining({ defaultFolder: '/home/user/project' }),
+      expect(vi.mocked(TerminalSettingsModal)).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          mode: 'create',
+          initial: expect.objectContaining({ folder: '/home/user/project' }),
+        }),
         {},
       )
     })
@@ -254,17 +283,141 @@ describe('WorkspaceCanvas', () => {
     })
   })
 
+  it('creates the terminal with the agent prompt and model from the dialog', async () => {
+    const ref = createRef<WorkspaceCanvasHandle>()
+    mockUseTerminals.createTerminal.mockReturnValue('node-new')
+
+    render(<WorkspaceCanvas {...defaultProps} defaultProjectFolder="/repo" ref={ref} />)
+
+    act(() => {
+      ref.current?.openNewTerminalModal()
+    })
+    fireEvent.click(await screen.findByRole('button', { name: 'Confirm' }))
+
+    // The prompt/model reach createTerminal directly, so the very first pty
+    // launches in the role instead of needing a later edit + restart.
+    expect(mockUseTerminals.createTerminal).toHaveBeenCalledWith(
+      '/repo',
+      'claude',
+      '',
+      'default',
+      undefined,
+      { prompt: 'You are a reviewer.', model: 'opus' },
+    )
+    expect(screen.queryByTestId('terminal-settings-modal')).toBeNull()
+  })
+
+  it('opens the dialog in edit mode prefilled from the terminal', async () => {
+    const node: TerminalNodeData = {
+      id: 'node-1', x: 0, y: 0, width: 600, height: 380,
+      shell: 'default', title: 'Reviewer', cwd: '/repo', command: 'codex',
+      prompt: 'old prompt', model: 'gpt-5.4', workspace_id: 'ws-1', enabled: true,
+    }
+    const { useTerminals } = await import('@renderer/features/terminals/hooks/useTerminals')
+    vi.mocked(useTerminals).mockReturnValue({ ...mockUseTerminals, nodes: [node] })
+
+    const ref = createRef<WorkspaceCanvasHandle>()
+    render(<WorkspaceCanvas {...defaultProps} ref={ref} />)
+
+    act(() => {
+      ref.current?.openTerminalSettings('node-1')
+    })
+
+    const { TerminalSettingsModal } = await import(
+      '@renderer/features/terminals/components/TerminalSettingsModal'
+    )
+    await waitFor(() => {
+      expect(vi.mocked(TerminalSettingsModal)).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          mode: 'edit',
+          initial: expect.objectContaining({
+            name: 'Reviewer',
+            folder: '/repo',
+            command: 'codex',
+            prompt: 'old prompt',
+            model: 'gpt-5.4',
+            style: { theme: 'dark', fontFamily: 'mono', fontSize: 13 },
+          }),
+        }),
+        {},
+      )
+    })
+  })
+
+  it('saving an edit persists every field and restarts that terminal', async () => {
+    const node: TerminalNodeData = {
+      id: 'node-1', x: 0, y: 0, width: 600, height: 380,
+      shell: 'default', title: 'Reviewer', cwd: '/repo', command: 'codex',
+      prompt: 'old prompt', model: '', workspace_id: 'ws-1', enabled: true,
+    }
+    const { useTerminals } = await import('@renderer/features/terminals/hooks/useTerminals')
+    vi.mocked(useTerminals).mockReturnValue({ ...mockUseTerminals, nodes: [node] })
+    const { Canvas } = await import('@renderer/features/canvas/components/Canvas')
+    const canvasMock = vi.mocked(Canvas)
+
+    const ref = createRef<WorkspaceCanvasHandle>()
+    render(<WorkspaceCanvas {...defaultProps} ref={ref} />)
+
+    const before = canvasMock.mock.calls[canvasMock.mock.calls.length - 1][0]
+    expect(before.getRestartSignal('node-1')).toBe(0)
+
+    act(() => {
+      ref.current?.openTerminalSettings('node-1')
+    })
+    fireEvent.click(await screen.findByRole('button', { name: 'Confirm' }))
+
+    expect(mockUseTerminals.updateNode).toHaveBeenCalledWith('node-1', {
+      title: 'Reviewer',
+      cwd: '/repo',
+      command: 'codex',
+      model: 'opus',
+      prompt: 'You are a reviewer.',
+    })
+
+    // cwd/agent/model/prompt only reach the shell at launch, so the save has to
+    // rebuild the session — otherwise the edit silently does nothing.
+    await waitFor(() => {
+      const after = canvasMock.mock.calls[canvasMock.mock.calls.length - 1][0]
+      expect(after.getRestartSignal('node-1')).toBe(1)
+    })
+    expect(screen.queryByTestId('terminal-settings-modal')).toBeNull()
+  })
+
+  it('drops the style entry when the dialog leaves it on the defaults', async () => {
+    const ref = createRef<WorkspaceCanvasHandle>()
+    const removeTerminalStyle = vi.fn()
+    const setTerminalStyle = vi.fn()
+    mockUseTerminals.createTerminal.mockReturnValue('node-new')
+
+    render(
+      <WorkspaceCanvas
+        {...defaultProps}
+        ref={ref}
+        setTerminalStyle={setTerminalStyle}
+        removeTerminalStyle={removeTerminalStyle}
+      />,
+    )
+
+    act(() => {
+      ref.current?.openNewTerminalModal()
+    })
+    fireEvent.click(await screen.findByRole('button', { name: 'Confirm' }))
+
+    expect(setTerminalStyle).not.toHaveBeenCalled()
+    expect(removeTerminalStyle).toHaveBeenCalledWith('node-new')
+  })
+
   it('10.8 Ctrl+N opens the modal when active=true', async () => {
     render(<WorkspaceCanvas {...defaultProps} active={true} />)
     fireEvent.keyDown(window, { key: 'n', ctrlKey: true })
-    await waitFor(() => expect(screen.getByTestId('new-terminal-modal')).toBeTruthy())
+    await waitFor(() => expect(screen.getByTestId('terminal-settings-modal')).toBeTruthy())
   })
 
   it('10.9 Ctrl+N is ignored when active=false', async () => {
     render(<WorkspaceCanvas {...defaultProps} active={false} />)
     fireEvent.keyDown(window, { key: 'n', ctrlKey: true })
     await act(async () => {})
-    expect(screen.queryByTestId('new-terminal-modal')).toBeNull()
+    expect(screen.queryByTestId('terminal-settings-modal')).toBeNull()
   })
 
   it('opens note search only for the selected note', async () => {

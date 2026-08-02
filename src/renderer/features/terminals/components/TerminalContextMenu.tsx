@@ -4,7 +4,7 @@
 // any sibling terminal node regardless of DOM order.
 import { useEffect, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { ICopy, ILink, INote, IPalette, IPower, IRefresh, ITrash } from '@renderer/components/ui'
+import { ICopy, IGear, ILink, IPower, IRefresh, ITrash } from '@renderer/components/ui'
 
 interface TerminalContextMenuProps {
   x: number
@@ -16,9 +16,9 @@ interface TerminalContextMenuProps {
   onDuplicate: () => void
   onLink: () => void
   onToggleEnabled: () => void
-  onEditPrompt: () => void
+  /** Opens the one dialog that edits everything: name, folder, agent, model, prompt, style. */
+  onSettings: () => void
   onDelete: () => void
-  onStyle: () => void
   onOpenInVSCode: () => void
 }
 
@@ -31,9 +31,8 @@ export function TerminalContextMenu({
   onDuplicate,
   onLink,
   onToggleEnabled,
-  onEditPrompt,
+  onSettings,
   onDelete,
-  onStyle,
   onOpenInVSCode,
 }: TerminalContextMenuProps): JSX.Element {
   useEffect(() => {
@@ -58,11 +57,10 @@ export function TerminalContextMenu({
       onClick: onToggleEnabled,
     },
     { icon: <IRefresh size={13} />, label: 'Restart terminal', onClick: onRestart },
-    { icon: <INote size={13} />, label: 'Edit agent prompt…', onClick: onEditPrompt },
+    { icon: <IGear size={13} />, label: 'Terminal settings…', onClick: onSettings },
     { icon: <ICopy size={13} />, label: 'Duplicate terminal', onClick: onDuplicate },
     { icon: <ILink size={13} />, label: 'Link to terminal/note', onClick: onLink },
     { icon: <VSCodeIcon />, label: 'Open on VS Code', onClick: onOpenInVSCode },
-    { icon: <IPalette size={13} />, label: 'Customize style…', onClick: onStyle },
     { icon: <ITrash size={13} />, label: 'Delete terminal', onClick: onDelete, danger: true },
   ]
 

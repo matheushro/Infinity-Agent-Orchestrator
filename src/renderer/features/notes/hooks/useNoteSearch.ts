@@ -1,32 +1,18 @@
-import {
-  type RefObject,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react'
-import { createTextRanges, findTextMatches } from '../lib/noteSearch'
-import type { TextMatch } from '../lib/noteSearch'
-
-const MATCH_HIGHLIGHT = 'note-search-match'
-const ACTIVE_HIGHLIGHT = 'note-search-active'
-
-interface HighlightRegistry {
-  set: (name: string, highlight: unknown) => void
-  delete: (name: string) => void
-}
-
-type HighlightConstructor = new (...ranges: Range[]) => unknown
+// "Find in note" over the live-preview editor.
+//
+// The note has a single Markdown surface now, so search has a single strategy:
+// match the source text and hand the offsets to CodeMirror, which paints them
+// and scrolls the active one into view.
+import { type RefObject, useCallback, useEffect, useRef, useState } from 'react'
+import { findTextMatches } from '../lib/noteSearch'
+import type { MarkdownEditorHandle } from './useMarkdownEditor'
 
 interface UseNoteSearchOptions {
   open: boolean
   requestId: number
-  editing: boolean
+  /** Current note body — the same string the editor holds. */
   text: string
-  textareaRef: RefObject<HTMLTextAreaElement>
-  previewRef: RefObject<HTMLDivElement>
+  editorRef: RefObject<MarkdownEditorHandle>
   onClose: () => void
 }
 
@@ -35,123 +21,51 @@ interface UseNoteSearchResult {
   setQuery: (query: string) => void
   currentIndex: number
   matchCount: number
-  matches: TextMatch[]
   inputRef: RefObject<HTMLInputElement>
   next: () => void
   previous: () => void
   close: () => void
 }
 
-function getHighlightApi(): {
-  registry: HighlightRegistry
-  HighlightClass: HighlightConstructor
-} | null {
-  const registry = (globalThis.CSS as unknown as { highlights?: HighlightRegistry } | undefined)
-    ?.highlights
-  const HighlightClass = (globalThis as unknown as { Highlight?: HighlightConstructor }).Highlight
-  return registry && HighlightClass ? { registry, HighlightClass } : null
-}
-
-function clearHighlights(): void {
-  const registry = (globalThis.CSS as unknown as { highlights?: HighlightRegistry } | undefined)
-    ?.highlights
-  registry?.delete(MATCH_HIGHLIGHT)
-  registry?.delete(ACTIVE_HIGHLIGHT)
-}
-
-function revealTextareaMatch(textarea: HTMLTextAreaElement, start: number, end: number): void {
-  textarea.setSelectionRange(start, end)
-  const line = textarea.value.slice(0, start).split('\n').length - 1
-  const lineHeight = Number.parseFloat(getComputedStyle(textarea).lineHeight) || 20
-  const targetTop = line * lineHeight
-  const viewportPadding = Math.max(textarea.clientHeight / 3, lineHeight)
-
-  if (targetTop < textarea.scrollTop || targetTop > textarea.scrollTop + textarea.clientHeight) {
-    textarea.scrollTop = Math.max(0, targetTop - viewportPadding)
-  }
-}
-
-function revealRange(range: Range): void {
-  const element =
-    range.startContainer instanceof HTMLElement
-      ? range.startContainer
-      : range.startContainer.parentElement
-  element?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
-}
-
 export function useNoteSearch({
   open,
   requestId,
-  editing,
   text,
-  textareaRef,
-  previewRef,
+  editorRef,
   onClose,
 }: UseNoteSearchOptions): UseNoteSearchResult {
   const [query, setQueryState] = useState('')
   const [currentIndex, setCurrentIndex] = useState(-1)
-  const [matchCount, setMatchCount] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
-  const editorMatches = useMemo(
-    () => (open && editing ? findTextMatches(text, query) : []),
-    [open, editing, text, query],
-  )
+
+  const matches = open && query ? findTextMatches(text, query) : []
+  const matchCount = matches.length
+  // Clamp instead of resetting: typing another character usually keeps you on
+  // the same region of the note.
+  const activeIndex = matchCount === 0 ? -1 : Math.min(Math.max(currentIndex, 0), matchCount - 1)
 
   useEffect(() => {
-    if (!open) {
-      setQueryState('')
-      setCurrentIndex(-1)
-      setMatchCount(0)
-      return
-    }
-
+    if (!open) return
     requestAnimationFrame(() => {
       inputRef.current?.focus()
       inputRef.current?.select()
     })
   }, [open, requestId])
 
-  useLayoutEffect(() => {
-    clearHighlights()
-    if (!open || !query) {
-      setMatchCount(0)
+  useEffect(() => {
+    if (!open) {
+      setQueryState('')
       setCurrentIndex(-1)
-      return
     }
+  }, [open])
 
-    if (editing) {
-      const matches = editorMatches
-      const nextIndex = matches.length === 0 ? -1 : Math.min(Math.max(currentIndex, 0), matches.length - 1)
-      setMatchCount(matches.length)
-      if (nextIndex !== currentIndex) setCurrentIndex(nextIndex)
-      const active = matches[nextIndex]
-      if (active && textareaRef.current) {
-        revealTextareaMatch(textareaRef.current, active.start, active.end)
-      }
-      return
-    }
-
-    const preview = previewRef.current
-    if (!preview) return
-    const ranges = createTextRanges(preview, query)
-    const nextIndex = ranges.length === 0 ? -1 : Math.min(Math.max(currentIndex, 0), ranges.length - 1)
-    setMatchCount(ranges.length)
-    if (nextIndex !== currentIndex) setCurrentIndex(nextIndex)
-
-    const highlightApi = getHighlightApi()
-    if (highlightApi && ranges.length > 0) {
-      highlightApi.registry.set(MATCH_HIGHLIGHT, new highlightApi.HighlightClass(...ranges))
-      const active = ranges[nextIndex]
-      if (active) {
-        highlightApi.registry.set(ACTIVE_HIGHLIGHT, new highlightApi.HighlightClass(active))
-      }
-    }
-
-    const active = ranges[nextIndex]
-    if (active) revealRange(active)
-
-    return clearHighlights
-  }, [open, query, currentIndex, editing, text, textareaRef, previewRef, editorMatches])
+  useEffect(() => {
+    if (activeIndex !== currentIndex) setCurrentIndex(activeIndex)
+    editorRef.current?.showSearchMatches(matches, activeIndex)
+    // `matches` is rebuilt every render; the query/text/index triple is what
+    // actually decides its content.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, query, text, activeIndex, currentIndex, editorRef])
 
   const setQuery = useCallback((nextQuery: string) => {
     setQueryState(nextQuery)
@@ -159,33 +73,19 @@ export function useNoteSearch({
   }, [])
 
   const next = useCallback(() => {
-    if (matchCount === 0) return
-    setCurrentIndex((index) => (index + 1) % matchCount)
+    setCurrentIndex((index) => (matchCount === 0 ? -1 : (index + 1) % matchCount))
   }, [matchCount])
 
   const previous = useCallback(() => {
-    if (matchCount === 0) return
-    setCurrentIndex((index) => (index <= 0 ? matchCount - 1 : index - 1))
+    setCurrentIndex((index) => (matchCount === 0 ? -1 : index <= 0 ? matchCount - 1 : index - 1))
   }, [matchCount])
 
   const close = useCallback(() => {
-    clearHighlights()
+    editorRef.current?.showSearchMatches([], -1)
     onClose()
-    requestAnimationFrame(() => {
-      if (editing) textareaRef.current?.focus()
-      else previewRef.current?.focus()
-    })
-  }, [editing, onClose, previewRef, textareaRef])
+    // Hand control back to the note being edited; a no-op at rest.
+    editorRef.current?.focusAt()
+  }, [editorRef, onClose])
 
-  return {
-    query,
-    setQuery,
-    currentIndex,
-    matchCount,
-    matches: editorMatches,
-    inputRef,
-    next,
-    previous,
-    close,
-  }
+  return { query, setQuery, currentIndex: activeIndex, matchCount, inputRef, next, previous, close }
 }

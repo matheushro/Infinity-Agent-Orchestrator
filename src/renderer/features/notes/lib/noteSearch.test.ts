@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createTextRanges, findTextMatches } from './noteSearch'
+import { findTextMatches } from './noteSearch'
 
 describe('noteSearch', () => {
   it('finds case-insensitive, non-overlapping matches', () => {
@@ -10,12 +10,11 @@ describe('noteSearch', () => {
     ])
   })
 
-  it('creates a range that crosses rendered Markdown elements', () => {
-    const root = document.createElement('div')
-    root.innerHTML = '<strong>bold</strong> and <em>italic</em>'
+  it('returns offsets into the Markdown source', () => {
+    expect(findTextMatches('**bold** text', 'bold')).toEqual([{ start: 2, end: 6 }])
+  })
 
-    const [range] = createTextRanges(root, 'bold and italic')
-
-    expect(range.toString()).toBe('bold and italic')
+  it('has no matches for an empty query', () => {
+    expect(findTextMatches('anything', '')).toEqual([])
   })
 })

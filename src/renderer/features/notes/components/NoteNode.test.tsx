@@ -1,8 +1,9 @@
 import '@testing-library/jest-dom/vitest'
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { StrictMode, type CSSProperties, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { EditorView } from '@codemirror/view'
 import type { NoteRecord } from '@shared/types/notes'
 
 const mocks = vi.hoisted(() => {
@@ -12,6 +13,7 @@ const mocks = vi.hoisted(() => {
       data-testid="note-root"
       className={String(props.className ?? '')}
       style={props.style as CSSProperties}
+      onMouseDown={props.onMouseDown as React.MouseEventHandler}
     >
       {props.children}
     </div>
@@ -62,6 +64,29 @@ function renderNode(overrides: Partial<React.ComponentProps<typeof NoteNode>> = 
   return { props, ...render(<NoteNode {...props} />) }
 }
 
+/** The note body's CodeMirror instance. */
+function editor(): EditorView {
+  const dom = document.querySelector('.note-live') as HTMLElement
+  const view = EditorView.findFromDOM(dom)
+  if (!view) throw new Error('note editor not mounted')
+  return view
+}
+
+/** What the note actually shows — hidden Markdown syntax is not in the DOM. */
+function visibleText(): string {
+  return (document.querySelector('.note-live .cm-content') as HTMLElement).textContent ?? ''
+}
+
+/** Type into the note the way a keystroke would: a change plus a caret move. */
+function type(text: string, at = editor().state.doc.length): void {
+  act(() => {
+    editor().dispatch({
+      changes: { from: at, insert: text },
+      selection: { anchor: at + text.length },
+    })
+  })
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.rndInstances.length = 0
@@ -72,26 +97,60 @@ afterEach(() => {
 })
 
 describe('NoteNode', () => {
-  it('shows the title and renders Markdown content in view mode', async () => {
-    renderNode({
-      note: {
-        ...baseNote,
-        content: '# Title\n\n**bold** and *italic*\n\n- item\n\n`code`\n\n> quote',
-      },
+  it('renders the note as live Markdown, with the syntax itself hidden', () => {
+    const { container } = renderNode({
+      note: { ...baseNote, content: '# Title\n\n**bold** and *italic*\n\n- item\n\n> quote' },
     })
 
     expect(screen.getByText('My note')).toBeInTheDocument()
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'Title' })).toBeInTheDocument())
-    expect(screen.getByText('bold').tagName).toBe('STRONG')
-    expect(screen.getByText('italic').tagName).toBe('EM')
-    expect(screen.getByText('item').closest('li')).toBeInTheDocument()
-    expect(screen.getByText('code').tagName).toBe('CODE')
-    expect(screen.getByText('quote').closest('blockquote')).toBeInTheDocument()
+    expect(container.querySelector('.cm-md-h1')).toHaveTextContent('Title')
+    expect(container.querySelector('.cm-md-strong')).toHaveTextContent('bold')
+    expect(container.querySelector('.cm-md-em')).toHaveTextContent('italic')
+    expect(container.querySelector('.cm-md-bullet')).toBeInTheDocument()
+    expect(container.querySelector('.cm-md-quote')).toHaveTextContent('quote')
+    // The markers are gone from the rendering, but never from the document.
+    expect(visibleText()).not.toMatch(/[#*>]/)
+    expect(editor().state.doc.toString()).toContain('**bold**')
+  })
+
+  it('never falls back to a plain-text editor when editing starts', () => {
+    const { container } = renderNode({ note: { ...baseNote, content: '# Title' }, editing: true })
+
+    expect(container.querySelector('textarea')).toBeNull()
+    expect(container.querySelector('.cm-md-h1')).toHaveTextContent('Title')
+  })
+
+  it('formats Markdown instantly as it is typed', () => {
+    const { container } = renderNode({ note: { ...baseNote, content: '' }, editing: true })
+
+    type('## Sec')
+    expect(container.querySelector('.cm-md-h2')).toHaveTextContent('Sec')
+
+    type('\n\n**strong**')
+    expect(container.querySelector('.cm-md-strong')).toHaveTextContent('strong')
+
+    type('\n\n- [ ] todo')
+    expect(container.querySelector('input[type="checkbox"]')).toBeInTheDocument()
+  })
+
+  it('reveals the raw syntax of the construct under the caret only', () => {
+    const { container } = renderNode({
+      note: { ...baseNote, content: '**one** and **two**' },
+      editing: true,
+    })
+
+    act(() => {
+      editor().dispatch({ selection: { anchor: 4 } })
+    })
+
+    // `**one**` is being edited so it shows its markers; `**two**` stays rendered.
+    expect(visibleText()).toBe('**one** and two')
+    expect(container.querySelectorAll('.cm-md-strong')).toHaveLength(2)
   })
 
   it('shows a placeholder for empty notes', () => {
-    renderNode()
-    expect(screen.getByText(/Empty note/i)).toBeInTheDocument()
+    const { container } = renderNode()
+    expect(container.querySelector('.cm-placeholder')).toHaveTextContent(/Empty note/i)
   })
 
   it('follows the canvas theme when note theme is auto', () => {
@@ -126,13 +185,29 @@ describe('NoteNode', () => {
 
   it('enters edit mode when the body is double-clicked', () => {
     const onEdit = vi.fn()
-    renderNode({ note: { ...baseNote, content: 'hello' }, onEdit })
+    const { container } = renderNode({ note: { ...baseNote, content: 'hello' }, onEdit })
 
-    fireEvent.doubleClick(screen.getByText('hello'))
+    fireEvent.doubleClick(container.querySelector('.note-live') as HTMLElement)
     expect(onEdit).toHaveBeenCalledWith('note-1')
   })
 
-  it('renders a textarea with the raw Markdown in edit mode and commits on Escape', () => {
+  it('lets a click on a resting body reach the canvas, but not while editing', () => {
+    const onSelect = vi.fn()
+    const { container, rerender, props } = renderNode({
+      note: { ...baseNote, content: 'text' },
+      onSelect,
+    })
+
+    fireEvent.mouseDown(container.querySelector('.note-live') as HTMLElement)
+    expect(onSelect).toHaveBeenCalledWith('note-1')
+
+    onSelect.mockClear()
+    rerender(<NoteNode {...props} selected editing />)
+    fireEvent.mouseDown(container.querySelector('.note-live') as HTMLElement)
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
+  it('commits the edited Markdown on Escape', () => {
     const onUpdate = vi.fn()
     const onEditingComplete = vi.fn()
     renderNode({
@@ -142,13 +217,10 @@ describe('NoteNode', () => {
       onEditingComplete,
     })
 
-    const textarea = screen.getByRole('textbox') as HTMLTextAreaElement
-    expect(textarea.value).toBe('# raw')
+    type(' changed')
+    fireEvent.keyDown(document.querySelector('.cm-content') as HTMLElement, { key: 'Escape' })
 
-    fireEvent.change(textarea, { target: { value: '# changed' } })
-    fireEvent.keyDown(textarea, { key: 'Escape' })
-
-    expect(onUpdate).toHaveBeenCalledWith('note-1', { content: '# changed' })
+    expect(onUpdate).toHaveBeenCalledWith('note-1', { content: '# raw changed' })
     expect(onEditingComplete).toHaveBeenCalled()
   })
 
@@ -156,14 +228,13 @@ describe('NoteNode', () => {
     const onUpdate = vi.fn()
     renderNode({ note: { ...baseNote, content: 'a' }, editing: true, onUpdate })
 
-    const textarea = screen.getByRole('textbox')
-    fireEvent.change(textarea, { target: { value: 'b' } })
-    fireEvent.blur(textarea)
+    type('b')
+    fireEvent.blur(document.querySelector('.cm-content') as HTMLElement)
 
-    expect(onUpdate).toHaveBeenCalledWith('note-1', { content: 'b' })
+    expect(onUpdate).toHaveBeenCalledWith('note-1', { content: 'ab' })
   })
 
-  it('searches and navigates matches in the Markdown editor without leaving edit mode', async () => {
+  it('highlights and navigates search matches without leaving edit mode', async () => {
     const onEditingComplete = vi.fn()
     renderNode({
       note: { ...baseNote, content: 'alpha beta alpha' },
@@ -174,59 +245,34 @@ describe('NoteNode', () => {
     })
 
     const searchInput = screen.getByRole('textbox', { name: 'Find in note' })
-    const editor = screen.getByPlaceholderText('Write Markdown…') as HTMLTextAreaElement
     fireEvent.change(searchInput, { target: { value: 'alpha' } })
 
     await waitFor(() => expect(screen.getByText('1/2')).toBeInTheDocument())
-    expect(editor.selectionStart).toBe(0)
-    expect(editor.selectionEnd).toBe(5)
-    expect(document.querySelectorAll('.note-editor-highlight mark')).toHaveLength(2)
-    expect(document.querySelector('.note-editor-highlight mark.is-active')).toHaveTextContent(
-      'alpha',
-    )
+    expect(document.querySelectorAll('.cm-md-search')).toHaveLength(2)
+    expect(document.querySelector('.cm-md-search-active')).toHaveTextContent('alpha')
+    expect(editor().state.selection.main.from).toBe(0)
     expect(onEditingComplete).not.toHaveBeenCalled()
 
     fireEvent.keyDown(searchInput, { key: 'Enter' })
 
     await waitFor(() => expect(screen.getByText('2/2')).toBeInTheDocument())
-    expect(editor.selectionStart).toBe(11)
-    expect(editor.selectionEnd).toBe(16)
-    expect(document.querySelectorAll('.note-editor-highlight mark')[1]).toHaveClass('is-active')
+    expect(editor().state.selection.main.from).toBe(11)
     expect(onEditingComplete).not.toHaveBeenCalled()
   })
 
-  it('searches rendered Markdown across inline formatting boundaries', async () => {
-    class MockHighlight {
-      constructor(..._ranges: Range[]) {}
-    }
-    const highlights = {
-      set: vi.fn(),
-      delete: vi.fn(),
-    }
-    vi.stubGlobal('CSS', { highlights })
-    vi.stubGlobal('Highlight', MockHighlight)
-
+  it('searches a resting note too', async () => {
     renderNode({
-      note: { ...baseNote, content: '**bold** and *italic*, then bold and italic again' },
+      note: { ...baseNote, content: 'alpha beta' },
       searchOpen: true,
       searchRequestId: 1,
     })
 
     fireEvent.change(screen.getByRole('textbox', { name: 'Find in note' }), {
-      target: { value: 'bold and italic' },
+      target: { value: 'beta' },
     })
 
-    await waitFor(() => expect(screen.getByText('1/2')).toBeInTheDocument())
-    expect(highlights.set).toHaveBeenCalledWith(
-      'note-search-match',
-      expect.any(MockHighlight),
-    )
-    expect(highlights.set).toHaveBeenCalledWith(
-      'note-search-active',
-      expect.any(MockHighlight),
-    )
-    fireEvent.click(screen.getByRole('button', { name: 'Next result' }))
-    await waitFor(() => expect(screen.getByText('2/2')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('1/1')).toBeInTheDocument())
+    expect(document.querySelector('.cm-md-search-active')).toHaveTextContent('beta')
   })
 
   it('closes search with Escape and returns control to the selected note', () => {
@@ -252,44 +298,26 @@ describe('NoteNode', () => {
     expect(onUpdate).toHaveBeenCalledWith('note-1', { title: 'Renamed' })
   })
 
-  it('toggles a task-list checkbox in view mode and rewrites the Markdown', async () => {
+  it('toggles a task checkbox on a resting note and saves the Markdown', () => {
     const onUpdate = vi.fn()
     renderNode({ note: { ...baseNote, content: '- [ ] first\n- [x] second' }, onUpdate })
 
-    const checkboxes = await screen.findAllByRole('checkbox')
+    const checkboxes = screen.getAllByRole('checkbox')
     expect(checkboxes).toHaveLength(2)
 
     fireEvent.click(checkboxes[0])
     expect(onUpdate).toHaveBeenCalledWith('note-1', { content: '- [x] first\n- [x] second' })
   })
 
-  it('keeps the same checkbox DOM node across re-renders (no remount mid-click)', async () => {
-    // Regression: markdownComponents used to be rebuilt every render, so
-    // react-markdown saw a new component type and remounted each checkbox on
-    // every render. A remount between mousedown and mouseup cancels the native
-    // `click`, so toggling a task did nothing in the real browser.
-    const { rerender, props } = renderNode({
-      note: { ...baseNote, content: '- [ ] first' },
-      selected: false,
-    })
-    const before = await screen.findByRole('checkbox')
-
-    rerender(<NoteNode {...props} selected />)
-    const after = screen.getByRole('checkbox')
-
-    expect(after).toBe(before)
-  })
-
-  it('toggles the correct task by DOM order under StrictMode (dev double-render)', async () => {
-    // Regression: deriving the task index with a render-time counter
-    // over-counts under React.StrictMode (dev runs render twice), so clicking
-    // a checkbox toggled the wrong task — or none. The index must be computed
-    // from DOM order at click time instead.
+  it('toggles the task that was clicked, under StrictMode', () => {
+    // Regression guard: the checkbox rewrites the document range it was built
+    // from, so a stale or double-mounted widget would toggle the wrong task.
     const onUpdate = vi.fn()
     render(
       <StrictMode>
         <NoteNode
           note={{ ...baseNote, content: '- [ ] first\n- [ ] second' }}
+          globalTheme="dark"
           selected={false}
           editing={false}
           scale={1}
@@ -305,41 +333,42 @@ describe('NoteNode', () => {
       </StrictMode>,
     )
 
-    const checkboxes = await screen.findAllByRole('checkbox')
+    const checkboxes = screen.getAllByRole('checkbox')
     expect(checkboxes).toHaveLength(2)
 
     fireEvent.click(checkboxes[1])
     expect(onUpdate).toHaveBeenCalledWith('note-1', { content: '- [ ] first\n- [x] second' })
   })
 
-  it('reuses the rendered Markdown subtree across re-renders that do not change content', async () => {
-    // Perf regression: react-markdown re-parses the whole document on every
-    // render, and NoteNode re-renders constantly (pan/zoom changes `scale`,
-    // dragging other nodes re-renders the Canvas). The rendered Markdown is
-    // memoised on note.content so an unrelated re-render keeps the very same
-    // DOM node — proving the expensive parse did not run again.
-    const { rerender, props } = renderNode({
-      note: { ...baseNote, content: '# Heading\n\nbody text' },
-      scale: 1,
+  it('renders a GFM table as a block', async () => {
+    const { container } = renderNode({
+      note: { ...baseNote, content: '| a | b |\n| - | - |\n| 1 | 2 |' },
     })
-    const before = await screen.findByRole('heading', { name: 'Heading' })
 
-    rerender(<NoteNode {...props} scale={2} selected />)
-    const after = screen.getByRole('heading', { name: 'Heading' })
-
-    expect(after).toBe(before)
+    await waitFor(() =>
+      expect(container.querySelector('.cm-md-block table')).toBeInTheDocument(),
+    )
+    expect(container.querySelector('.cm-md-block')).toHaveTextContent('1')
   })
 
-  it('re-renders the Markdown when the content actually changes', async () => {
-    const { rerender, props } = renderNode({
+  it('re-renders when the record content changes outside of editing', async () => {
+    const { rerender, props, container } = renderNode({
       note: { ...baseNote, content: '# Before' },
     })
-    await screen.findByRole('heading', { name: 'Before' })
+    expect(container.querySelector('.cm-md-h1')).toHaveTextContent('Before')
 
     rerender(<NoteNode {...props} note={{ ...props.note, content: '# After' }} />)
 
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'After' })).toBeInTheDocument())
-    expect(screen.queryByRole('heading', { name: 'Before' })).not.toBeInTheDocument()
+    await waitFor(() => expect(container.querySelector('.cm-md-h1')).toHaveTextContent('After'))
+  })
+
+  it('keeps the editor instance across unrelated re-renders', () => {
+    const { rerender, props } = renderNode({ note: { ...baseNote, content: '# Heading' } })
+    const before = editor()
+
+    rerender(<NoteNode {...props} scale={2} selected />)
+
+    expect(editor()).toBe(before)
   })
 
   it('removes the note when the delete button is clicked', () => {
