@@ -3,12 +3,15 @@
 import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 import { Compartment, EditorState, Prec } from '@codemirror/state'
 import { EditorView, keymap, placeholder as placeholderExt } from '@codemirror/view'
-import { liveMarkdown, setSearchMatches } from '../lib/livePreview'
+import type { NoteViewMode } from '@shared/types/notes'
+import { liveMarkdown, renderMode, setSearchMatches } from '../lib/livePreview'
 import type { TextMatch } from '../lib/noteSearch'
 
 interface UseMarkdownEditorOptions {
   value: string
   editable: boolean
+  /** Rendered live preview, or the Markdown text itself. */
+  mode: NoteViewMode
   placeholder: string
   onChange: (value: string) => void
   onEscape: () => void
@@ -27,6 +30,7 @@ export interface MarkdownEditorHandle {
 export function useMarkdownEditor({
   value,
   editable,
+  mode,
   placeholder,
   onChange,
   onEscape,
@@ -38,6 +42,7 @@ export function useMarkdownEditor({
   const containerRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
   const modeRef = useRef(new Compartment())
+  const renderRef = useRef(new Compartment())
   const pendingFocusRef = useRef<{ x: number; y: number } | null>(null)
   // Callbacks are read through a ref so the view is created exactly once —
   // rebuilding it on every render would drop the caret and undo history.
@@ -65,6 +70,7 @@ export function useMarkdownEditor({
         doc: value,
         extensions: [
           liveMarkdown(),
+          renderRef.current.of(renderMode(mode)),
           Prec.highest(
             keymap.of([
               {
@@ -86,6 +92,22 @@ export function useMarkdownEditor({
           EditorView.domEventHandlers({
             blur: (event) => {
               callbacksRef.current.onBlur(event)
+              return false
+            },
+            // The caret can also sit inside an interactive widget (a table
+            // cell), and `blur` does not bubble from there — without this,
+            // leaving a note that way would never commit its content.
+            focusout: (event, view) => {
+              if (event.target === view.contentDOM) return false
+              const next = event.relatedTarget as Node | null
+              if (next && view.dom.contains(next)) return false
+              // A widget rebuilding itself under the caret also drops focus for
+              // an instant; only commit once it has really left the editor.
+              requestAnimationFrame(() => {
+                const active = view.dom.ownerDocument.activeElement
+                if (active && view.dom.contains(active)) return
+                callbacksRef.current.onBlur(event)
+              })
               return false
             },
           }),
@@ -124,6 +146,10 @@ export function useMarkdownEditor({
     })
     if (editable) requestAnimationFrame(applyFocus)
   }, [editable, placeholder, applyFocus])
+
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: renderRef.current.reconfigure(renderMode(mode)) })
+  }, [mode])
 
   const handle = useRef<MarkdownEditorHandle>({
     focusAt: (coords) => {

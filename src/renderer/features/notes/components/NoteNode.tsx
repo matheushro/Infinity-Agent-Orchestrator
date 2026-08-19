@@ -119,6 +119,9 @@ export const NoteNode = memo(function NoteNode({
     (event: FocusEvent) => {
       // Clicking into the find bar must not end the edit.
       if (searchBarRef.current?.contains(event.relatedTarget as Node | null)) return
+      // Neither must clicking into a table cell — that focus still belongs to
+      // the editor, it just moved inside one of its widgets.
+      if (editorRef.current?.contains(event.relatedTarget as Node | null)) return
       commitContent()
     },
     [commitContent],
@@ -298,6 +301,7 @@ export const NoteNode = memo(function NoteNode({
           ref={editorRef}
           value={text}
           editable={editing}
+          mode={note.view_mode ?? 'preview'}
           placeholder={editing ? EDITING_PLACEHOLDER : EMPTY_PLACEHOLDER}
           onChange={handleChange}
           onEscape={commitContent}

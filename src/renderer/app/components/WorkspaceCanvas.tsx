@@ -28,7 +28,7 @@ import type { TerminalNodeData, TerminalStyle } from '@renderer/features/termina
 import type { ShellType } from '@renderer/features/terminals/types'
 import type { CanvasTheme } from '@renderer/features/canvas/types'
 import type { WorkspaceRecord } from '@shared/types/workspace'
-import type { NoteRecord } from '@shared/types/notes'
+import type { NoteRecord, NoteViewMode } from '@shared/types/notes'
 
 interface ContextMenuState {
   nodeId: string
@@ -658,6 +658,7 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
             x={noteCtxMenu.x}
             y={noteCtxMenu.y}
             theme={notes.find((n) => n.id === noteCtxMenu.noteId)?.theme ?? 'auto'}
+            viewMode={notes.find((n) => n.id === noteCtxMenu.noteId)?.view_mode ?? 'preview'}
             onClose={() => setNoteCtxMenu(null)}
             onEdit={() => {
               setEditingNoteId(noteCtxMenu.noteId)
@@ -669,6 +670,10 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
             }}
             onSetTheme={(theme) => {
               updateNote(noteCtxMenu.noteId, { theme })
+              setNoteCtxMenu(null)
+            }}
+            onSetViewMode={(view_mode) => {
+              updateNote(noteCtxMenu.noteId, { view_mode })
               setNoteCtxMenu(null)
             }}
             onDelete={() => {
@@ -831,23 +836,32 @@ const NOTE_THEMES: ReadonlyArray<{ value: NoteRecord['theme']; label: string }> 
   { value: 'dark', label: 'Dark' },
 ]
 
+const NOTE_VIEW_MODES: ReadonlyArray<{ value: NoteViewMode; label: string }> = [
+  { value: 'preview', label: 'Markdown preview' },
+  { value: 'source', label: 'Markdown source' },
+]
+
 function NoteContextMenu({
   x,
   y,
   theme,
+  viewMode,
   onClose,
   onEdit,
   onLink,
   onSetTheme,
+  onSetViewMode,
   onDelete,
 }: {
   x: number
   y: number
   theme: NoteRecord['theme']
+  viewMode: NoteViewMode
   onClose: () => void
   onEdit: () => void
   onLink: () => void
   onSetTheme: (theme: NoteRecord['theme']) => void
+  onSetViewMode: (mode: NoteViewMode) => void
   onDelete: () => void
 }): JSX.Element {
   return (
@@ -885,6 +899,27 @@ function NoteContextMenu({
         >
           Link to terminal
         </button>
+        <div className="my-1 h-px" style={{ background: 'var(--line)' }} />
+        <div
+          className="px-3 pt-1 pb-0.5 text-[10.5px] font-medium uppercase tracking-[0.12em]"
+          style={{ color: 'var(--fg-3)' }}
+        >
+          View
+        </div>
+        {NOTE_VIEW_MODES.map(({ value, label }) => (
+          <button
+            key={value}
+            className="ctx-item flex w-full items-center justify-between gap-2.5 px-3 py-2 text-[12.5px]"
+            onClick={() => onSetViewMode(value)}
+          >
+            <span>{label}</span>
+            {viewMode === value && (
+              <span style={{ color: 'var(--accent)' }} aria-hidden="true">
+                ✓
+              </span>
+            )}
+          </button>
+        ))}
         <div className="my-1 h-px" style={{ background: 'var(--line)' }} />
         <div
           className="px-3 pt-1 pb-0.5 text-[10.5px] font-medium uppercase tracking-[0.12em]"

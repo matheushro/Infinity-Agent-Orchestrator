@@ -16,6 +16,12 @@ export interface DecorationContext {
    * must not un-render the first heading of every note on the canvas.
    */
   reveal: boolean
+  /**
+   * Whether the note is being edited. Same source as `reveal`, but asked for a
+   * different reason: interactive widgets (the table) only take input while the
+   * note is in edit mode.
+   */
+  editable: boolean
   /** Add a styling/hiding decoration. */
   add: (range: Range<Decoration>) => void
   /**

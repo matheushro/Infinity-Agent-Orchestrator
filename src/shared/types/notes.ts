@@ -1,6 +1,12 @@
 // Domain types shared across processes for canvas-owned note elements.
 
 /**
+ * How a note's body is displayed. `preview` is the Obsidian-style live preview
+ * (Markdown rendered as you type); `source` shows the Markdown text itself.
+ */
+export type NoteViewMode = 'preview' | 'source'
+
+/**
  * Persisted Markdown note placed directly on the infinite canvas. A richer
  * sibling of `CanvasTextRecord`: it carries a title, a Markdown body, and
  * timestamps. Position/size are world coordinates (`x`/`y`) and pixels
@@ -15,6 +21,8 @@ export interface NoteRecord {
    * while `dark` / `light` force a fixed palette for this specific note.
    */
   theme?: 'auto' | 'dark' | 'light'
+  /** Rendered preview (default) or the raw Markdown text. */
+  view_mode?: NoteViewMode
   x: number
   y: number
   width: number

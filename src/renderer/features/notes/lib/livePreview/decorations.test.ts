@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { EditorSelection, EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
-import { liveMarkdown, livePreviewField } from './index'
-import { BulletWidget, CheckboxWidget, MarkdownBlockWidget, RuleWidget } from './widgets'
+import { liveMarkdown, livePreviewField, renderMode } from './index'
+import { TableWidget } from './tableWidget'
+import { BulletWidget, CheckboxWidget, RuleWidget } from './widgets'
 
 interface FlatDecoration {
   from: number
@@ -20,7 +21,11 @@ function decorationsOf(doc: string, cursor?: number): FlatDecoration[] {
   const state = EditorState.create({
     doc,
     selection: cursor === undefined ? undefined : EditorSelection.cursor(cursor),
-    extensions: [EditorView.editable.of(cursor !== undefined), liveMarkdown()],
+    extensions: [
+      EditorView.editable.of(cursor !== undefined),
+      liveMarkdown(),
+      renderMode('preview'),
+    ],
   })
   const flat: FlatDecoration[] = []
   state.field(livePreviewField).decorations.between(0, doc.length, (from, to, value) => {
@@ -144,18 +149,36 @@ describe('live preview decorations', () => {
     expect(rule?.to).toBe(6)
   })
 
-  it('renders a table as a block widget and shows its source under the caret', () => {
+  it('renders a table as an editable block widget, caret or no caret', () => {
     const table = '| a | b |\n| - | - |\n| 1 | 2 |'
-    const rendered = decorationsOf(table)
-    const widget = rendered.find((decoration) => decoration.widget instanceof MarkdownBlockWidget)
+    const widgetOf = (cursor?: number): TableWidget =>
+      decorationsOf(table, cursor).find(
+        (decoration) => decoration.widget instanceof TableWidget,
+      )?.widget as TableWidget
 
-    expect(widget?.block).toBe(true)
-    expect((widget?.widget as MarkdownBlockWidget).source).toBe(table)
+    expect(widgetOf().source).toBe(table)
+    expect(widgetOf().editable).toBe(false)
+    // Unlike every other construct, a table stays rendered under the caret —
+    // its cells are the editor, so there is no raw-pipe fallback to reveal.
+    expect(widgetOf(2).editable).toBe(true)
     expect(
-      decorationsOf(table, 2).some(
-        (decoration) => decoration.widget instanceof MarkdownBlockWidget,
-      ),
-    ).toBe(false)
+      decorationsOf(table).find((decoration) => decoration.widget instanceof TableWidget)?.block,
+    ).toBe(true)
+  })
+
+  it('leaves pipes that are not yet a table as plain text', () => {
+    const decorations = decorationsOf('| a | b |\n| x | y |')
+
+    expect(decorations.some((decoration) => decoration.widget instanceof TableWidget)).toBe(false)
+  })
+
+  it('renders nothing but plain text in Markdown source mode', () => {
+    const state = EditorState.create({
+      doc: '# Title',
+      extensions: [EditorView.editable.of(true), liveMarkdown(), renderMode('source')],
+    })
+
+    expect(() => state.field(livePreviewField)).toThrow()
   })
 
   it('hides the ``` fence lines of a code block', () => {
@@ -179,7 +202,7 @@ describe('live preview decorations', () => {
   it('registers widgets as atomic so the caret steps over them', () => {
     const state = EditorState.create({
       doc: '- [ ] task',
-      extensions: [EditorView.editable.of(true), liveMarkdown()],
+      extensions: [EditorView.editable.of(true), liveMarkdown(), renderMode('preview')],
     })
     const atomic: Array<[number, number]> = []
     state.field(livePreviewField).atomic.between(0, 10, (from, to) => {

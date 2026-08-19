@@ -990,7 +990,15 @@ describe('note persistence', () => {
     expect(listNotes('default').some((note) => note.id === 'note-gone')).toBe(false)
   })
 
-  it('reads legacy note rows with no theme column as auto', () => {
+  it('round-trips the note view mode and defaults it to preview', () => {
+    upsertNote(makeNote({ id: 'note-src', view_mode: 'source' }))
+    upsertNote(makeNote({ id: 'note-default', view_mode: undefined }))
+
+    expect(getNote('note-src')?.view_mode).toBe('source')
+    expect(getNote('note-default')?.view_mode).toBe('preview')
+  })
+
+  it('reads legacy note rows with no theme or view_mode column as the defaults', () => {
     store.notes.set('legacy-note', {
       id: 'legacy-note',
       title: 'Legacy',
@@ -1004,7 +1012,7 @@ describe('note persistence', () => {
       updated_at: 1,
     })
 
-    expect(getNote('legacy-note')?.theme).toBe('auto')
+    expect(getNote('legacy-note')).toMatchObject({ theme: 'auto', view_mode: 'preview' })
   })
 
   it('copies notes into the duplicated workspace', () => {

@@ -46,6 +46,14 @@ export function initDb(): void {
     // column already exists — no-op
   }
 
+  // Migration: remember whether a note shows its rendered preview or its
+  // Markdown source. Existing notes keep the rendered preview.
+  try {
+    db.exec(`ALTER TABLE notes ADD COLUMN view_mode TEXT NOT NULL DEFAULT 'preview'`)
+  } catch {
+    // column already exists — no-op
+  }
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS terminals (
       id TEXT PRIMARY KEY,
@@ -86,6 +94,7 @@ export function initDb(): void {
       title TEXT NOT NULL,
       content TEXT NOT NULL,
       theme TEXT NOT NULL DEFAULT 'auto',
+      view_mode TEXT NOT NULL DEFAULT 'preview',
       x REAL NOT NULL,
       y REAL NOT NULL,
       width REAL NOT NULL,
@@ -306,8 +315,8 @@ export function duplicateWorkspace(sourceId: string): WorkspaceRecord {
     .prepare('SELECT * FROM notes WHERE workspace_id = ?')
     .all(sourceId) as Array<Record<string, unknown>>
   const insertNote = db.prepare(
-    `INSERT INTO notes (id, title, content, theme, x, y, width, height, workspace_id, created_at, updated_at)
-     VALUES (@id, @title, @content, @theme, @x, @y, @width, @height, @workspace_id, @created_at, @updated_at)`,
+    `INSERT INTO notes (id, title, content, theme, view_mode, x, y, width, height, workspace_id, created_at, updated_at)
+     VALUES (@id, @title, @content, @theme, @view_mode, @x, @y, @width, @height, @workspace_id, @created_at, @updated_at)`,
   )
   for (const noteRow of notes) {
     const note = rowToNote(noteRow)
@@ -351,6 +360,7 @@ function rowToNote(row: Record<string, unknown>): NoteRecord {
     title: row.title as string,
     content: row.content as string,
     theme: (row.theme as NoteRecord['theme'] | undefined) ?? 'auto',
+    view_mode: (row.view_mode as NoteRecord['view_mode'] | undefined) ?? 'preview',
     x: row.x as number,
     y: row.y as number,
     width: row.width as number,
@@ -532,7 +542,7 @@ export function listNotes(workspaceId: string): NoteRecord[] {
   return (
     db
       .prepare(
-        'SELECT id, title, content, theme, x, y, width, height, workspace_id, created_at, updated_at FROM notes WHERE workspace_id = ? ORDER BY created_at',
+        'SELECT id, title, content, theme, view_mode, x, y, width, height, workspace_id, created_at, updated_at FROM notes WHERE workspace_id = ? ORDER BY created_at',
       )
       .all(workspaceId) as Record<string, unknown>[]
   ).map(rowToNote)
@@ -543,12 +553,18 @@ export function upsertNote(record: NoteRecord): void {
   // always refreshed so list ordering and "last edited" stay correct.
   const now = Date.now()
   db.prepare(
-    `INSERT INTO notes (id, title, content, theme, x, y, width, height, workspace_id, created_at, updated_at)
-     VALUES (@id, @title, @content, @theme, @x, @y, @width, @height, @workspace_id, @created_at, @updated_at)
+    `INSERT INTO notes (id, title, content, theme, view_mode, x, y, width, height, workspace_id, created_at, updated_at)
+     VALUES (@id, @title, @content, @theme, @view_mode, @x, @y, @width, @height, @workspace_id, @created_at, @updated_at)
      ON CONFLICT(id) DO UPDATE SET
-       title = @title, content = @content, theme = @theme, x = @x, y = @y, width = @width, height = @height,
-       workspace_id = @workspace_id, updated_at = @updated_at`,
-  ).run({ ...record, created_at: record.created_at || now, updated_at: now })
+       title = @title, content = @content, theme = @theme, view_mode = @view_mode, x = @x, y = @y,
+       width = @width, height = @height, workspace_id = @workspace_id, updated_at = @updated_at`,
+    // `view_mode` is optional on the wire (older callers, the `iao note` CLI).
+  ).run({
+    ...record,
+    view_mode: record.view_mode ?? 'preview',
+    created_at: record.created_at || now,
+    updated_at: now,
+  })
 }
 
 export function removeNote(id: string): void {
@@ -559,7 +575,7 @@ export function removeNote(id: string): void {
 export function getNote(id: string): NoteRecord | undefined {
   const row = db
     .prepare(
-      'SELECT id, title, content, theme, x, y, width, height, workspace_id, created_at, updated_at FROM notes WHERE id = ?',
+      'SELECT id, title, content, theme, view_mode, x, y, width, height, workspace_id, created_at, updated_at FROM notes WHERE id = ?',
     )
     .get(id) as Record<string, unknown> | undefined
   return row ? rowToNote(row) : undefined

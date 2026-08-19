@@ -4,13 +4,8 @@
 // was built from so CodeMirror reuses the existing node across rebuilds instead
 // of remounting it — a remount between mousedown and mouseup would swallow the
 // checkbox `click`, which is exactly the bug the old react-markdown preview had.
-import { createElement } from 'react'
-import { createRoot, type Root } from 'react-dom/client'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+// (Tables get their own, interactive widget: `tableWidget.ts`.)
 import { EditorView, WidgetType } from '@codemirror/view'
-
-const REMARK_PLUGINS = [remarkGfm]
 
 /** Task-list checkbox. Toggling rewrites the `[ ]` / `[x]` marker in the doc. */
 export class CheckboxWidget extends WidgetType {
@@ -91,50 +86,4 @@ export class ImageWidget extends WidgetType {
     img.alt = this.alt
     return img
   }
-}
-
-/**
- * Block widget for constructs that cannot be edited character-by-character in
- * place — today only GFM tables. The source is rendered through the same
- * react-markdown pipeline (and the same `.note-markdown` CSS) the old preview
- * used, so table rendering is unchanged.
- *
- * React renders in a microtask: `toDOM` runs inside CodeMirror's DOM update,
- * which may itself sit inside a React commit, and rendering a new root from
- * there would warn about updating a component while another one renders.
- */
-export class MarkdownBlockWidget extends WidgetType {
-  private root: Root | null = null
-
-  constructor(readonly source: string) {
-    super()
-  }
-
-  eq(other: MarkdownBlockWidget): boolean {
-    return other.source === this.source
-  }
-
-  toDOM(): HTMLElement {
-    const container = document.createElement('div')
-    container.className = 'cm-md-block note-markdown'
-    queueMicrotask(() => {
-      if (this.destroyed) return
-      this.root = createRoot(container)
-      this.root.render(
-        createElement(ReactMarkdown, { remarkPlugins: REMARK_PLUGINS }, this.source),
-      )
-    })
-    return container
-  }
-
-  destroy(): void {
-    this.destroyed = true
-    const root = this.root
-    this.root = null
-    // Unmounting synchronously from CodeMirror's update would land inside a
-    // React render pass; defer it the same way we defer the mount.
-    if (root) queueMicrotask(() => root.unmount())
-  }
-
-  private destroyed = false
 }

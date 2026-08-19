@@ -9,7 +9,9 @@ import {
   type NodeDecorator,
 } from './context'
 import { childNamed } from './inline'
-import { BulletWidget, CheckboxWidget, MarkdownBlockWidget, RuleWidget } from './widgets'
+import { parseMarkdownTable } from '../markdownTable'
+import { TableWidget } from './tableWidget'
+import { BulletWidget, CheckboxWidget, RuleWidget } from './widgets'
 
 const FENCE = /^\s*(?:```|~~~)/
 
@@ -88,22 +90,29 @@ function decorateFencedCode(node: SyntaxNodeRef, ctx: DecorationContext): NodeDe
   return 'skip'
 }
 
+// Unlike every other construct, a table never falls back to its raw pipes when
+// the caret reaches it: the rendered table is itself editable (see
+// `TableWidget`), and the whole source is one toggle away in the note's
+// "Markdown source" view mode.
 function decorateTable(node: SyntaxNodeRef, ctx: DecorationContext): NodeDecorator {
   const span = lineSpan(ctx.state, node.from, node.to)
-  if (isLineRevealed(ctx, node.from, node.to)) {
+  const source = ctx.state.doc.sliceString(span.from, span.to)
+  if (!parseMarkdownTable(source)) {
+    // Half-typed pipes: leave them on screen instead of rendering a wrong grid.
     const first = ctx.state.doc.lineAt(span.from).number
     const last = ctx.state.doc.lineAt(span.to).number
     for (let number = first; number <= last; number += 1) {
-      ctx.add(Decoration.line({ class: 'cm-md-table-source' }).range(ctx.state.doc.line(number).from))
+      ctx.add(
+        Decoration.line({ class: 'cm-md-table-source' }).range(ctx.state.doc.line(number).from),
+      )
     }
     return 'skip'
   }
-  const source = ctx.state.doc.sliceString(span.from, span.to)
   ctx.addWidget(
-    Decoration.replace({ widget: new MarkdownBlockWidget(source), block: true }).range(
-      span.from,
-      span.to,
-    ),
+    Decoration.replace({
+      widget: new TableWidget(source, span.from, ctx.editable),
+      block: true,
+    }).range(span.from, span.to),
   )
   return 'skip'
 }

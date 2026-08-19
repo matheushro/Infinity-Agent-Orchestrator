@@ -27,11 +27,13 @@ export interface LivePreview {
 export function buildLivePreview(state: EditorState): LivePreview {
   const all: Range<Decoration>[] = []
   const widgets: Range<Decoration>[] = []
+  const editable = state.facet(EditorView.editable)
   const ctx: DecorationContext = {
     state,
     // A non-editable note keeps every marker hidden: its selection is stale
     // (offset 0) and would otherwise un-render the first construct of the doc.
-    reveal: state.facet(EditorView.editable),
+    reveal: editable,
+    editable,
     add: (range) => all.push(range),
     addWidget: (range) => {
       all.push(range)

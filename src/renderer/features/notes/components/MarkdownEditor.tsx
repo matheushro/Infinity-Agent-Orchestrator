@@ -2,12 +2,15 @@
 // It renders while you type and reveals raw syntax only under the caret — there
 // is no plain-text mode to fall back to.
 import { forwardRef, useImperativeHandle } from 'react'
+import type { NoteViewMode } from '@shared/types/notes'
 import { useMarkdownEditor, type MarkdownEditorHandle } from '../hooks/useMarkdownEditor'
 
 interface MarkdownEditorProps {
   value: string
   /** Only an editing note takes keystrokes; a resting note still renders. */
   editable: boolean
+  /** Rendered live preview, or the Markdown text itself. */
+  mode: NoteViewMode
   placeholder: string
   onChange: (value: string) => void
   onEscape: () => void
@@ -18,12 +21,13 @@ interface MarkdownEditorProps {
 
 export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(
   function MarkdownEditor(
-    { value, editable, placeholder, onChange, onEscape, onBlur, onRequestEdit },
+    { value, editable, mode, placeholder, onChange, onEscape, onBlur, onRequestEdit },
     ref,
   ) {
     const { containerRef, handle } = useMarkdownEditor({
       value,
       editable,
+      mode,
       placeholder,
       onChange,
       onEscape,

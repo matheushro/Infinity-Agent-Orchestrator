@@ -474,6 +474,35 @@ describe('WorkspaceCanvas', () => {
     expect(mockUseNotes.updateNote).toHaveBeenCalledWith('note-1', { theme: 'dark' })
   })
 
+  it('switches a note between rendered preview and Markdown source from that menu', async () => {
+    mockUseNotes.notes = [
+      {
+        id: 'note-1',
+        title: 'Note',
+        content: '| a | b |',
+        theme: 'auto',
+        view_mode: 'preview',
+        x: 0,
+        y: 0,
+        width: 280,
+        height: 200,
+        workspace_id: 'ws-1',
+        created_at: 0,
+        updated_at: 0,
+      },
+    ]
+    const { Canvas } = await import('@renderer/features/canvas/components/Canvas')
+    const canvasMock = vi.mocked(Canvas)
+    render(<WorkspaceCanvas {...defaultProps} />)
+
+    act(() => {
+      canvasMock.mock.calls[canvasMock.mock.calls.length - 1][0].onNoteContextMenu('note-1', 10, 20)
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Markdown source' }))
+    expect(mockUseNotes.updateNote).toHaveBeenCalledWith('note-1', { view_mode: 'source' })
+  })
+
   it('does not intercept find when no note is selected', async () => {
     const { Canvas } = await import('@renderer/features/canvas/components/Canvas')
     const canvasMock = vi.mocked(Canvas)

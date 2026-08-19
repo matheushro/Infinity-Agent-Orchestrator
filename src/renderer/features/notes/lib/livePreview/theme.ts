@@ -62,7 +62,57 @@ export const livePreviewTheme: Extension = EditorView.theme({
   '.cm-md-rule': { padding: '0.4em 0' },
   '.cm-md-rule hr': { border: '0', borderTop: '1px solid var(--line)', margin: '0' },
   '.cm-md-image': { maxWidth: '100%', borderRadius: '6px', verticalAlign: 'middle' },
-  '.cm-md-block': { margin: '0.3em 0', overflowX: 'auto' },
+
+  // ── Markdown source view ───────────────────────────────────────────────
+  // Nothing is rendered or hidden: the note shows the text it stores.
+  '.cm-md-source': { fontFamily: MONO, fontSize: '0.88em' },
+
+  // ── Editable table ─────────────────────────────────────────────────────
+  // Room on the right/bottom for the two "add" buttons.
+  '.cm-md-table-wrap': { position: 'relative', margin: '0.35em 0', padding: '0 14px 14px 0' },
+  '.cm-md-table-scroll': { overflowX: 'auto' },
+  '.cm-md-table': { borderCollapse: 'collapse', width: '100%', fontSize: '0.95em' },
+  '.cm-md-table-cell': {
+    border: '1px solid var(--line)',
+    padding: '3px 7px',
+    minWidth: '42px',
+    verticalAlign: 'top',
+    textAlign: 'left',
+    // Empty cells must stay clickable.
+    minHeight: '1.3em',
+  },
+  '.cm-md-table th.cm-md-table-cell': {
+    fontWeight: '600',
+    background: 'color-mix(in oklch, var(--fg) 6%, transparent)',
+  },
+  '.cm-md-table-cell[contenteditable="true"]': { cursor: 'text' },
+  '.cm-md-table-cell[contenteditable="true"]:focus': {
+    outline: '2px solid var(--accent)',
+    outlineOffset: '-2px',
+  },
+  '.cm-md-ta-left': { textAlign: 'left' },
+  '.cm-md-ta-center': { textAlign: 'center' },
+  '.cm-md-ta-right': { textAlign: 'right' },
+  '.cm-md-table-add': {
+    position: 'absolute',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '0',
+    border: '1px dashed var(--line)',
+    borderRadius: '4px',
+    background: 'transparent',
+    color: 'var(--fg-3)',
+    font: 'inherit',
+    lineHeight: '1',
+    cursor: 'pointer',
+    opacity: '0',
+    transition: 'opacity 0.12s ease, color 0.12s ease, border-color 0.12s ease',
+  },
+  '.cm-md-table-wrap:hover .cm-md-table-add': { opacity: '1' },
+  '.cm-md-table-add:hover': { color: 'var(--accent)', borderColor: 'var(--accent)' },
+  '.cm-md-table-add-col': { top: '0', right: '0', bottom: '14px', width: '12px' },
+  '.cm-md-table-add-row': { left: '0', right: '14px', bottom: '0', height: '12px' },
 
   // Task checkbox — same look as the old preview's checkbox.
   '.cm-md-task': {

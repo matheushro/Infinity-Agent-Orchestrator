@@ -77,6 +77,19 @@ function visibleText(): string {
   return (document.querySelector('.note-live .cm-content') as HTMLElement).textContent ?? ''
 }
 
+/** The cells of the note's rendered table, in reading order. */
+function cells(container: HTMLElement): HTMLTableCellElement[] {
+  return Array.from(container.querySelectorAll('.cm-md-table-cell'))
+}
+
+/** Type into a table cell the way the browser would: DOM edit, then `input`. */
+function typeInCell(cell: HTMLTableCellElement, text: string): void {
+  act(() => {
+    cell.textContent = text
+    fireEvent.input(cell)
+  })
+}
+
 /** Type into the note the way a keystroke would: a change plus a caret move. */
 function type(text: string, at = editor().state.doc.length): void {
   act(() => {
@@ -340,15 +353,125 @@ describe('NoteNode', () => {
     expect(onUpdate).toHaveBeenCalledWith('note-1', { content: '- [ ] first\n- [x] second' })
   })
 
-  it('renders a GFM table as a block', async () => {
+  it('renders a GFM table, read-only while the note rests', () => {
     const { container } = renderNode({
       note: { ...baseNote, content: '| a | b |\n| - | - |\n| 1 | 2 |' },
     })
 
-    await waitFor(() =>
-      expect(container.querySelector('.cm-md-block table')).toBeInTheDocument(),
+    expect(cells(container).map((cell) => cell.textContent)).toEqual(['a', 'b', '1', '2'])
+    expect(cells(container)[0]).toHaveAttribute('contenteditable', 'false')
+  })
+
+  it('writes a table cell straight back into the Markdown', () => {
+    const onUpdate = vi.fn()
+    const { container } = renderNode({
+      note: { ...baseNote, content: '| a | b |\n| - | - |\n| 1 | 2 |' },
+      editing: true,
+      onUpdate,
+    })
+
+    const cell = cells(container)[3]
+    expect(cell).toHaveAttribute('contenteditable', 'true')
+    typeInCell(cell, 'nine')
+
+    expect(editor().state.doc.toString()).toBe('| a   | b    |\n| --- | ---- |\n| 1   | nine |')
+    // The rendered table survives its own edit — remounting it mid-keystroke
+    // would drop the caret out of the cell.
+    expect(cells(container)[3]).toBe(cell)
+  })
+
+  it('adds a row when Tab leaves the last cell', () => {
+    const { container } = renderNode({
+      note: { ...baseNote, content: '| a | b |\n| - | - |\n| 1 | 2 |' },
+      editing: true,
+    })
+
+    fireEvent.keyDown(cells(container)[3], { key: 'Tab' })
+
+    expect(editor().state.doc.toString()).toContain('| 1   | 2   |\n|     |     |')
+    expect(cells(container)).toHaveLength(6)
+  })
+
+  it('adds a column from the table affordance', () => {
+    const { container } = renderNode({
+      note: { ...baseNote, content: '| a | b |\n| - | - |\n| 1 | 2 |' },
+      editing: true,
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add column' }))
+
+    expect(editor().state.doc.toString()).toBe(
+      '| a   | b   |     |\n| --- | --- | --- |\n| 1   | 2   |     |',
     )
-    expect(container.querySelector('.cm-md-block')).toHaveTextContent('1')
+  })
+
+  it('offers row and column edits on right-click, without opening the note menu', () => {
+    const onContextMenu = vi.fn()
+    const { container } = renderNode({
+      note: { ...baseNote, content: '| a | b |\n| - | - |\n| 1 | 2 |' },
+      editing: true,
+      onContextMenu,
+    })
+
+    fireEvent.contextMenu(cells(container)[2], { clientX: 10, clientY: 20 })
+    expect(screen.getByRole('button', { name: 'Delete row' })).toBeInTheDocument()
+    expect(onContextMenu).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete row' }))
+
+    expect(editor().state.doc.toString()).toBe('| a   | b   |\n| --- | --- |')
+    expect(screen.queryByRole('button', { name: 'Delete row' })).not.toBeInTheDocument()
+  })
+
+  it('renders a table the moment its delimiter row is typed', () => {
+    const { container } = renderNode({ note: { ...baseNote, content: '' }, editing: true })
+
+    type('| a | b |\n| - | - |')
+
+    expect(cells(container).map((cell) => cell.textContent)).toEqual(['a', 'b'])
+  })
+
+  it('keeps the note in edit mode when the caret moves into a table cell', () => {
+    const onEditingComplete = vi.fn()
+    const { container } = renderNode({
+      note: { ...baseNote, content: '| a | b |\n| - | - |\n| 1 | 2 |' },
+      editing: true,
+      onEditingComplete,
+    })
+
+    // Focus leaves the CodeMirror content, but only to land inside its own
+    // table widget — that must not commit and close the note.
+    fireEvent.blur(document.querySelector('.cm-content') as HTMLElement, {
+      relatedTarget: cells(container)[0],
+    })
+
+    expect(onEditingComplete).not.toHaveBeenCalled()
+  })
+
+  it('shows the Markdown text itself in source view mode', () => {
+    const content = '# Title\n\n| a | b |\n| - | - |'
+    const { container } = renderNode({
+      note: { ...baseNote, content, view_mode: 'source' },
+    })
+
+    expect(container.querySelector('.cm-md-h1')).toBeNull()
+    expect(container.querySelector('.cm-md-table')).toBeNull()
+    expect(visibleText()).toBe(content.replace(/\n/g, ''))
+  })
+
+  it('switches between preview and source without rebuilding the editor', () => {
+    const { container, props, rerender } = renderNode({
+      note: { ...baseNote, content: '# Title' },
+    })
+    const before = editor()
+
+    rerender(<NoteNode {...props} note={{ ...props.note, view_mode: 'source' }} />)
+    expect(editor()).toBe(before)
+    expect(container.querySelector('.cm-md-h1')).toBeNull()
+    expect(visibleText()).toBe('# Title')
+
+    rerender(<NoteNode {...props} note={{ ...props.note, view_mode: 'preview' }} />)
+    expect(container.querySelector('.cm-md-h1')).toHaveTextContent('Title')
   })
 
   it('re-renders when the record content changes outside of editing', async () => {
