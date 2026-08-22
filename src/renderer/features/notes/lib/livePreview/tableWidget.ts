@@ -56,10 +56,14 @@ const wired = new WeakSet<HTMLElement>()
 let pendingFocus: { from: number; row: number; col: number; caret: number | 'end' } | null = null
 
 export class TableWidget extends WidgetType {
+  // Not named `editable`: CodeMirror's `WidgetType` carries a getter-only
+  // `editable` on its prototype, and a same-named field would throw
+  // "Cannot set property editable of #<WidgetType> which has only a getter"
+  // the moment the widget is constructed.
   constructor(
     readonly source: string,
     readonly from: number,
-    readonly editable: boolean,
+    readonly cellsEditable: boolean,
   ) {
     super()
   }
@@ -68,7 +72,7 @@ export class TableWidget extends WidgetType {
     return (
       other.source === this.source &&
       other.from === this.from &&
-      other.editable === this.editable
+      other.cellsEditable === this.cellsEditable
     )
   }
 
@@ -84,7 +88,7 @@ export class TableWidget extends WidgetType {
       source: this.source,
       domSource: '',
       table,
-      editable: this.editable,
+      editable: this.cellsEditable,
     }
     bindings.set(dom, binding)
     renderTable(binding)
@@ -100,12 +104,12 @@ export class TableWidget extends WidgetType {
     binding.from = this.from
     // A keystroke inside a cell round-tripped through the document: this DOM
     // already shows it, and re-rendering would only disturb the caret.
-    if (binding.domSource !== this.source || binding.editable !== this.editable) {
+    if (binding.domSource !== this.source || binding.editable !== this.cellsEditable) {
       const table = parseMarkdownTable(this.source)
       if (!table) return false
       binding.source = this.source
       binding.table = table
-      binding.editable = this.editable
+      binding.editable = this.cellsEditable
       renderTable(binding)
     }
     applyPendingFocus(binding)

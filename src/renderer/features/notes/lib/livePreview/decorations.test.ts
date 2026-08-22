@@ -157,10 +157,10 @@ describe('live preview decorations', () => {
       )?.widget as TableWidget
 
     expect(widgetOf().source).toBe(table)
-    expect(widgetOf().editable).toBe(false)
+    expect(widgetOf().cellsEditable).toBe(false)
     // Unlike every other construct, a table stays rendered under the caret —
     // its cells are the editor, so there is no raw-pipe fallback to reveal.
-    expect(widgetOf(2).editable).toBe(true)
+    expect(widgetOf(2).cellsEditable).toBe(true)
     expect(
       decorationsOf(table).find((decoration) => decoration.widget instanceof TableWidget)?.block,
     ).toBe(true)
