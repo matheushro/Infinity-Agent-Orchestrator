@@ -84,7 +84,7 @@ export interface WorkspaceCanvasHandle {
   deleteTerminal: (id: string) => void
   toggleTerminalEnabled: (id: string) => void
   startLinkFrom: (id: string) => void
-  /** Opens the single terminal dialog (name/folder/agent/model/prompt/style). */
+  /** Opens the single terminal dialog (name/folder/agent/model/effort/prompt/style). */
   openTerminalSettings: (id: string) => void
 }
 
@@ -409,6 +409,7 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
           folder: editingNode.cwd,
           command: editingNode.command,
           model: editingNode.model,
+          effort: editingNode.effort,
           prompt: editingNode.prompt,
           style: getTerminalStyle(editingNode.id),
         }
@@ -428,10 +429,11 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
           cwd: draft.folder,
           command: draft.command,
           model: draft.model,
+          effort: draft.effort,
           prompt: draft.prompt,
         })
         applyStyle(editingNode.id, draft.style)
-        // cwd/agent/model/prompt only reach the shell at launch, so saving
+        // cwd/agent/model/effort/prompt only reach the shell at launch, so saving
         // rebuilds the session instead of leaving the edit half-applied.
         restartTerminal(editingNode.id)
         closeSettings()
@@ -444,7 +446,7 @@ export const WorkspaceCanvas = forwardRef<WorkspaceCanvasHandle, WorkspaceCanvas
         draft.name,
         shell,
         pendingCreatePos ?? undefined,
-        { prompt: draft.prompt, model: draft.model },
+        { prompt: draft.prompt, model: draft.model, effort: draft.effort },
       )
       applyStyle(id, draft.style)
       closeSettings()

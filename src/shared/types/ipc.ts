@@ -42,6 +42,7 @@ export const IpcChannels = {
   windowSetFullScreen: 'window:set-full-screen',
   windowFullScreenChanged: 'window:full-screen-changed',
   windowOpenInVSCode: 'window:open-in-vscode',
+  windowOpenExternal: 'window:open-external',
 } as const
 
 export interface PtyCreateArgs {
@@ -60,6 +61,11 @@ export interface PtyCreateArgs {
   // `@shared/agents` `modelEnv`). Empty/omitted leaves the agent on its own
   // default. Ignored for agents without a model env var or a plain terminal.
   model?: string
+  // Reasoning-effort level this terminal launches with, appended to the agent's
+  // launch command as its effort flag (see `@shared/agents` `effortArg`).
+  // Empty/omitted leaves the agent on its own default. Ignored for agents
+  // without an effort flag or a plain terminal.
+  effort?: string
   // Persistence id of the terminal node this pty belongs to. The iao bridge
   // uses it to map a pty session to the user-visible terminal (title, edges).
   nodeId?: string

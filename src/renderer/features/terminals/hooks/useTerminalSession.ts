@@ -5,6 +5,7 @@
 import { useEffect, useRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
+import { openExternalUrl } from '@renderer/lib/externalLinks'
 import { COMMANDS } from '../commands'
 import { DEFAULT_TERMINAL_STYLE, type TerminalNodeData, type TerminalStyle } from '../types'
 import type { CanvasTheme } from '@renderer/features/canvas/types'
@@ -189,6 +190,12 @@ export function useTerminalSession(
       // Force-adjust low-contrast foregrounds (e.g. claude/codex emit truecolor
       // grays that assume a pure-black background and vanish on our navy).
       minimumContrastRatio: 4.5,
+      // Agents print OSC 8 hyperlinks. xterm's default activation is
+      // `window.open`, which Electron would answer with a chromeless in-app
+      // window — send them to the user's browser instead.
+      linkHandler: {
+        activate: (_event, uri) => openExternalUrl(uri),
+      },
     })
     termRef.current = term
 
@@ -277,6 +284,7 @@ export function useTerminalSession(
         command: COMMANDS[node.command].cmd,
         prompt: node.prompt,
         model: node.model,
+        effort: node.effort,
       })
       .then(() => {
         if (disposed) return

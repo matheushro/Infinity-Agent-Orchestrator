@@ -2,6 +2,7 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import { IpcChannels } from '@shared/types/ipc'
 import { openFolderInVSCode } from '@main/services/window.service'
+import { openExternalUrl } from '@main/services/externalLink.service'
 
 function focusedWindow(): BrowserWindow | null {
   return BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null
@@ -21,6 +22,10 @@ export function registerWindowIpc(): void {
 
   ipcMain.handle(IpcChannels.windowOpenInVSCode, (_event, folder: string) => {
     return openFolderInVSCode(folder)
+  })
+
+  ipcMain.handle(IpcChannels.windowOpenExternal, (_event, url: string) => {
+    return openExternalUrl(url)
   })
 
   // Mirror native enter/leave full-screen events back to renderers so the UI

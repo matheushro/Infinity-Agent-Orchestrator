@@ -90,6 +90,7 @@ describe('IpcChannels — completude e consistência', () => {
       'workspaces:set-enabled',
       'window:is-full-screen', 'window:set-full-screen', 'window:full-screen-changed',
       'window:open-in-vscode',
+      'window:open-external',
     ]
     const actual = Object.values(IpcChannels) as string[]
     expect(actual.sort()).toEqual(expected.sort())

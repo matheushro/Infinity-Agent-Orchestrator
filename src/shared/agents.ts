@@ -8,6 +8,17 @@ export interface ModelOption {
   label: string
 }
 
+/**
+ * A reasoning-effort ("thinking") level the user can pin a terminal to. The
+ * levels are agent-specific and enumerated (unlike models, which are free
+ * text), so they ship with the agent definition instead of a user catalog.
+ */
+export interface EffortOption {
+  /** Value handed to the agent's effort flag (see `AgentDef.effortArg`). */
+  value: string
+  label: string
+}
+
 export interface AgentDef {
   key: string
   /** Shell input written into the pty after the shell starts. Empty for a plain terminal. */
@@ -76,6 +87,29 @@ export interface AgentDef {
   models?: ModelOption[]
   /** Placeholder for the free-text model field (agents with `modelArg`, no list). */
   modelHint?: string
+  /**
+   * Launch flag that selects how hard the agent thinks — Claude Code's
+   * `--effort`, and for Codex the `-c` config override that carries
+   * `model_reasoning_effort`. When a terminal pins an effort, IAO appends
+   * `<effortArg> <value>` to the launch command, so the level is per terminal
+   * instead of whatever the agent's global config last had. Agents that expose
+   * no such flag declare none and get no effort picker.
+   */
+  effortArg?: string
+  /**
+   * Shape the pinned effort takes as the argument to `effortArg`, with
+   * `{value}` replaced by the level. Codex has no dedicated flag — its level
+   * rides a TOML config override (`-c model_reasoning_effort="high"`) — so the
+   * template lets one mechanism serve both flag styles. Agents whose flag takes
+   * the bare level (Claude) declare none.
+   */
+  effortValueTemplate?: string
+  /**
+   * Effort levels offered in the terminal modals. Enumerated per agent because
+   * each CLI validates its own set; an agent with `effortArg` but no list would
+   * offer nothing to pick, so both always ship together.
+   */
+  efforts?: EffortOption[]
 }
 
 /** Context file used when an agent declares none, or its command is unknown. */
@@ -94,6 +128,18 @@ export const AGENTS = {
     addDirExtraArgs: '--sandbox workspace-write',
     modelArg: '--model',
     modelHint: 'e.g. gpt-5.4',
+    // Codex exposes no --thinking/--effort flag (checked against codex-cli
+    // 0.150): the reasoning level is a config key, so IAO overrides it per
+    // launch with `-c model_reasoning_effort="<level>"`.
+    effortArg: '-c',
+    effortValueTemplate: 'model_reasoning_effort="{value}"',
+    efforts: [
+      { value: 'minimal', label: 'Minimal' },
+      { value: 'low', label: 'Low' },
+      { value: 'medium', label: 'Medium' },
+      { value: 'high', label: 'High' },
+      { value: 'xhigh', label: 'X-High' },
+    ],
   },
   claude: {
     key: 'claude',
@@ -110,6 +156,15 @@ export const AGENTS = {
       { value: 'opus', label: 'Opus' },
       { value: 'sonnet', label: 'Sonnet' },
       { value: 'haiku', label: 'Haiku' },
+    ],
+    // `claude --effort <level>`; the levels are the ones the CLI accepts.
+    effortArg: '--effort',
+    efforts: [
+      { value: 'low', label: 'Low' },
+      { value: 'medium', label: 'Medium' },
+      { value: 'high', label: 'High' },
+      { value: 'xhigh', label: 'X-High' },
+      { value: 'max', label: 'Max' },
     ],
   },
   gemini: {
@@ -210,6 +265,26 @@ export function modelArgForCmd(cmd: string): string | undefined {
 }
 
 /**
+ * Resolve the flag an agent selects its reasoning effort with (e.g.
+ * `--effort`), by launch command. Returns undefined for a plain terminal, an
+ * unknown command, or an agent that declares none — in which case no effort is
+ * appended to the launch line.
+ */
+export function effortArgForCmd(cmd: string): string | undefined {
+  return agentByCmd(cmd)?.effortArg
+}
+
+/**
+ * Build the argument that carries a pinned effort level for an agent, by launch
+ * command. Applies the agent's `effortValueTemplate` when it has one (Codex:
+ * `high` → `model_reasoning_effort="high"`), otherwise the bare level.
+ */
+export function effortValueForCmd(cmd: string, effort: string): string {
+  const template = agentByCmd(cmd)?.effortValueTemplate
+  return template ? template.replace('{value}', effort) : effort
+}
+
+/**
  * Resolve the flag an agent uses to add an extra workspace directory (e.g.
  * `--add-dir`), by launch command. Returns undefined when the agent declares
  * none — in which case IAO appends no directory flag and the agent keeps its
@@ -231,4 +306,14 @@ export function addDirExtraArgsForCmd(cmd: string): string | undefined {
 /** True when the agent can be pinned to a model at all (env var or launch flag). */
 export function supportsModel(agent: AgentDef): boolean {
   return Boolean(agent.modelEnv || agent.modelArg)
+}
+
+/** True when the agent can be pinned to a reasoning-effort level. */
+export function supportsEffort(agent: AgentDef): boolean {
+  return Boolean(agent.effortArg && agent.efforts?.length)
+}
+
+/** Effort levels an agent offers, by registry key. Empty when it has none. */
+export function effortsFor(agent: AgentDef): EffortOption[] {
+  return agent.efforts ?? []
 }

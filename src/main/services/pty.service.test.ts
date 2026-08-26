@@ -391,6 +391,93 @@ describe('createPty — model env injection', () => {
   })
 })
 
+describe('createPty — effort launch flag', () => {
+  it("appends Claude's --effort flag when a level is pinned", () => {
+    vi.useFakeTimers()
+    const proc = makeMockProc()
+    mockSpawn.mockReturnValue(proc as any)
+    mockExistsSync.mockReturnValue(true)
+
+    createPty(makeArgs({ command: 'claude', effort: 'max' }), makeCallbacks())
+    vi.advanceTimersByTime(250)
+
+    expect(proc.write).toHaveBeenCalledWith('claude --effort max\r')
+    vi.useRealTimers()
+  })
+
+  it("wraps Codex's level in its config override, since it has no effort flag", () => {
+    vi.useFakeTimers()
+    const proc = makeMockProc()
+    mockSpawn.mockReturnValue(proc as any)
+    mockExistsSync.mockReturnValue(true)
+
+    createPty(makeArgs({ command: 'codex', effort: 'high' }), makeCallbacks())
+    vi.advanceTimersByTime(250)
+
+    // The quotes make it a TOML string, so the whole token is shell-quoted.
+    expect(proc.write).toHaveBeenCalledWith('codex -c \'model_reasoning_effort="high"\'\r')
+    vi.useRealTimers()
+  })
+
+  it('writes a bare command when no effort is pinned', () => {
+    vi.useFakeTimers()
+    const proc = makeMockProc()
+    mockSpawn.mockReturnValue(proc as any)
+    mockExistsSync.mockReturnValue(true)
+
+    createPty(makeArgs({ command: 'claude', effort: '' }), makeCallbacks())
+    vi.advanceTimersByTime(250)
+
+    expect(proc.write).toHaveBeenCalledWith('claude\r')
+    vi.useRealTimers()
+  })
+
+  it('appends nothing for an agent that declares no effort flag (gemini)', () => {
+    vi.useFakeTimers()
+    const proc = makeMockProc()
+    mockSpawn.mockReturnValue(proc as any)
+    mockExistsSync.mockReturnValue(true)
+
+    createPty(makeArgs({ command: 'gemini', effort: 'high' }), makeCallbacks())
+    vi.advanceTimersByTime(250)
+
+    expect(proc.write).toHaveBeenCalledWith('gemini\r')
+    vi.useRealTimers()
+  })
+
+  it('combines the model flag and the effort override on one line (codex)', () => {
+    vi.useFakeTimers()
+    const proc = makeMockProc()
+    mockSpawn.mockReturnValue(proc as any)
+    mockExistsSync.mockReturnValue(true)
+
+    createPty(makeArgs({ command: 'codex', model: 'gpt-5.4', effort: 'xhigh' }), makeCallbacks())
+    vi.advanceTimersByTime(250)
+
+    expect(proc.write).toHaveBeenCalledWith(
+      'codex --model gpt-5.4 -c \'model_reasoning_effort="xhigh"\'\r',
+    )
+    vi.useRealTimers()
+  })
+
+  it('combines the effort flag with --add-dir when the agent runs in a role dir (claude)', () => {
+    vi.useFakeTimers()
+    const proc = makeMockProc()
+    mockSpawn.mockReturnValue(proc as any)
+    mockExistsSync.mockReturnValue(true)
+    mockApplyPrompt.mockReturnValue('/tmp/.iao/roles/node-7')
+
+    createPty(
+      makeArgs({ cwd: '/tmp', nodeId: 'node-7', command: 'claude', effort: 'high', prompt: 'Role' }),
+      makeCallbacks(),
+    )
+    vi.advanceTimersByTime(250)
+
+    expect(proc.write).toHaveBeenCalledWith('claude --effort high --add-dir /tmp\r')
+    vi.useRealTimers()
+  })
+})
+
 describe('createPty — model launch flag', () => {
   it('appends the model flag for an agent that has no model env var', () => {
     vi.useFakeTimers()

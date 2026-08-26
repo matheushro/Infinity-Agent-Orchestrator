@@ -48,10 +48,10 @@ import { BACKUP_VERSION } from '@shared/types/backup'
 const ws1 = { id: 'ws-1', name: 'Main', created_at: 1, enabled: true }
 const t1 = {
   id: 't1', title: 'Claude', cwd: '/repo', command: 'claude', shell: 'default',
-  prompt: 'You are the reviewer', model: 'opus',
+  prompt: 'You are the reviewer', model: 'opus', effort: 'max',
   x: 0, y: 0, width: 400, height: 300, workspace_id: 'ws-1', enabled: true,
 }
-const t2 = { ...t1, id: 't2', title: 'Codex', command: 'codex', prompt: '', model: '' }
+const t2 = { ...t1, id: 't2', title: 'Codex', command: 'codex', prompt: '', model: '', effort: '' }
 const edge = { id: 'e1', source: 't1', target: 't2' }
 const danglingEdge = { id: 'e2', source: 't1', target: 'ghost' }
 const text = { id: 'x1', text: 'label', x: 1, y: 2, width: 220, height: 44, workspace_id: 'ws-1' }

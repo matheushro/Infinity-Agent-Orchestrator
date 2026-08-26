@@ -37,6 +37,7 @@ const baseNode: TerminalNodeData = {
   command: 'claude',
   prompt: '',
   model: '',
+  effort: '',
   workspace_id: 'ws-1',
   enabled: true,
 }
@@ -131,7 +132,21 @@ describe('useTerminals — createTerminal', () => {
     )
   })
 
-  it('stamps the prompt and model chosen in the create dialog on the new node', async () => {
+  it('defaults a new terminal effort to an empty string (agent default)', async () => {
+    const { result } = renderHook(() => useTerminals('ws-1'))
+    await waitFor(() => expect(mockTerminalRepository.listActive).toHaveBeenCalled())
+
+    act(() => {
+      result.current.createTerminal('/home/user/project', 'claude', '', 'bash')
+    })
+
+    expect(result.current.nodes[0].effort).toBe('')
+    expect(mockTerminalRepository.persist).toHaveBeenCalledWith(
+      expect.objectContaining({ effort: '' }),
+    )
+  })
+
+  it('stamps the prompt, model and effort chosen in the create dialog on the new node', async () => {
     const { result } = renderHook(() => useTerminals('ws-1'))
     await waitFor(() => expect(mockTerminalRepository.listActive).toHaveBeenCalled())
 
@@ -139,15 +154,18 @@ describe('useTerminals — createTerminal', () => {
       result.current.createTerminal('/home/user/project', 'claude', '', 'bash', undefined, {
         prompt: 'You are a reviewer.',
         model: 'opus',
+        effort: 'max',
       })
     })
 
     // They must be on the node before its first render: the pty is created from
-    // node.prompt/node.model, so a later update would launch the agent bare.
+    // node.prompt/node.model/node.effort, so a later update would launch the
+    // agent bare.
     expect(result.current.nodes[0].prompt).toBe('You are a reviewer.')
     expect(result.current.nodes[0].model).toBe('opus')
+    expect(result.current.nodes[0].effort).toBe('max')
     expect(mockTerminalRepository.persist).toHaveBeenCalledWith(
-      expect.objectContaining({ prompt: 'You are a reviewer.', model: 'opus' }),
+      expect.objectContaining({ prompt: 'You are a reviewer.', model: 'opus', effort: 'max' }),
     )
   })
 

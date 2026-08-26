@@ -14,6 +14,8 @@ import {
   contextFileForCmd,
   modelEnvForCmd,
   modelArgForCmd,
+  effortArgForCmd,
+  effortValueForCmd,
   addDirArgForCmd,
   addDirExtraArgsForCmd,
 } from '@shared/agents'
@@ -46,6 +48,11 @@ function quoteArg(value: string): string {
 /**
  * Build the shell line that launches the agent.
  *
+ * Effort: agents that expose a reasoning-effort flag (Claude `--effort`, Codex's
+ * `-c model_reasoning_effort=…` config override) get `<effortArg> <value>`
+ * appended, so how hard the agent thinks is pinned per terminal rather than
+ * inherited from its global config.
+ *
  * Model: for agents that select their model via a flag and expose no model env
  * var (Codex, Cursor, Copilot, OpenCode), append `<modelArg> <model>`. Env-var
  * agents (Claude, Gemini) receive the model through their environment instead,
@@ -59,11 +66,15 @@ function quoteArg(value: string): string {
  * mode that permits additional writable roots); those are appended alongside it.
  * Agents without such a flag get nothing appended.
  */
-function launchLine(command: string, model?: string, addDir?: string): string {
+function launchLine(command: string, model?: string, addDir?: string, effort?: string): string {
   let line = command
   if (model && !modelEnvForCmd(command)) {
     const arg = modelArgForCmd(command)
     if (arg) line += ` ${arg} ${quoteArg(model)}`
+  }
+  if (effort) {
+    const arg = effortArgForCmd(command)
+    if (arg) line += ` ${arg} ${quoteArg(effortValueForCmd(command, effort))}`
   }
   if (addDir) {
     const dirArg = addDirArgForCmd(command)
@@ -179,7 +190,7 @@ export function createPty(args: PtyCreateArgs, callbacks: PtyCallbacks): PtyCrea
   // not prompt for every project file (see `launchLine`).
   if (args.command) {
     const addDir = workdir !== repoCwd ? repoCwd : undefined
-    const line = launchLine(args.command, args.model, addDir)
+    const line = launchLine(args.command, args.model, addDir, args.effort)
     setTimeout(() => proc.write(`${line}\r`), LAUNCH_CMD_MS)
   }
 

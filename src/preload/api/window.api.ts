@@ -9,6 +9,7 @@ export const windowApi: WindowApi = {
     ipcRenderer.invoke(IpcChannels.windowSetFullScreen, value),
   openInVSCode: (folder: string) =>
     ipcRenderer.invoke(IpcChannels.windowOpenInVSCode, folder),
+  openExternal: (url: string) => ipcRenderer.invoke(IpcChannels.windowOpenExternal, url),
   onFullScreenChange(cb) {
     const handler = (_event: IpcRendererEvent, value: boolean): void => cb(Boolean(value))
     ipcRenderer.on(IpcChannels.windowFullScreenChanged, handler)

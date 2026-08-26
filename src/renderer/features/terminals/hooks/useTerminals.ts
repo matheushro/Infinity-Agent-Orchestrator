@@ -15,7 +15,7 @@ export interface UseTerminalsResult {
     shell: ShellType,
     position?: { x: number; y: number; width?: number; height?: number },
     /** Agent config chosen in the create modal — applied on the very first launch. */
-    agent?: { prompt?: string; model?: string }
+    agent?: { prompt?: string; model?: string; effort?: string }
   ) => string
   duplicateTerminal: (id: string) => string | null
   /** In-memory transient update used during drag/resize — no DB write. */
@@ -44,7 +44,7 @@ export function useTerminals(workspaceId: string): UseTerminalsResult {
       name: string,
       shell: ShellType,
       position?: { x: number; y: number; width?: number; height?: number },
-      agent?: { prompt?: string; model?: string }
+      agent?: { prompt?: string; model?: string; effort?: string }
     ) => {
       // The id and the persist side-effect must live outside the setNodes
       // updater: React StrictMode runs updaters twice, which would generate
@@ -63,9 +63,10 @@ export function useTerminals(workspaceId: string): UseTerminalsResult {
           cwd: folder,
           command,
           // Set at creation time so the first pty already launches with the
-          // agent's role and pinned model — no restart needed.
+          // agent's role, pinned model and effort — no restart needed.
           prompt: agent?.prompt ?? '',
           model: agent?.model ?? '',
+          effort: agent?.effort ?? '',
           workspace_id: workspaceId,
           enabled: true,
         }

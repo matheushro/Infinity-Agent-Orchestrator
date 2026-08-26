@@ -2,6 +2,7 @@
 import { BrowserWindow } from 'electron'
 import { join } from 'path'
 import { attachFullScreenForwarders } from './ipc/window.ipc'
+import { attachExternalLinkHandlers } from './services/externalLink.service'
 
 export function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -20,6 +21,7 @@ export function createWindow(): BrowserWindow {
   })
 
   attachFullScreenForwarders(win)
+  attachExternalLinkHandlers(win)
 
   if (process.env.ELECTRON_RENDERER_URL) {
     win.loadURL(process.env.ELECTRON_RENDERER_URL)

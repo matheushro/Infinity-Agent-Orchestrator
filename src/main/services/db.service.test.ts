@@ -329,6 +329,7 @@ function makeTerminal(overrides: Partial<TerminalRecord> = {}): TerminalRecord {
     shell: 'bash',
     prompt: '',
     model: '',
+    effort: '',
     x: 0,
     y: 0,
     width: 800,
@@ -615,6 +616,35 @@ describe('upsertTerminal', () => {
     upsertTerminal(t)
     upsertTerminal({ ...t, model: 'opus' })
     expect(listActiveTerminals().find(r => r.id === 'm-edit')?.model).toBe('opus')
+  })
+
+  it('persists the pinned effort level and reads it back', () => {
+    upsertTerminal(makeTerminal({ id: 'e-1', effort: 'max' }))
+    const found = listActiveTerminals().find(r => r.id === 'e-1')
+    expect(found?.effort).toBe('max')
+  })
+
+  it('defaults effort to an empty string when none is given', () => {
+    upsertTerminal(makeTerminal({ id: 'e-default' }))
+    const found = listActiveTerminals().find(r => r.id === 'e-default')
+    expect(found?.effort).toBe('')
+  })
+
+  it('updates the effort on conflict (re-pin persists)', () => {
+    const t = makeTerminal({ id: 'e-edit', effort: 'low' })
+    upsertTerminal(t)
+    upsertTerminal({ ...t, effort: 'high' })
+    expect(listActiveTerminals().find(r => r.id === 'e-edit')?.effort).toBe('high')
+  })
+
+  it('reads legacy rows with no effort column as an empty string', () => {
+    // Simulate a pre-migration row that has no `effort` key at all.
+    store.terminals.set('legacy-effort', {
+      id: 'legacy-effort', title: 'Legacy', cwd: '/', command: 'claude',
+      shell: 'bash', prompt: '', model: '', x: 0, y: 0, width: 800, height: 600, active: 1,
+      created_at: 1, workspace_id: 'default', position: 0, enabled: 1,
+    })
+    expect(listActiveTerminals().find(r => r.id === 'legacy-effort')?.effort).toBe('')
   })
 
   it('reads legacy rows with no model column as an empty string', () => {

@@ -118,6 +118,10 @@ const mocks = vi.hoisted(() => {
     },
   }
 
+  const windowApi = {
+    openExternal: vi.fn(async () => true),
+  }
+
   return {
     terminalInstances,
     fitInstances,
@@ -126,6 +130,7 @@ const mocks = vi.hoisted(() => {
     dataHandlers,
     exitHandlers,
     ptyApi,
+    windowApi,
     MockTerminal,
     MockFitAddon,
     MockResizeObserver,
@@ -156,6 +161,7 @@ const node: TerminalNodeData = {
   command: 'claude',
   prompt: 'Stay concise.',
   model: 'opus',
+  effort: 'max',
   enabled: true,
 }
 
@@ -227,8 +233,9 @@ beforeEach(() => {
     getPathForFile: vi.fn((file: File) => `/tmp/${file.name}`),
     create: vi.fn(() => new Promise<void>((resolve) => mocks.createResolvers.push(resolve))),
   })
+  Object.assign(mocks.windowApi, { openExternal: vi.fn(async () => true) })
   vi.stubGlobal('ResizeObserver', mocks.MockResizeObserver)
-  Object.assign(window, { ptyApi: mocks.ptyApi })
+  Object.assign(window, { ptyApi: mocks.ptyApi, windowApi: mocks.windowApi })
   vi.spyOn(crypto, 'randomUUID')
 })
 
@@ -274,9 +281,25 @@ describe('useTerminalSession', () => {
       command: 'claude',
       prompt: 'Stay concise.',
       model: 'opus',
+      effort: 'max',
     })
     expect(crypto.randomUUID).toHaveBeenCalledTimes(1)
     expect(node.id).not.toBe('pty-1')
+  })
+
+  // Clicking a hyperlink printed by an agent used to open a chromeless Electron
+  // window on top of the canvas (xterm's default activation is `window.open`).
+  it('opens clicked terminal links in the OS browser', async () => {
+    render(<SessionHarness />)
+
+    await waitFor(() => expect(mocks.ptyApi.create).toHaveBeenCalledTimes(1))
+
+    const { linkHandler } = mocks.terminalInstances[0].options as {
+      linkHandler: { activate: (event: MouseEvent, uri: string) => void }
+    }
+    linkHandler.activate(new MouseEvent('click'), 'https://google.com')
+
+    expect(mocks.windowApi.openExternal).toHaveBeenCalledWith('https://google.com')
   })
 
   // Regression: deleting a terminal threw inside the effect cleanup (xterm

@@ -1,16 +1,16 @@
 // The single dialog for a terminal — used both to create one and to edit an
 // existing one. Everything a terminal owns lives here: name, folder, agent,
-// pinned model, agent prompt and the visual style. Two modals used to split
+// pinned model, thinking effort, agent prompt and the visual style. Two modals used to split
 // these (create vs. prompt vs. style), which meant the agent prompt could only
 // be set *after* the terminal had already launched without it.
 //
 // Both modes are draft-based: nothing is applied until confirm. In edit mode the
-// caller restarts the pty on confirm, so cwd/agent/model/prompt changes take
+// caller restarts the pty on confirm, so cwd/agent/model/effort/prompt changes take
 // effect immediately instead of only on the next manual restart.
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { Button, Modal, Select } from '@renderer/components/ui'
-import { supportsModel } from '@shared/agents'
+import { supportsEffort, supportsModel } from '@shared/agents'
 import { COMMANDS } from '../commands'
 import { useModels } from '../hooks/useModels'
 import {
@@ -20,6 +20,7 @@ import {
   type CommandKey,
   type TerminalStyle,
 } from '../types'
+import { EffortField } from './EffortField'
 import { ModelField } from './ModelField'
 
 /** Everything the modal edits, in one shape shared by both modes. */
@@ -29,6 +30,8 @@ export interface TerminalSettingsDraft {
   command: CommandKey
   /** Pinned model ('' = agent default). */
   model: string
+  /** Pinned reasoning-effort level ('' = agent default). */
+  effort: string
   /** Base prompt (markdown) injected when the agent launches. '' = none. */
   prompt: string
   style: TerminalStyle
@@ -60,6 +63,7 @@ export function TerminalSettingsModal({
   const [folder, setFolder] = useState(initial.folder)
   const [command, setCommand] = useState<CommandKey>(initial.command)
   const [model, setModel] = useState(initial.model)
+  const [effort, setEffort] = useState(initial.effort)
   const [prompt, setPrompt] = useState(initial.prompt)
   const [style, setStyle] = useState<TerminalStyle>(initial.style)
   const { modelsFor, register } = useModels()
@@ -67,11 +71,13 @@ export function TerminalSettingsModal({
   const isCreate = mode === 'create'
   const agent: CommandDef = COMMANDS[command]
 
-  // A model valid for one agent is meaningless for another, so switching the
-  // agent drops the pin rather than carrying a stale id over.
+  // A model or effort level valid for one agent is meaningless for another (and
+  // an unknown level makes the CLI refuse to start), so switching the agent
+  // drops both pins rather than carrying stale values over.
   function selectCommand(next: CommandKey): void {
     setCommand(next)
     setModel('')
+    setEffort('')
   }
 
   function patchStyle(patch: Partial<TerminalStyle>): void {
@@ -94,6 +100,7 @@ export function TerminalSettingsModal({
       folder,
       command,
       model: trimmedModel,
+      effort,
       prompt,
       style,
     })
@@ -167,6 +174,18 @@ export function TerminalSettingsModal({
               Pins this terminal to a model so it stays put across the agent&apos;s
               <code> /clear</code>. Pick a registered one or type a new one — it gets
               saved for next time. Leave empty to let the agent decide.
+            </p>
+          </div>
+        )}
+
+        {supportsEffort(agent) && (
+          <div className="mb-5">
+            <Label>Thinking effort</Label>
+            <EffortField agent={agent} value={effort} onChange={setEffort} />
+            <p className="mt-1.5 text-[11px]" style={{ color: 'var(--fg-3)' }}>
+              How hard the agent thinks, pinned to this terminal at launch
+              (<code>{agent.effortArg}</code>). Leave on default to use whatever the
+              agent&apos;s own config says.
             </p>
           </div>
         )}
@@ -263,6 +282,7 @@ export function createDraft(defaultFolder: string): TerminalSettingsDraft {
     folder: defaultFolder,
     command: 'claude',
     model: '',
+    effort: '',
     prompt: '',
     style: DEFAULT_TERMINAL_STYLE,
   }

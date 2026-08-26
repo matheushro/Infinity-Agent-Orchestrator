@@ -93,7 +93,12 @@ vi.mock('@renderer/features/terminals/components/TerminalSettingsModal', async (
           <button onClick={onCancel}>Cancel</button>
           <button
             onClick={() =>
-              onConfirm({ ...initial, prompt: 'You are a reviewer.', model: 'opus' })
+              onConfirm({
+                ...initial,
+                prompt: 'You are a reviewer.',
+                model: 'opus',
+                effort: 'max',
+              })
             }
           >
             Confirm
@@ -283,7 +288,7 @@ describe('WorkspaceCanvas', () => {
     })
   })
 
-  it('creates the terminal with the agent prompt and model from the dialog', async () => {
+  it('creates the terminal with the agent prompt, model and effort from the dialog', async () => {
     const ref = createRef<WorkspaceCanvasHandle>()
     mockUseTerminals.createTerminal.mockReturnValue('node-new')
 
@@ -294,7 +299,7 @@ describe('WorkspaceCanvas', () => {
     })
     fireEvent.click(await screen.findByRole('button', { name: 'Confirm' }))
 
-    // The prompt/model reach createTerminal directly, so the very first pty
+    // The prompt/model/effort reach createTerminal directly, so the very first pty
     // launches in the role instead of needing a later edit + restart.
     expect(mockUseTerminals.createTerminal).toHaveBeenCalledWith(
       '/repo',
@@ -302,7 +307,7 @@ describe('WorkspaceCanvas', () => {
       '',
       'default',
       undefined,
-      { prompt: 'You are a reviewer.', model: 'opus' },
+      { prompt: 'You are a reviewer.', model: 'opus', effort: 'max' },
     )
     expect(screen.queryByTestId('terminal-settings-modal')).toBeNull()
   })
@@ -311,7 +316,7 @@ describe('WorkspaceCanvas', () => {
     const node: TerminalNodeData = {
       id: 'node-1', x: 0, y: 0, width: 600, height: 380,
       shell: 'default', title: 'Reviewer', cwd: '/repo', command: 'codex',
-      prompt: 'old prompt', model: 'gpt-5.4', workspace_id: 'ws-1', enabled: true,
+      prompt: 'old prompt', model: 'gpt-5.4', effort: 'low', workspace_id: 'ws-1', enabled: true,
     }
     const { useTerminals } = await import('@renderer/features/terminals/hooks/useTerminals')
     vi.mocked(useTerminals).mockReturnValue({ ...mockUseTerminals, nodes: [node] })
@@ -336,6 +341,7 @@ describe('WorkspaceCanvas', () => {
             command: 'codex',
             prompt: 'old prompt',
             model: 'gpt-5.4',
+            effort: 'low',
             style: { theme: 'dark', fontFamily: 'mono', fontSize: 13 },
           }),
         }),
@@ -348,7 +354,7 @@ describe('WorkspaceCanvas', () => {
     const node: TerminalNodeData = {
       id: 'node-1', x: 0, y: 0, width: 600, height: 380,
       shell: 'default', title: 'Reviewer', cwd: '/repo', command: 'codex',
-      prompt: 'old prompt', model: '', workspace_id: 'ws-1', enabled: true,
+      prompt: 'old prompt', model: '', effort: '', workspace_id: 'ws-1', enabled: true,
     }
     const { useTerminals } = await import('@renderer/features/terminals/hooks/useTerminals')
     vi.mocked(useTerminals).mockReturnValue({ ...mockUseTerminals, nodes: [node] })
@@ -371,10 +377,11 @@ describe('WorkspaceCanvas', () => {
       cwd: '/repo',
       command: 'codex',
       model: 'opus',
+      effort: 'max',
       prompt: 'You are a reviewer.',
     })
 
-    // cwd/agent/model/prompt only reach the shell at launch, so the save has to
+    // cwd/agent/model/effort/prompt only reach the shell at launch, so the save has to
     // rebuild the session — otherwise the edit silently does nothing.
     await waitFor(() => {
       const after = canvasMock.mock.calls[canvasMock.mock.calls.length - 1][0]

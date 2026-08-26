@@ -29,6 +29,14 @@ export interface TerminalRecord {
    * declared per agent in `@shared/agents`. Persisted as TEXT in SQLite.
    */
   model: string
+  /**
+   * Reasoning-effort ("thinking") level the agent launches with, appended to the
+   * launch command as the agent's effort flag (Claude `--effort <level>`, Codex
+   * `-c model_reasoning_effort="<level>"`). Empty string means "agent default"
+   * (no flag). The flag and the valid levels are declared per agent in
+   * `@shared/agents`. Persisted as TEXT in SQLite.
+   */
+  effort: string
   x: number
   y: number
   width: number

@@ -83,5 +83,11 @@ export interface WindowApi {
   isFullScreen(): Promise<boolean>
   setFullScreen(value: boolean): Promise<boolean>
   openInVSCode(folder: string): Promise<boolean>
+  /**
+   * Hand a URL to the OS default browser. Links must never load inside the app
+   * window — the renderer has no chrome to come back from. Resolves false when
+   * the URL is not an allowed external target (http/https/mailto).
+   */
+  openExternal(url: string): Promise<boolean>
   onFullScreenChange(cb: (value: boolean) => void): () => void
 }

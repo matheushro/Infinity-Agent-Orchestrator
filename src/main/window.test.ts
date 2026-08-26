@@ -2,16 +2,26 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const state = vi.hoisted(() => ({
   ctorOptions: [] as any[],
-  win: { loadURL: vi.fn() as ReturnType<typeof vi.fn>, loadFile: vi.fn() as ReturnType<typeof vi.fn> },
+  win: {
+    loadURL: vi.fn() as ReturnType<typeof vi.fn>,
+    loadFile: vi.fn() as ReturnType<typeof vi.fn>,
+    setWindowOpenHandler: vi.fn() as ReturnType<typeof vi.fn>,
+  },
+  openExternal: vi.fn(async () => undefined),
 }))
 
 vi.mock('electron', () => ({
+  shell: { openExternal: state.openExternal },
   BrowserWindow: class {
     loadURL = state.win.loadURL
     loadFile = state.win.loadFile
     on = vi.fn()
     isDestroyed = vi.fn(() => false)
-    webContents = { send: vi.fn() }
+    webContents = {
+      send: vi.fn(),
+      on: vi.fn(),
+      setWindowOpenHandler: state.win.setWindowOpenHandler,
+    }
     constructor(options: any) {
       state.ctorOptions.push(options)
     }
@@ -73,6 +83,14 @@ describe('createWindow', () => {
     createWindow()
     const [filePath] = state.win.loadFile.mock.calls[0]
     expect(filePath).toMatch(/renderer[/\\]index\.html$/)
+  })
+
+  it('sends links to the OS browser instead of opening them in-app', () => {
+    createWindow()
+
+    const handler = state.win.setWindowOpenHandler.mock.calls[0][0]
+    expect(handler({ url: 'https://google.com' })).toEqual({ action: 'deny' })
+    expect(state.openExternal).toHaveBeenCalledWith('https://google.com')
   })
 
   it('returns the BrowserWindow instance', () => {

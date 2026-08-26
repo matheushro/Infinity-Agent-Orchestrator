@@ -28,6 +28,12 @@ export interface TerminalNodeData {
    * the pty launches (see `@shared/agents`). '' = agent default (no pin).
    */
   model: string
+  /**
+   * Reasoning-effort level this terminal launches with, appended to the launch
+   * command as the agent's effort flag (see `@shared/agents`). '' = agent
+   * default (no flag).
+   */
+  effort: string
   workspace_id: string
   /** Power state. When `false`, the node stays on the canvas but runs no pty/xterm. */
   enabled: boolean

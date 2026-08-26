@@ -60,6 +60,7 @@ const EDIT_DRAFT: TerminalSettingsDraft = {
   folder: '/home/user/repo',
   command: 'claude',
   model: 'opus',
+  effort: 'high',
   prompt: 'You are a reviewer.',
   style: { theme: 'light', fontFamily: FONT_FAMILY_OPTIONS[2].value, fontSize: 18 },
 }
@@ -90,6 +91,12 @@ function suggestions(): string[] {
   )
 }
 
+/** Open the effort dropdown and pick a level by its visible label. */
+function selectEffort(label: string): void {
+  fireEvent.click(screen.getByRole('button', { name: 'Effort' }))
+  fireEvent.click(screen.getByRole('option', { name: label }))
+}
+
 /** The catalog loads asynchronously — wait for it before touching the field. */
 async function waitForCatalog(agent = 'claude'): Promise<void> {
   const expected = catalog.filter((m) => m.agent === agent).map((m) => m.value)
@@ -113,7 +120,7 @@ afterEach(() => {
 })
 
 describe('TerminalSettingsModal — one dialog for everything', () => {
-  it('offers name, folder, agent, model, prompt and style in a single dialog', async () => {
+  it('offers name, folder, agent, model, effort, prompt and style in a single dialog', async () => {
     renderModal()
     await waitForCatalog()
 
@@ -122,6 +129,7 @@ describe('TerminalSettingsModal — one dialog for everything', () => {
     expect(screen.getByRole('button', { name: /Select/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Claude Code/ })).toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'Model' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Effort' })).toBeInTheDocument()
     expect(screen.getByPlaceholderText(PROMPT_PLACEHOLDER)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Dark' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Font' })).toBeInTheDocument()
@@ -146,7 +154,7 @@ describe('TerminalSettingsModal — one dialog for everything', () => {
       )
     })
 
-    it('confirms name, agent, model and style together', async () => {
+    it('confirms name, agent, model, effort and style together', async () => {
       const { onConfirm } = renderModal('create', createDraft('/home/user/project'))
       await waitForCatalog()
 
@@ -157,6 +165,7 @@ describe('TerminalSettingsModal — one dialog for everything', () => {
       fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), {
         target: { value: 'gpt-5.5' },
       })
+      selectEffort('High')
       fireEvent.click(screen.getByRole('button', { name: 'Dark' }))
       fireEvent.change(screen.getByRole('slider'), { target: { value: '20' } })
       fireEvent.click(screen.getByRole('button', { name: 'Open' }))
@@ -166,6 +175,7 @@ describe('TerminalSettingsModal — one dialog for everything', () => {
         folder: '/home/user/project',
         command: 'codex',
         model: 'gpt-5.5',
+        effort: 'high',
         prompt: '',
         style: { ...DEFAULT_TERMINAL_STYLE, theme: 'dark', fontSize: 20 },
       })
@@ -248,6 +258,7 @@ describe('TerminalSettingsModal — one dialog for everything', () => {
         folder: '/home/user/repo',
         command: 'claude',
         model: 'opus',
+        effort: 'high',
         prompt: 'You are now a tester.',
         style: { ...EDIT_DRAFT.style, theme: 'auto' },
       })
@@ -302,27 +313,59 @@ describe('TerminalSettingsModal — one dialog for everything', () => {
     await waitFor(() => expect(suggestions()).toEqual(['gpt-5.4']))
   })
 
-  it('resets the pin when changing agents, since a model is agent-specific', async () => {
+  it('resets both pins when changing agents, since they are agent-specific', async () => {
     const { onConfirm } = renderModal('edit', EDIT_DRAFT)
     await waitForCatalog('claude')
 
     fireEvent.click(screen.getByRole('button', { name: /Codex/ }))
 
     expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('')
+    // Codex would refuse to start on a level from Claude's set.
+    expect(screen.getByRole('button', { name: 'Effort' })).toHaveTextContent(
+      'Default (agent decides)',
+    )
 
     fireEvent.click(screen.getByRole('button', { name: 'Save & restart' }))
     expect(onConfirm).toHaveBeenCalledWith(
-      expect.objectContaining({ command: 'codex', model: '' }),
+      expect.objectContaining({ command: 'codex', model: '', effort: '' }),
     )
   })
 
-  it('hides the model field entirely for a plain terminal', async () => {
+  it('hides the effort field for an agent that has no effort flag', async () => {
+    renderModal('create', createDraft('/home/user/project'))
+    await waitForCatalog()
+
+    // Gemini exposes no reasoning-effort flag, so there is nothing to pin.
+    fireEvent.click(screen.getByRole('button', { name: /Gemini/ }))
+
+    expect(screen.queryByRole('button', { name: 'Effort' })).not.toBeInTheDocument()
+  })
+
+  it('opens the effort dropdown on the level the terminal is pinned to', async () => {
+    renderModal('edit', EDIT_DRAFT)
+    await waitForCatalog('claude')
+
+    expect(screen.getByRole('button', { name: 'Effort' })).toHaveTextContent('High')
+  })
+
+  it('unpins the effort back to the agent default', async () => {
+    const { onConfirm } = renderModal('edit', EDIT_DRAFT)
+    await waitForCatalog('claude')
+
+    selectEffort('Default (agent decides)')
+    fireEvent.click(screen.getByRole('button', { name: 'Save & restart' }))
+
+    expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({ effort: '' }))
+  })
+
+  it('hides the model and effort fields entirely for a plain terminal', async () => {
     renderModal('create', createDraft('/home/user/project'))
     await waitForCatalog()
 
     fireEvent.click(screen.getByRole('button', { name: /^⌨️Terminal$/ }))
 
     expect(screen.queryByRole('combobox', { name: 'Model' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Effort' })).not.toBeInTheDocument()
   })
 
   it('cancels from the button and from Escape without confirming', () => {

@@ -5,6 +5,10 @@ import {
   contextFileForCmd,
   addDirArgForCmd,
   addDirExtraArgsForCmd,
+  effortArgForCmd,
+  effortValueForCmd,
+  effortsFor,
+  supportsEffort,
   DEFAULT_CONTEXT_FILE,
 } from './agents'
 import type { AgentKey } from './agents'
@@ -152,5 +156,41 @@ describe('agentByCmd', () => {
 
   it('returns undefined for an unknown command', () => {
     expect(agentByCmd('nonexistent-cli')).toBeUndefined()
+  })
+})
+
+describe('reasoning effort', () => {
+  it('declares the effort flag only for the agents that accept one', () => {
+    expect(effortArgForCmd('claude')).toBe('--effort')
+    expect(effortArgForCmd('codex')).toBe('-c')
+    expect(effortArgForCmd('gemini')).toBeUndefined()
+    expect(effortArgForCmd('')).toBeUndefined()
+    expect(effortArgForCmd('nope')).toBeUndefined()
+  })
+
+  it("passes Claude's level through bare, since --effort takes it directly", () => {
+    expect(effortValueForCmd('claude', 'max')).toBe('max')
+  })
+
+  it("wraps Codex's level in the config key its -c override expects", () => {
+    expect(effortValueForCmd('codex', 'high')).toBe('model_reasoning_effort="high"')
+  })
+
+  it('falls back to the bare level for an unknown command', () => {
+    expect(effortValueForCmd('nope', 'high')).toBe('high')
+  })
+
+  it('offers a level list exactly for the agents that support effort', () => {
+    for (const agent of Object.values(AGENTS)) {
+      expect(supportsEffort(agent)).toBe(effortsFor(agent).length > 0)
+    }
+    expect(effortsFor(AGENTS.claude).map((e) => e.value)).toEqual([
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+      'max',
+    ])
+    expect(effortsFor(AGENTS.terminal)).toEqual([])
   })
 })
