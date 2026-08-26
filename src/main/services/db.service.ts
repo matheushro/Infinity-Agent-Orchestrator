@@ -203,14 +203,6 @@ export function initDb(): void {
     )
     db.prepare("UPDATE terminals SET workspace_id = ? WHERE workspace_id = ''").run(defaultId)
   }
-
-  // Sweep terminals whose workspace was deleted (e.g. crash mid-delete or a
-  // race between deleteWorkspace and an in-flight upsert from the renderer).
-  // They never render but accumulate in the DB and keep edges alive whose
-  // endpoints don't belong to any visible workspace.
-  db.exec(
-    `DELETE FROM terminals WHERE workspace_id NOT IN (SELECT id FROM workspaces)`,
-  )
 }
 
 /**
@@ -263,8 +255,30 @@ export function reorderWorkspaces(orderedIds: string[]): void {
   tx(orderedIds)
 }
 
+/**
+ * Delete a workspace and everything it owns. The cascade is written out by
+ * hand — `PRAGMA foreign_keys` is off, so the FK on `edges` never fires, and
+ * terminals/notes/texts carry no FK at all. Without it the child rows survive
+ * the delete and a backup import that re-creates the workspace under the same
+ * id brings every stale terminal back alongside the imported ones.
+ */
 export function deleteWorkspace(id: string): void {
-  db.prepare('DELETE FROM workspaces WHERE id = ?').run(id)
+  db.transaction(() => {
+    db.prepare(
+      `DELETE FROM note_links
+       WHERE note_id IN (SELECT id FROM notes WHERE workspace_id = @id)
+          OR terminal_id IN (SELECT id FROM terminals WHERE workspace_id = @id)`,
+    ).run({ id })
+    db.prepare(
+      `DELETE FROM edges
+       WHERE source IN (SELECT id FROM terminals WHERE workspace_id = @id)
+          OR target IN (SELECT id FROM terminals WHERE workspace_id = @id)`,
+    ).run({ id })
+    db.prepare('DELETE FROM terminals WHERE workspace_id = ?').run(id)
+    db.prepare('DELETE FROM canvas_texts WHERE workspace_id = ?').run(id)
+    db.prepare('DELETE FROM notes WHERE workspace_id = ?').run(id)
+    db.prepare('DELETE FROM workspaces WHERE id = ?').run(id)
+  })()
 }
 
 export function renameWorkspace(id: string, name: string): void {

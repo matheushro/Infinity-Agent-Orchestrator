@@ -33,12 +33,6 @@ vi.mock('better-sqlite3', () => {
       }
       exec(sql: string) {
         executedSql.push(sql)
-        if (/DELETE\s+FROM\s+terminals\s+WHERE\s+workspace_id\s+NOT\s+IN\s+\(\s*SELECT\s+id\s+FROM\s+workspaces\s*\)/i.test(sql)) {
-          const validIds = new Set(Array.from(store.workspaces.keys()))
-          for (const [key, t] of store.terminals) {
-            if (!validIds.has(t.workspace_id as string)) store.terminals.delete(key)
-          }
-        }
       }
 
       prepare(sql: string) {
@@ -245,6 +239,38 @@ vi.mock('better-sqlite3', () => {
               if (!dup) store.noteLinks.set(rec.id as string, { ...rec })
             } else if (sql.includes('DELETE FROM note_links WHERE id = ?')) {
               store.noteLinks.delete(args[0] as string)
+            } else if (/DELETE FROM note_links\s+WHERE note_id IN/.test(sql)) {
+              // deleteWorkspace cascade: links touching a note or terminal of the workspace.
+              const wsId = (args[0] as Record<string, unknown>).id
+              for (const [key, l] of store.noteLinks) {
+                const note = store.notes.get(l.note_id as string)
+                const terminal = store.terminals.get(l.terminal_id as string)
+                if (note?.workspace_id === wsId || terminal?.workspace_id === wsId) {
+                  store.noteLinks.delete(key)
+                }
+              }
+            } else if (/DELETE FROM edges\s+WHERE source IN/.test(sql)) {
+              // deleteWorkspace cascade: edges with an endpoint in the workspace.
+              const wsId = (args[0] as Record<string, unknown>).id
+              for (const [key, e] of store.edges) {
+                const source = store.terminals.get(e.source as string)
+                const target = store.terminals.get(e.target as string)
+                if (source?.workspace_id === wsId || target?.workspace_id === wsId) {
+                  store.edges.delete(key)
+                }
+              }
+            } else if (sql === 'DELETE FROM terminals WHERE workspace_id = ?') {
+              for (const [key, t] of store.terminals) {
+                if (t.workspace_id === args[0]) store.terminals.delete(key)
+              }
+            } else if (sql === 'DELETE FROM canvas_texts WHERE workspace_id = ?') {
+              for (const [key, t] of store.canvasTexts) {
+                if (t.workspace_id === args[0]) store.canvasTexts.delete(key)
+              }
+            } else if (sql === 'DELETE FROM notes WHERE workspace_id = ?') {
+              for (const [key, n] of store.notes) {
+                if (n.workspace_id === args[0]) store.notes.delete(key)
+              }
             } else if (sql.includes('DELETE FROM note_links WHERE note_id = ?')) {
               const id = args[0] as string
               for (const [key, l] of store.noteLinks) {
@@ -421,38 +447,6 @@ describe('initDb', () => {
 
   it('is idempotent (IF NOT EXISTS) — second call does not throw', () => {
     expect(() => initDb()).not.toThrow()
-  })
-
-  it('sweeps terminals whose workspace no longer exists on startup', () => {
-    // Pre-seed: a valid workspace and a terminal in a workspace that was deleted.
-    store.workspaces.set('valid-ws', { id: 'valid-ws', name: 'Valid', created_at: 1 })
-    store.terminals.set('keep', {
-      id: 'keep',
-      title: 'Keep',
-      cwd: '/x',
-      command: 'claude',
-      shell: 'bash',
-      x: 0, y: 0, width: 100, height: 100,
-      workspace_id: 'valid-ws',
-      active: 1,
-      created_at: 1,
-    })
-    store.terminals.set('orphan', {
-      id: 'orphan',
-      title: 'Orphan',
-      cwd: '/x',
-      command: 'claude',
-      shell: 'bash',
-      x: 0, y: 0, width: 100, height: 100,
-      workspace_id: 'deleted-ws',
-      active: 1,
-      created_at: 1,
-    })
-
-    initDb()
-
-    expect(store.terminals.has('keep')).toBe(true)
-    expect(store.terminals.has('orphan')).toBe(false)
   })
 
   it('declares ON DELETE CASCADE on the edges foreign keys', () => {
@@ -924,6 +918,49 @@ describe('deleteWorkspace', () => {
 
   it('2.13 is a no-op when the id does not exist', () => {
     expect(() => deleteWorkspace('nonexistent-ws')).not.toThrow()
+  })
+
+  // Regression: deleting a workspace only removed its own row, so its terminals
+  // (and texts/notes/edges/links) survived. A backup import that re-created the
+  // workspace under the same id then resurrected every stale terminal next to
+  // the imported ones — 9 imported terminals showing up as 27.
+  it('deletes the terminals, texts and notes belonging to the workspace', () => {
+    createWorkspace(makeWorkspace({ id: 'doomed' }))
+    createWorkspace(makeWorkspace({ id: 'other' }))
+    upsertTerminal(makeTerminal({ id: 'doomed-term', workspace_id: 'doomed' }))
+    upsertTerminal(makeTerminal({ id: 'other-term', workspace_id: 'other' }))
+    upsertCanvasText(makeCanvasText({ id: 'doomed-text', workspace_id: 'doomed' }))
+    upsertCanvasText(makeCanvasText({ id: 'other-text', workspace_id: 'other' }))
+    upsertNote(makeNote({ id: 'doomed-note', workspace_id: 'doomed' }))
+    upsertNote(makeNote({ id: 'other-note', workspace_id: 'other' }))
+
+    deleteWorkspace('doomed')
+
+    expect(listActiveTerminals().map((t) => t.id)).toEqual(['other-term'])
+    expect(listCanvasTexts('doomed')).toEqual([])
+    expect(listCanvasTexts('other').map((t) => t.id)).toEqual(['other-text'])
+    expect(listNotes('doomed')).toEqual([])
+    expect(listNotes('other').map((n) => n.id)).toEqual(['other-note'])
+  })
+
+  it('deletes the edges and note links whose endpoints were in the workspace', () => {
+    createWorkspace(makeWorkspace({ id: 'doomed' }))
+    createWorkspace(makeWorkspace({ id: 'other' }))
+    upsertTerminal(makeTerminal({ id: 'd-a', workspace_id: 'doomed' }))
+    upsertTerminal(makeTerminal({ id: 'd-b', workspace_id: 'doomed' }))
+    upsertTerminal(makeTerminal({ id: 'o-a', workspace_id: 'other' }))
+    upsertTerminal(makeTerminal({ id: 'o-b', workspace_id: 'other' }))
+    upsertNote(makeNote({ id: 'd-note', workspace_id: 'doomed' }))
+    upsertNote(makeNote({ id: 'o-note', workspace_id: 'other' }))
+    upsertEdge(makeEdge({ id: 'e-doomed', source: 'd-a', target: 'd-b' }))
+    upsertEdge(makeEdge({ id: 'e-other', source: 'o-a', target: 'o-b' }))
+    upsertNoteLink(makeNoteLink({ id: 'l-doomed', note_id: 'd-note', terminal_id: 'd-a' }))
+    upsertNoteLink(makeNoteLink({ id: 'l-other', note_id: 'o-note', terminal_id: 'o-a' }))
+
+    deleteWorkspace('doomed')
+
+    expect(listEdges().map((e) => e.id)).toEqual(['e-other'])
+    expect(listNoteLinks().map((l) => l.id)).toEqual(['l-other'])
   })
 })
 
