@@ -113,19 +113,35 @@ body {
 .nice-scroll::-webkit-scrollbar-thumb:hover { background: var(--fg-3); }
 .nice-scroll::-webkit-scrollbar-track { background: transparent; }
 
-/* xterm scrollbar styling */
-.nice-scroll .xterm-viewport::-webkit-scrollbar { width: 8px; }
-.nice-scroll .xterm-viewport::-webkit-scrollbar-thumb {
-  background: var(--line);
-  border-radius: 4px;
+/* Terminal scrollbar, sized from the custom properties `terminalScrollbarVars()`
+   puts on the surface. `min-height` on the thumb is what keeps a long agent
+   transcript from shrinking it to an unclickable sliver. The bar's width must
+   stay constant: xterm reserves the gutter when it fits the grid, so a width
+   that changed afterwards would leave a column of text under the bar. */
+/* Cushion so glyphs never touch the bar, and slack for rounding in the grid
+   fit. xterm subtracts this padding when it computes the column count. */
+.terminal-surface .xterm { padding-right: 4px; }
+.terminal-surface .xterm-viewport::-webkit-scrollbar {
+  width: var(--term-sb-width, 14px);
+}
+.terminal-surface .xterm-viewport::-webkit-scrollbar-track {
+  background: var(--term-sb-track, transparent);
+  border-radius: 999px;
+}
+.terminal-surface .xterm-viewport::-webkit-scrollbar-thumb {
+  background: var(--term-sb-thumb, rgba(148, 163, 184, 0.35));
+  min-height: var(--term-sb-min-thumb, 40px);
+  border-radius: 999px;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
-.nice-scroll .xterm-viewport::-webkit-scrollbar-thumb:hover {
-  background: var(--fg-3);
+.terminal-surface .xterm-viewport::-webkit-scrollbar-thumb:hover,
+.terminal-surface .xterm-viewport::-webkit-scrollbar-thumb:active {
+  background: var(--term-sb-thumb-hover, rgba(148, 163, 184, 0.6));
   background-clip: padding-box;
 }
-.nice-scroll .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
+/* xterm keeps the viewport on `overflow-y: scroll`, so the track is always
+   there — a faint one advertises that the transcript is scrollable at all. */
 
 .node-shadow {
   box-shadow:

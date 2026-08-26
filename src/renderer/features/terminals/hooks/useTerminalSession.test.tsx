@@ -169,6 +169,7 @@ const initialStyle: TerminalStyle = {
   theme: 'dark',
   fontFamily: '"JetBrains Mono", ui-monospace, monospace',
   fontSize: 15,
+  lineHeight: 1.2,
 }
 
 function SessionHarness({
@@ -210,6 +211,13 @@ function SessionWithStatus({
       <StatusDisplay nodeId={currentNode.id} />
     </>
   )
+}
+
+/** Lets the next animation frame run — the gutter re-fit is scheduled on one. */
+async function flushFrame(): Promise<void> {
+  await act(async () => {
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(null)))
+  })
 }
 
 function resolveCreate(index = 0): void {
@@ -263,6 +271,11 @@ describe('useTerminalSession', () => {
       cursorBlink: true,
       fontSize: initialStyle.fontSize,
       fontFamily: initialStyle.fontFamily,
+      // Rows are clipped to this box by xterm, so anything below 1 shaves glyphs.
+      lineHeight: initialStyle.lineHeight,
+      // One line per wheel notch is unusable in a long agent transcript.
+      scrollSensitivity: 3,
+      fastScrollSensitivity: 12,
       theme: {
         background: '#0b1120',
         foreground: '#e2e8f0',
@@ -270,7 +283,7 @@ describe('useTerminalSession', () => {
     })
     expect(terminal.loadAddon).toHaveBeenCalledWith(fit)
     expect(terminal.open).toHaveBeenCalledWith(expect.any(HTMLDivElement))
-    expect(fit.fit).toHaveBeenCalledTimes(1)
+    expect(fit.fit).toHaveBeenCalled()
     expect(mocks.ptyApi.create).toHaveBeenCalledWith({
       id: 'pty-1',
       nodeId: node.id,
@@ -586,6 +599,7 @@ describe('useTerminalSession', () => {
       theme: 'light',
       fontFamily: '"Fira Code", ui-monospace, monospace',
       fontSize: 18,
+      lineHeight: 1.4,
     }
 
     rerender(<SessionHarness style={nextStyle} />)
@@ -594,6 +608,7 @@ describe('useTerminalSession', () => {
       expect(terminal.options).toMatchObject({
         fontFamily: nextStyle.fontFamily,
         fontSize: nextStyle.fontSize,
+        lineHeight: nextStyle.lineHeight,
         theme: {
           background: '#f7f7f5',
           foreground: '#1f2430',
@@ -603,6 +618,62 @@ describe('useTerminalSession', () => {
     expect(terminal.refresh).toHaveBeenCalledWith(0, terminal.rows)
     expect(mocks.ptyApi.create).toHaveBeenCalledTimes(1)
     expect(mocks.terminalInstances).toHaveLength(1)
+  })
+
+  // Regression: xterm's viewport reports a scrollbar width of 0 until its first
+  // refresh, so the fit done right after open() hands the grid one column too
+  // many — the agent's input box then paints over the scrollbar.
+  it('re-fits once the scrollbar gutter has been measured', async () => {
+    vi.mocked(crypto.randomUUID).mockReturnValue('pty-gutter')
+
+    render(<SessionHarness />)
+
+    await waitFor(() => expect(mocks.ptyApi.create).toHaveBeenCalledTimes(1))
+
+    const fit = mocks.fitInstances[0]
+    const terminal = mocks.terminalInstances[0]
+    expect(fit.fit).toHaveBeenCalledTimes(1)
+
+    await flushFrame()
+
+    expect(fit.fit).toHaveBeenCalledTimes(2)
+    expect(mocks.ptyApi.resize).toHaveBeenCalledWith('pty-gutter', terminal.cols, terminal.rows)
+  })
+
+  // Regression: font metrics change the cell size, so the grid has to be
+  // re-measured. Without this the terminal kept the old row/col count and the
+  // surplus rows were clipped against the node's top/bottom edges.
+  it('re-fits the grid and resizes the pty when font metrics change', async () => {
+    vi.mocked(crypto.randomUUID).mockReturnValue('pty-refit')
+
+    const { rerender } = render(<SessionHarness />)
+
+    await waitFor(() => expect(mocks.ptyApi.create).toHaveBeenCalledTimes(1))
+    await flushFrame()
+
+    const fit = mocks.fitInstances[0]
+    const terminal = mocks.terminalInstances[0]
+    const fitsBefore = fit.fit.mock.calls.length
+
+    rerender(<SessionHarness style={{ ...initialStyle, lineHeight: 1.45 }} />)
+
+    await waitFor(() => expect(fit.fit).toHaveBeenCalledTimes(fitsBefore + 1))
+    expect(mocks.ptyApi.resize).toHaveBeenLastCalledWith('pty-refit', terminal.cols, terminal.rows)
+  })
+
+  it('ignores a style rerender that changes nothing', async () => {
+    const { rerender } = render(<SessionHarness />)
+
+    await waitFor(() => expect(mocks.ptyApi.create).toHaveBeenCalledTimes(1))
+    await flushFrame()
+
+    const fit = mocks.fitInstances[0]
+    const fitsBefore = fit.fit.mock.calls.length
+
+    // An equal-but-new style object must not re-fit or resize the pty.
+    rerender(<SessionHarness style={{ ...initialStyle }} />)
+
+    expect(fit.fit).toHaveBeenCalledTimes(fitsBefore)
   })
 
   it('unscales xterm mouse coordinates so selection matches the visual row at any canvas zoom', async () => {

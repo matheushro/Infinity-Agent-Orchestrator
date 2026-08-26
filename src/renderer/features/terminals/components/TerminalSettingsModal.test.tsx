@@ -62,7 +62,12 @@ const EDIT_DRAFT: TerminalSettingsDraft = {
   model: 'opus',
   effort: 'high',
   prompt: 'You are a reviewer.',
-  style: { theme: 'light', fontFamily: FONT_FAMILY_OPTIONS[2].value, fontSize: 18 },
+  style: {
+    theme: 'light',
+    fontFamily: FONT_FAMILY_OPTIONS[2].value,
+    fontSize: 18,
+    lineHeight: 1.3,
+  },
 }
 
 function renderModal(
@@ -133,7 +138,8 @@ describe('TerminalSettingsModal — one dialog for everything', () => {
     expect(screen.getByPlaceholderText(PROMPT_PLACEHOLDER)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Dark' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Font' })).toBeInTheDocument()
-    expect(screen.getByRole('slider')).toBeInTheDocument()
+    expect(screen.getByRole('slider', { name: 'Font size' })).toBeInTheDocument()
+    expect(screen.getByRole('slider', { name: 'Line height' })).toBeInTheDocument()
   })
 
   describe('create mode', () => {
@@ -167,7 +173,12 @@ describe('TerminalSettingsModal — one dialog for everything', () => {
       })
       selectEffort('High')
       fireEvent.click(screen.getByRole('button', { name: 'Dark' }))
-      fireEvent.change(screen.getByRole('slider'), { target: { value: '20' } })
+      fireEvent.change(screen.getByRole('slider', { name: 'Font size' }), {
+        target: { value: '20' },
+      })
+      fireEvent.change(screen.getByRole('slider', { name: 'Line height' }), {
+        target: { value: '1.35' },
+      })
       fireEvent.click(screen.getByRole('button', { name: 'Open' }))
 
       expect(onConfirm).toHaveBeenCalledWith({
@@ -177,7 +188,7 @@ describe('TerminalSettingsModal — one dialog for everything', () => {
         model: 'gpt-5.5',
         effort: 'high',
         prompt: '',
-        style: { ...DEFAULT_TERMINAL_STYLE, theme: 'dark', fontSize: 20 },
+        style: { ...DEFAULT_TERMINAL_STYLE, theme: 'dark', fontSize: 20, lineHeight: 1.35 },
       })
       // A model typed by hand joins the catalog for the next terminal.
       expect(window.dbApi.upsertModel).toHaveBeenCalledWith(
@@ -228,7 +239,8 @@ describe('TerminalSettingsModal — one dialog for everything', () => {
       expect(screen.getByRole('button', { name: 'Font' })).toHaveTextContent(
         FONT_FAMILY_OPTIONS[2].label,
       )
-      expect(screen.getByRole('slider')).toHaveValue('18')
+      expect(screen.getByRole('slider', { name: 'Font size' })).toHaveValue('18')
+      expect(screen.getByRole('slider', { name: 'Line height' })).toHaveValue('1.3')
       expect(screen.getByRole('button', { name: 'Light' })).toHaveStyle({
         background: 'var(--bg)',
       })

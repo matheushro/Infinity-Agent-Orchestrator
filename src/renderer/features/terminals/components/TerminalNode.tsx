@@ -5,6 +5,7 @@ import { Rnd } from 'react-rnd'
 import { IClose, ICopy, IPower } from '@renderer/components/ui'
 import { AGENTS } from '@shared/agents'
 import { useTerminalSession } from '../hooks/useTerminalSession'
+import { terminalScrollbarVars } from '../scrollbar'
 import type { TerminalNodeData, TerminalStyle } from '../types'
 import type { CanvasTool } from '@renderer/features/canvas/components/Canvas'
 import type { CanvasTheme } from '@renderer/features/canvas/types'
@@ -250,8 +251,11 @@ export function TerminalNode({
         {enabled ? (
           <div
             ref={containerRef}
-            className="min-h-0 flex-1 p-1 nice-scroll"
-            style={{ background: isDark ? '#0b1120' : '#f7f7f5' }}
+            className="terminal-surface min-h-0 flex-1 p-1"
+            style={{
+              background: isDark ? '#0b1120' : '#f7f7f5',
+              ...terminalScrollbarVars(isDark),
+            }}
           />
         ) : (
           <div

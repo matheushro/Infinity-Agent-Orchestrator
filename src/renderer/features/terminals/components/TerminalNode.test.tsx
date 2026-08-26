@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest'
 
-import { fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CanvasTool } from '@renderer/features/canvas/components/Canvas'
 import type { TerminalNodeData, TerminalStyle } from '../types'
@@ -124,6 +124,7 @@ const baseStyle: TerminalStyle = {
   theme: 'dark',
   fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
   fontSize: 13,
+  lineHeight: 1.2,
 }
 
 function renderNode(overrides: Partial<Parameters<typeof TerminalNode>[0]> = {}) {
@@ -315,6 +316,20 @@ describe('TerminalNode', () => {
       minHeight: 180,
       scale: 2.25,
     })
+  })
+
+  // The bar's width must not move with the zoom: xterm reserves its gutter when
+  // it fits the grid, and a later change leaves a text column under the bar.
+  it('gives the terminal surface a zoom-independent scrollbar', () => {
+    renderNode({ scale: 1 })
+    const atOneToOne = document.querySelector('.terminal-surface') as HTMLElement
+    expect(atOneToOne.style.getPropertyValue('--term-sb-width')).toBe('14px')
+    expect(atOneToOne.style.getPropertyValue('--term-sb-min-thumb')).toBe('40px')
+
+    cleanup()
+    renderNode({ scale: 0.5 })
+    const zoomedOut = document.querySelector('.terminal-surface') as HTMLElement
+    expect(zoomedOut.style.getPropertyValue('--term-sb-width')).toBe('14px')
   })
 
   it('removes the node in delete mode on mousedown', () => {

@@ -16,6 +16,9 @@ import { useModels } from '../hooks/useModels'
 import {
   DEFAULT_TERMINAL_STYLE,
   FONT_FAMILY_OPTIONS,
+  LINE_HEIGHT_MAX,
+  LINE_HEIGHT_MIN,
+  LINE_HEIGHT_STEP,
   type CommandDef,
   type CommandKey,
   type TerminalStyle,
@@ -245,13 +248,30 @@ export function TerminalSettingsModal({
         <Label>{`Font size · ${style.fontSize}px`}</Label>
         <input
           type="range"
+          aria-label="Font size"
           min={10}
           max={22}
           step={1}
           value={style.fontSize}
           onChange={(e) => patchStyle({ fontSize: Number(e.target.value) })}
+          className="mb-4 w-full"
+        />
+
+        <Label>{`Line height · ${style.lineHeight.toFixed(2)}×`}</Label>
+        <input
+          type="range"
+          aria-label="Line height"
+          min={LINE_HEIGHT_MIN}
+          max={LINE_HEIGHT_MAX}
+          step={LINE_HEIGHT_STEP}
+          value={style.lineHeight}
+          onChange={(e) => patchStyle({ lineHeight: Number(e.target.value) })}
           className="mb-1 w-full"
         />
+        <p className="text-[11px]" style={{ color: 'var(--fg-3)' }}>
+          Space each row gets. Raise it if the canvas zoom clips the top or bottom
+          of glyphs; lower it to fit more lines on screen.
+        </p>
       </div>
 
       <div className="mt-4 flex items-center justify-between gap-2">

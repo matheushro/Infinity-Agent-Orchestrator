@@ -65,6 +65,10 @@ const THEMES = {
   },
 } as const
 
+// Wheel scrolling: lines per notch, plain and with the fast-scroll modifier.
+const SCROLL_LINES_PER_NOTCH = 3
+const FAST_SCROLL_LINES_PER_NOTCH = 12
+
 interface XtermMouseService {
   getCoords: (
     event: { clientX: number; clientY: number },
@@ -139,6 +143,31 @@ function patchXtermMouseCoordinates(
   }
 }
 
+// Re-measure the grid against the container and keep the pty in sync. Fitting
+// throws while the container has no usable dimensions (hidden node, teardown),
+// which must never escape into a React effect.
+function refit(fit: FitAddon | null, term: Terminal, ptyId: string | null): void {
+  if (!fit || !ptyId) return
+  try {
+    fit.fit()
+    window.ptyApi.resize(ptyId, term.cols, term.rows)
+  } catch {
+    // container still has no useful dimensions
+  }
+}
+
+// Identity of everything the live-style effect applies. Used to skip the pass
+// right after a session is built — the Terminal was constructed with these very
+// values, and re-fitting there would resize the pty twice on every mount.
+function styleSignature(style: TerminalStyle, globalTheme: CanvasTheme): string {
+  return [
+    resolveTheme(style, globalTheme),
+    style.fontFamily,
+    style.fontSize,
+    style.lineHeight,
+  ].join('|')
+}
+
 function shellQuotePath(path: string): string {
   if (!path) return ''
   if (/^[A-Za-z0-9_./:@%+=,-]+$/.test(path)) return path
@@ -172,6 +201,9 @@ export function useTerminalSession(
 ): React.RefObject<HTMLDivElement> {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
+  const fitRef = useRef<FitAddon | null>(null)
+  const ptyIdRef = useRef<string | null>(null)
+  const appliedStyleRef = useRef<string | null>(null)
   const scaleRef = useRef(scale)
   const { setStatus } = usePtyActivity()
 
@@ -186,7 +218,15 @@ export function useTerminalSession(
       cursorBlink: true,
       fontSize: style.fontSize,
       fontFamily: style.fontFamily,
+      // Rows are clipped to exactly this box by xterm's DOM renderer, so the
+      // default 1.0 shaves glyph tops/bottoms once the canvas zoom puts the row
+      // boundary on a fractional pixel. See TerminalStyle.lineHeight.
+      lineHeight: style.lineHeight,
       theme: THEMES[resolveTheme(style, globalTheme)],
+      // One notch = one line is painfully slow through a long agent transcript.
+      // Three lines matches what native terminals do; alt+wheel goes fast.
+      scrollSensitivity: SCROLL_LINES_PER_NOTCH,
+      fastScrollSensitivity: FAST_SCROLL_LINES_PER_NOTCH,
       // Force-adjust low-contrast foregrounds (e.g. claude/codex emit truecolor
       // grays that assume a pure-black background and vanish on our navy).
       minimumContrastRatio: 4.5,
@@ -204,6 +244,8 @@ export function useTerminalSession(
     // pty from the first mount would send `pty:exit` to the new terminal and
     // print "[process exited]".
     const ptyId = crypto.randomUUID()
+    ptyIdRef.current = ptyId
+    appliedStyleRef.current = styleSignature(style, globalTheme)
 
     // Copy/paste shortcuts. Ctrl+C in a terminal sends SIGINT, so we follow the
     // gnome-terminal/iTerm convention: Ctrl+Shift+C copies, Ctrl+Shift+V pastes.
@@ -244,10 +286,18 @@ export function useTerminalSession(
     })
 
     const fit = new FitAddon()
+    fitRef.current = fit
     term.loadAddon(fit)
     term.open(containerRef.current)
     const restoreMouseCoordinates = patchXtermMouseCoordinates(term, scaleRef)
     fit.fit()
+
+    // xterm's viewport reports a scrollbar width of 0 until its first refresh,
+    // so the fit above hands the grid one column too many — the last column
+    // then lives under the scrollbar and whatever the agent paints there (the
+    // codex/claude input box) covers the bar. Re-fit on the next frame, once
+    // the real gutter has been measured.
+    const gutterFrame = requestAnimationFrame(() => refit(fit, term, ptyId))
 
     const container = containerRef.current
     const handleDragOver = (event: DragEvent): void => {
@@ -317,17 +367,13 @@ export function useTerminalSession(
 
     // Keep the pty synced with the container size while dragging/resizing the node.
     const observer = new ResizeObserver(() => {
-      try {
-        fit.fit()
-        window.ptyApi.resize(ptyId, term.cols, term.rows)
-      } catch {
-        // container still has no useful dimensions
-      }
+      refit(fit, term, ptyId)
     })
     observer.observe(containerRef.current)
 
     return () => {
       disposed = true
+      cancelAnimationFrame(gutterFrame)
       if (idleTimer) clearTimeout(idleTimer)
       setStatus(node.id, 'offline')
       observer.disconnect()
@@ -350,15 +396,26 @@ export function useTerminalSession(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restartSignal, enabled])
 
-  // Apply live style updates (theme, font) without rebuilding the pty session.
+  // Apply live style updates (theme, font, line height) without rebuilding the
+  // pty session. Font metrics change the cell size, so the grid has to be
+  // re-measured and the pty told about it — skipping the refit used to leave
+  // xterm with more rows/cols than fit the node, and the surplus rows were
+  // clipped against the node's edges.
   useEffect(() => {
     const term = termRef.current
     if (!term) return
+
+    const signature = styleSignature(style, globalTheme)
+    if (appliedStyleRef.current === signature) return
+    appliedStyleRef.current = signature
+
     term.options.theme = THEMES[resolveTheme(style, globalTheme)]
     term.options.fontFamily = style.fontFamily
     term.options.fontSize = style.fontSize
+    term.options.lineHeight = style.lineHeight
     ;(term as Terminal & { refresh: (start: number, end: number) => void }).refresh(0, term.rows)
-  }, [style.theme, style.fontFamily, style.fontSize, globalTheme])
+    refit(fitRef.current, term, ptyIdRef.current)
+  }, [style.theme, style.fontFamily, style.fontSize, style.lineHeight, globalTheme])
 
   return containerRef
 }

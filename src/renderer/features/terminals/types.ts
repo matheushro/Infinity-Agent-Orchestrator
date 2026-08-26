@@ -45,12 +45,26 @@ export interface TerminalStyle {
   theme: 'auto' | 'dark' | 'light'
   fontFamily: string
   fontSize: number
+  /**
+   * Row height as a multiple of the glyph height. xterm's DOM renderer clips
+   * every row to exactly this box (`overflow: hidden`), so a value of 1 shaves
+   * the ascenders/descenders of box-drawing and accented glyphs — and the canvas
+   * zoom lands those boundaries on fractional pixels, which is what makes the
+   * clipping come and go with the zoom level. Anything above 1 leaves slack.
+   */
+  lineHeight: number
 }
+
+/** Bounds for the line-height control; below MIN xterm starts clipping glyphs. */
+export const LINE_HEIGHT_MIN = 1
+export const LINE_HEIGHT_MAX = 1.6
+export const LINE_HEIGHT_STEP = 0.05
 
 export const DEFAULT_TERMINAL_STYLE: TerminalStyle = {
   theme: 'auto',
   fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
   fontSize: 13,
+  lineHeight: 1.2,
 }
 
 /** True when a style carries no customization, so it can be dropped instead of stored. */
@@ -58,7 +72,8 @@ export function isDefaultTerminalStyle(style: TerminalStyle): boolean {
   return (
     style.theme === DEFAULT_TERMINAL_STYLE.theme &&
     style.fontFamily === DEFAULT_TERMINAL_STYLE.fontFamily &&
-    style.fontSize === DEFAULT_TERMINAL_STYLE.fontSize
+    style.fontSize === DEFAULT_TERMINAL_STYLE.fontSize &&
+    style.lineHeight === DEFAULT_TERMINAL_STYLE.lineHeight
   )
 }
 
