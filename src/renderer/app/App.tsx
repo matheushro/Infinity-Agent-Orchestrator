@@ -5,6 +5,7 @@ import { SettingsModal } from './components/SettingsModal'
 import { Topbar } from './components/Topbar'
 import { WorkspaceCanvas, type WorkspaceCanvasHandle } from './components/WorkspaceCanvas'
 import { ManageModelsModal } from '@renderer/features/terminals/components/ManageModelsModal'
+import { ReportsModal } from '@renderer/features/reports'
 import { useWorkspaces } from '@renderer/features/workspaces/hooks/useWorkspaces'
 import { useTerminalStyles } from '@renderer/features/terminals/hooks/useTerminalStyles'
 import { PtyActivityProvider } from '@renderer/features/workspaces/context/PtyActivityContext'
@@ -39,6 +40,7 @@ export default function App(): JSX.Element {
   // The model catalog editor replaces the settings modal rather than stacking
   // on top of it — two open modals would both answer the same Escape key.
   const [modelsOpen, setModelsOpen] = useState(false)
+  const [reportsOpen, setReportsOpen] = useState(false)
 
   // Aggregated node list from all workspace canvases — used by the Sidebar.
   const [nodesByWorkspace, setNodesByWorkspace] = useState<Record<string, TerminalNodeData[]>>({})
@@ -134,6 +136,7 @@ export default function App(): JSX.Element {
           <Topbar
             workspaceName={activeWorkspaceName}
             terminalCount={activeTerminalCount}
+            onOpenReports={() => setReportsOpen(true)}
           />
 
           <div className="flex-1 min-h-0 min-w-0 relative overflow-hidden">
@@ -189,6 +192,8 @@ export default function App(): JSX.Element {
             onClose={() => setSettingsOpen(false)}
           />
         )}
+
+        {reportsOpen && <ReportsModal onClose={() => setReportsOpen(false)} />}
 
         {modelsOpen && (
           <ManageModelsModal

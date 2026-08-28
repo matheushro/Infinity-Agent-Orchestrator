@@ -71,6 +71,26 @@ function ignoreInGit(repoCwd: string): void {
 }
 
 /**
+ * Create (and gitignore) a terminal's role directory without writing any
+ * prompt. Launching every IAO agent from `.iao/roles/<nodeId>` — prompt or not —
+ * makes the terminal identifiable from the agent's own session logs, which is
+ * what the usage report uses to attribute spend to a terminal.
+ *
+ * Best-effort like `applyPrompt`: returns null on failure so the pty still runs.
+ */
+export function ensureRoleDir(repoCwd: string, roleId: string): string | null {
+  try {
+    const dir = roleDir(repoCwd, roleId)
+    mkdirSync(dir, { recursive: true })
+    ignoreInGit(repoCwd)
+    return dir
+  } catch (err) {
+    console.warn('[promptFile] ensureRoleDir skipped:', (err as Error).message)
+    return null
+  }
+}
+
+/**
  * Materialize `prompt` as the agent's context file inside this terminal's own
  * role directory, and return that directory for the caller to use as the agent's
  * cwd. The repository's own files are never written. An empty prompt removes any

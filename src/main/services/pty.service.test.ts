@@ -24,14 +24,15 @@ vi.mock('./skill.service', () => ({
 }))
 
 vi.mock('./promptFile.service', () => ({
-  applyPrompt: vi.fn()
+  applyPrompt: vi.fn(),
+  ensureRoleDir: vi.fn()
 }))
 
 import { existsSync } from 'fs'
 import * as nodePty from 'node-pty'
 import * as iaoService from './iao.service'
 import * as skillService from './skill.service'
-import { applyPrompt } from './promptFile.service'
+import { applyPrompt, ensureRoleDir } from './promptFile.service'
 import { createPty, writeToPty, resizePty, killPty, killAllPtys } from './pty.service'
 
 const mockExistsSync = vi.mocked(existsSync)
@@ -41,6 +42,7 @@ const mockAppend = vi.mocked(iaoService.appendOutput)
 const mockUnregister = vi.mocked(iaoService.unregisterPtySession)
 const mockEnsureSkill = vi.mocked(skillService.ensureIAOSkill)
 const mockApplyPrompt = vi.mocked(applyPrompt)
+const mockEnsureRoleDir = vi.mocked(ensureRoleDir)
 
 // On macOS the pty is spawned as a login shell (`-l`) so it inherits the
 // user's full PATH (Homebrew, Docker, nvm, ...). Everywhere else: no args.
@@ -624,11 +626,31 @@ describe('createPty — file-based prompt delivery', () => {
     )
   })
 
-  it('keeps the repo root as cwd when applyPrompt returns null (no role)', () => {
+  it('launches in the role directory even without a prompt, so the usage report can attribute the spend', () => {
     const proc = makeMockProc()
     mockSpawn.mockReturnValue(proc as any)
     mockExistsSync.mockReturnValue(true)
     mockApplyPrompt.mockReturnValue(null)
+    mockEnsureRoleDir.mockReturnValue('/tmp/.iao/roles/node-7')
+
+    createPty(
+      makeArgs({ cwd: '/tmp', nodeId: 'node-7', command: 'claude', prompt: '   ' }),
+      makeCallbacks(),
+    )
+
+    expect(mockEnsureRoleDir).toHaveBeenCalledWith('/tmp', 'node-7')
+    expect(mockSpawn).toHaveBeenCalledWith(
+      expect.any(String), expectedShellArgs,
+      expect.objectContaining({ cwd: '/tmp/.iao/roles/node-7' }),
+    )
+  })
+
+  it('keeps the repo root as cwd when the role directory cannot be created', () => {
+    const proc = makeMockProc()
+    mockSpawn.mockReturnValue(proc as any)
+    mockExistsSync.mockReturnValue(true)
+    mockApplyPrompt.mockReturnValue(null)
+    mockEnsureRoleDir.mockReturnValue(null)
 
     createPty(makeArgs({ cwd: '/tmp', command: 'claude', prompt: '   ' }), makeCallbacks())
 

@@ -16,7 +16,7 @@ vi.mock('fs', async (importOriginal) => {
 })
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, rmSync } from 'fs'
-import { applyPrompt } from './promptFile.service'
+import { applyPrompt, ensureRoleDir } from './promptFile.service'
 
 const mockExistsSync = vi.mocked(existsSync)
 const mockMkdirSync = vi.mocked(mkdirSync)
@@ -212,5 +212,25 @@ describe('applyPrompt — best-effort', () => {
       dir = applyPrompt(CWD, ROLE, 'CLAUDE.md', 'Role')
     }).not.toThrow()
     expect(dir).toBeNull()
+  })
+})
+
+describe('ensureRoleDir — terminal identificável sem prompt', () => {
+  it('cria o diretório de role e o gitignore, sem escrever arquivo de contexto', () => {
+    mockFs({ exists: [GIT] })
+
+    expect(ensureRoleDir(CWD, ROLE)).toBe(ROLE_DIR)
+    expect(mockMkdirSync).toHaveBeenCalledWith(ROLE_DIR, { recursive: true })
+    expect(mockWriteFileSync).not.toHaveBeenCalled()
+    expect(mockAppendFileSync).toHaveBeenCalledWith(GITIGNORE, '.iao/\n')
+  })
+
+  it('devolve null sem lançar quando a criação falha', () => {
+    mockFs()
+    mockMkdirSync.mockImplementation(() => {
+      throw new Error('EACCES')
+    })
+
+    expect(() => expect(ensureRoleDir(CWD, ROLE)).toBeNull()).not.toThrow()
   })
 })

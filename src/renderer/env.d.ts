@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import type { PtyApi, DbApi, DialogApi, BackupApi, WorkspaceApi, WindowApi } from '@shared/types/api'
+import type { PtyApi, DbApi, DialogApi, BackupApi, WorkspaceApi, WindowApi, UsageApi } from '@shared/types/api'
 
 declare global {
   interface Window {
@@ -9,6 +9,7 @@ declare global {
     backupApi: BackupApi
     workspaceApi: WorkspaceApi
     windowApi: WindowApi
+    usageApi: UsageApi
   }
 }
 

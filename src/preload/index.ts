@@ -8,6 +8,7 @@ import { dialogApi } from './api/dialog.api'
 import { backupApi } from './api/backup.api'
 import { workspaceApi } from './api/workspace.api'
 import { windowApi } from './api/window.api'
+import { usageApi } from './api/usage.api'
 
 contextBridge.exposeInMainWorld('ptyApi', ptyApi)
 contextBridge.exposeInMainWorld('dbApi', dbApi)
@@ -15,3 +16,4 @@ contextBridge.exposeInMainWorld('dialogApi', dialogApi)
 contextBridge.exposeInMainWorld('backupApi', backupApi)
 contextBridge.exposeInMainWorld('workspaceApi', workspaceApi)
 contextBridge.exposeInMainWorld('windowApi', windowApi)
+contextBridge.exposeInMainWorld('usageApi', usageApi)

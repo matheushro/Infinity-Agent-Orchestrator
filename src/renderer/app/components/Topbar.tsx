@@ -2,6 +2,7 @@
 // Theme and default-shell selectors live in the Settings modal (sidebar footer).
 import { useEffect, useState } from 'react'
 import {
+  IChart,
   IChevRight,
   IFullScreenEnter,
   IFullScreenExit,
@@ -10,11 +11,13 @@ import {
 interface TopbarProps {
   workspaceName: string
   terminalCount: number
+  onOpenReports: () => void
 }
 
 export function Topbar({
   workspaceName,
   terminalCount,
+  onOpenReports,
 }: TopbarProps): JSX.Element {
   return (
     <header
@@ -36,6 +39,14 @@ export function Topbar({
       <div className="flex-1" />
 
       <div className="flex items-center gap-1">
+        <button
+          className="icon-btn"
+          onClick={onOpenReports}
+          title="Relatórios de consumo"
+          aria-label="Relatórios de consumo"
+        >
+          <IChart size={14} />
+        </button>
         <FullScreenToggle />
       </div>
     </header>

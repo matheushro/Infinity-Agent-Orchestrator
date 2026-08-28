@@ -8,6 +8,7 @@ import type { ModelRecord } from './model'
 import type { PtyCreateArgs, PtyCreateResult } from './ipc'
 import type { WorkspaceRecord } from './workspace'
 import type { BackupFileResult } from './backup'
+import type { UsageAgent, UsageQuery, UsageReport } from './usage'
 
 export interface PtyApi {
   create(args: PtyCreateArgs): Promise<PtyCreateResult>
@@ -90,4 +91,14 @@ export interface WindowApi {
    */
   openExternal(url: string): Promise<boolean>
   onFullScreenChange(cb: (value: boolean) => void): () => void
+}
+
+export interface UsageApi {
+  /**
+   * Local days (`YYYY-MM-DD`, newest first) that have logs for the agent, so
+   * the report screen can offer a day picker without parsing every file.
+   */
+  days(agent: UsageAgent, root?: string): Promise<string[]>
+  /** Prompt-by-prompt usage for one day, already aggregated. */
+  report(query: UsageQuery): Promise<UsageReport>
 }

@@ -74,7 +74,12 @@ describe('IpcChannels — completude e consistência', () => {
     expect(IpcChannels.modelsRemove).toBe('models:remove')
   })
 
-  it('IpcChannels contém exatamente os 40 canais conhecidos (sem canais fantasma)', () => {
+  it('contém os canais de relatórios de consumo', () => {
+    expect(IpcChannels.usageDays).toBe('usage:days')
+    expect(IpcChannels.usageReport).toBe('usage:report')
+  })
+
+  it('IpcChannels contém exatamente os 42 canais conhecidos (sem canais fantasma)', () => {
     const expected = [
       'pty:create', 'pty:input', 'pty:resize', 'pty:kill', 'pty:data', 'pty:exit',
       'db:list-active', 'db:upsert', 'db:remove', 'db:reorder-terminals',
@@ -91,6 +96,7 @@ describe('IpcChannels — completude e consistência', () => {
       'window:is-full-screen', 'window:set-full-screen', 'window:full-screen-changed',
       'window:open-in-vscode',
       'window:open-external',
+      'usage:days', 'usage:report',
     ]
     const actual = Object.values(IpcChannels) as string[]
     expect(actual.sort()).toEqual(expected.sort())

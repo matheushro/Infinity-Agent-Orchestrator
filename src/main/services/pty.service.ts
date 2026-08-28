@@ -21,7 +21,7 @@ import {
 } from '@shared/agents'
 import * as iaoService from './iao.service'
 import * as skillService from './skill.service'
-import { applyPrompt } from './promptFile.service'
+import { applyPrompt, ensureRoleDir } from './promptFile.service'
 
 // Active pty processes, indexed by terminal session id.
 const ptys = new Map<string, pty.IPty>()
@@ -131,7 +131,13 @@ export function createPty(args: PtyCreateArgs, callbacks: PtyCallbacks): PtyCrea
   let workdir = repoCwd
   if (args.command) {
     const prompt = args.prompt?.trim() ? args.prompt : ''
-    const roleDir = applyPrompt(repoCwd, args.nodeId ?? args.id, contextFileForCmd(args.command), prompt)
+    const roleId = args.nodeId ?? args.id
+    // Even with no prompt the agent runs in its role directory, so its session
+    // logs carry the terminal id (see ensureRoleDir) and the usage report can
+    // attribute the spend to this terminal.
+    const roleDir =
+      applyPrompt(repoCwd, roleId, contextFileForCmd(args.command), prompt) ??
+      ensureRoleDir(repoCwd, roleId)
     if (roleDir) workdir = roleDir
   }
 

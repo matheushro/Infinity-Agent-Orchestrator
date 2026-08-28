@@ -27,6 +27,7 @@ function renderTopbar(overrides: Partial<ComponentProps<typeof Topbar>> = {}) {
   const props: ComponentProps<typeof Topbar> = {
     workspaceName: 'My Workspace',
     terminalCount: 2,
+    onOpenReports: vi.fn(),
     ...overrides,
   }
 

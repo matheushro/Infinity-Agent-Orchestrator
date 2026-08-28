@@ -43,6 +43,8 @@ export const IpcChannels = {
   windowFullScreenChanged: 'window:full-screen-changed',
   windowOpenInVSCode: 'window:open-in-vscode',
   windowOpenExternal: 'window:open-external',
+  usageDays: 'usage:days',
+  usageReport: 'usage:report',
 } as const
 
 export interface PtyCreateArgs {
