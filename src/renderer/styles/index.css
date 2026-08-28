@@ -143,6 +143,16 @@ body {
 /* xterm keeps the viewport on `overflow-y: scroll`, so the track is always
    there — a faint one advertises that the transcript is scrollable at all. */
 
+/* …except on the alternate screen buffer (claude and any other full-screen TUI),
+   where xterm keeps no scrollback: the viewport can never overflow, so the bar
+   would be a permanently empty groove. Paint it away — the gutter stays reserved
+   because the grid was fitted around it. Scrolling there belongs to the agent,
+   which receives the wheel as a mouse report. */
+.terminal-surface.alt-buffer .xterm-viewport::-webkit-scrollbar-track,
+.terminal-surface.alt-buffer .xterm-viewport::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+
 .node-shadow {
   box-shadow:
     0 1px 0 0 color-mix(in oklch, var(--line) 80%, transparent),

@@ -134,9 +134,11 @@ function CollapsedRail({
   onNewTerminal,
 }: SidebarStateProps): JSX.Element {
   const { getStatus } = usePtyActivity()
-  const allNodes = workspaces.flatMap((w) =>
-    orderTerminalNodes(nodesByWorkspace[w.id] ?? [], terminalOrderByWorkspace[w.id]),
-  )
+  const allNodes = workspaces
+    .filter((w) => w.enabled !== false)
+    .flatMap((w) =>
+      orderTerminalNodes(nodesByWorkspace[w.id] ?? [], terminalOrderByWorkspace[w.id]),
+    )
 
   return (
     <aside
@@ -432,7 +434,7 @@ function ExpandedSidebar({
   }
 
   const totalTerminals = workspaces.reduce(
-    (sum, w) => sum + (nodesByWorkspace[w.id]?.length ?? 0),
+    (sum, w) => sum + (w.enabled === false ? 0 : (nodesByWorkspace[w.id]?.length ?? 0)),
     0,
   )
 
@@ -499,10 +501,15 @@ function ExpandedSidebar({
       {/* Workspace list */}
       <div ref={wsListRef} className="flex-1 overflow-y-auto nice-scroll px-2 pb-2">
         {workspaces.map((ws, idx) => {
-          const nodes = orderTerminalNodes(
-            nodesByWorkspace[ws.id] ?? [],
-            terminalOrderByWorkspace[ws.id],
-          )
+          // A deactivated workspace hides its terminals from the sidebar; the
+          // aggregated node map is left intact so reactivating restores them.
+          const nodes =
+            ws.enabled === false
+              ? []
+              : orderTerminalNodes(
+                  nodesByWorkspace[ws.id] ?? [],
+                  terminalOrderByWorkspace[ws.id],
+                )
           const isActiveWs = ws.id === activeWorkspaceId
           const isOpen = openWorkspaces[ws.id] !== false
           const isDragging = drag?.id === ws.id
@@ -880,8 +887,8 @@ function WorkspaceSection({
         </div>
       </div>
 
-      {/* Terminal list */}
-      {isOpen && (
+      {/* Terminal list — hidden entirely while the workspace is deactivated */}
+      {isOpen && !isDisabled && (
         <div className="pl-1 mt-0.5">
           {nodes.map((t, idx) => {
             const isDragging = terminalDrag?.id === t.id

@@ -7,6 +7,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { openExternalUrl } from '@renderer/lib/externalLinks'
 import { COMMANDS } from '../commands'
+import { ALT_BUFFER_CLASS } from '../scrollbar'
 import { DEFAULT_TERMINAL_STYLE, type TerminalNodeData, type TerminalStyle } from '../types'
 import type { CanvasTheme } from '@renderer/features/canvas/types'
 import { usePtyActivity } from '@renderer/features/workspaces/context/PtyActivityContext'
@@ -300,6 +301,17 @@ export function useTerminalSession(
     const gutterFrame = requestAnimationFrame(() => refit(fit, term, ptyId))
 
     const container = containerRef.current
+
+    // Full-screen agents (claude) switch to the alternate screen buffer, where
+    // xterm holds no scrollback: the transcript is scrolled by the agent itself
+    // (the wheel reaches it as a mouse report). Flag the surface so the empty
+    // scrollbar stops advertising a scroll that can never happen.
+    const syncAltBuffer = (): void => {
+      container.classList.toggle(ALT_BUFFER_CLASS, term.buffer.active.type === 'alternate')
+    }
+    const bufferSub = term.buffer.onBufferChange(syncAltBuffer)
+    syncAltBuffer()
+
     const handleDragOver = (event: DragEvent): void => {
       if (!hasDraggedFiles(event)) return
       event.preventDefault()
@@ -377,6 +389,8 @@ export function useTerminalSession(
       if (idleTimer) clearTimeout(idleTimer)
       setStatus(node.id, 'offline')
       observer.disconnect()
+      bufferSub.dispose()
+      container.classList.remove(ALT_BUFFER_CLASS)
       container.removeEventListener('dragover', handleDragOver)
       container.removeEventListener('drop', handleDrop)
       inputSub.dispose()

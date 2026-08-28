@@ -15,6 +15,15 @@ export const SCROLLBAR_WIDTH = 14
 export const SCROLLBAR_MIN_THUMB = 40
 
 /**
+ * Marks a surface whose terminal is on the alternate screen buffer. Full-screen
+ * agents (claude emits `\x1b[?1049h`) own their scrolling: xterm keeps no
+ * scrollback for them, so the viewport can never overflow and the bar would sit
+ * there empty forever. The gutter still has to be reserved — xterm sized the
+ * grid around it — so the class only paints the chrome away.
+ */
+export const ALT_BUFFER_CLASS = 'alt-buffer'
+
+/**
  * CSS variables for a terminal surface. The colors are derived from the
  * terminal's own resolved theme, not the app theme — a light terminal inside a
  * dark app still needs a dark thumb to be visible.

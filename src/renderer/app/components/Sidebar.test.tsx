@@ -422,6 +422,44 @@ describe('Sidebar', () => {
     })
   })
 
+  describe('deactivated workspace hides its terminals', () => {
+    it('does not list terminals of a workspace whose enabled flag is false', () => {
+      renderSidebar({
+        workspaces: [{ ...WS_1, enabled: false }, WS_2],
+      })
+      expect(screen.queryByText('Alpha Shell')).toBeNull()
+      // Other active workspace is unaffected.
+      expect(screen.getByText('Beta Terminal')).toBeTruthy()
+    })
+
+    it('restores the terminals when the workspace is reactivated', () => {
+      const { rerender, props } = renderSidebar({
+        workspaces: [{ ...WS_1, enabled: false }, WS_2],
+      })
+      expect(screen.queryByText('Alpha Shell')).toBeNull()
+
+      rerender(
+        <PtyActivityProvider>
+          <Sidebar {...props} workspaces={[WS_1, WS_2]} />
+        </PtyActivityProvider>,
+      )
+      expect(screen.getByText('Alpha Shell')).toBeTruthy()
+    })
+
+    it('collapsed rail omits terminals of a deactivated workspace', () => {
+      renderSidebar({
+        collapsed: true,
+        workspaces: [{ ...WS_1, enabled: false }, WS_2],
+      })
+      // Alpha glyph (from ws-1) gone; Beta glyph still present.
+      const titles = Array.from(document.querySelectorAll('button[title]')).map((b) =>
+        b.getAttribute('title'),
+      )
+      expect(titles.some((t) => t?.includes('Beta Terminal'))).toBe(true)
+      expect(titles.some((t) => t?.includes('Alpha Shell'))).toBe(false)
+    })
+  })
+
   describe('PTY status dots', () => {
     it('11.14 shows a status dot next to a terminal whose node id is active in PtyActivityContext', () => {
       renderSidebarWithStatus('idle')

@@ -7,6 +7,9 @@ import { PtyActivityProvider, usePtyActivity } from '@renderer/features/workspac
 
 const mocks = vi.hoisted(() => {
   const terminalInstances: any[] = []
+  // Buffer type a freshly constructed Terminal reports — a terminal can already
+  // be on the alternate screen before our effect looks at it.
+  const state = { initialBufferType: 'normal' as 'normal' | 'alternate' }
   const fitInstances: any[] = []
   const resizeObserverInstances: any[] = []
   const createResolvers: Array<() => void> = []
@@ -49,6 +52,25 @@ const mocks = vi.hoisted(() => {
     getSelection = vi.fn(() => '')
     clearSelection = vi.fn()
     private readonly dataSubscriptions = new Set<(data: string) => void>()
+    private readonly bufferSubscriptions = new Set<() => void>()
+
+    buffer = {
+      active: { type: state.initialBufferType },
+      onBufferChange: vi.fn((handler: () => void) => {
+        this.bufferSubscriptions.add(handler)
+        return {
+          dispose: vi.fn(() => {
+            this.bufferSubscriptions.delete(handler)
+          }),
+        }
+      }),
+    }
+
+    /** Mimic the agent switching screen buffers (`\x1b[?1049h` / `l`). */
+    setBufferType(type: 'normal' | 'alternate'): void {
+      this.buffer.active.type = type
+      for (const handler of this.bufferSubscriptions) handler()
+    }
 
     constructor(options: Record<string, unknown>) {
       this.options = options
@@ -123,6 +145,7 @@ const mocks = vi.hoisted(() => {
   }
 
   return {
+    state,
     terminalInstances,
     fitInstances,
     resizeObserverInstances,
@@ -234,6 +257,7 @@ beforeEach(() => {
   mocks.createResolvers.length = 0
   mocks.dataHandlers.length = 0
   mocks.exitHandlers.length = 0
+  mocks.state.initialBufferType = 'normal'
   Object.assign(mocks.ptyApi, {
     input: vi.fn(),
     resize: vi.fn(),
@@ -912,6 +936,47 @@ describe('useTerminalSession', () => {
       unmount()
       // After unmount the DOM is gone; just verify kill was called (offline transition happened).
       expect(mocks.ptyApi.kill).toHaveBeenCalledWith('pty-unmount-status')
+    })
+  })
+  describe('alternate screen buffer', () => {
+    it('flags the surface while the agent owns the screen, so the dead scrollbar is hidden', async () => {
+      render(<SessionHarness />)
+      await waitFor(() => expect(mocks.ptyApi.create).toHaveBeenCalledTimes(1))
+
+      const container = screen.getByTestId('terminal-container')
+      const terminal = mocks.terminalInstances[0]
+
+      // Normal buffer: xterm owns the scrollback, so the bar is real.
+      expect(container.classList.contains('alt-buffer')).toBe(false)
+
+      // claude sends `\x1b[?1049h` — no scrollback exists any more.
+      act(() => terminal.setBufferType('alternate'))
+      expect(container.classList.contains('alt-buffer')).toBe(true)
+
+      act(() => terminal.setBufferType('normal'))
+      expect(container.classList.contains('alt-buffer')).toBe(false)
+    })
+
+    it('flags a session that is already on the alternate buffer when it mounts', async () => {
+      // Restoring a workspace re-attaches to an agent that is already full-screen,
+      // so the first `onBufferChange` may never fire.
+      mocks.state.initialBufferType = 'alternate'
+
+      render(<SessionHarness />)
+      await waitFor(() => expect(mocks.ptyApi.create).toHaveBeenCalledTimes(1))
+
+      expect(screen.getByTestId('terminal-container').classList.contains('alt-buffer')).toBe(true)
+    })
+
+    it('stops listening to buffer changes once the session is torn down', async () => {
+      const { unmount } = render(<SessionHarness />)
+      await waitFor(() => expect(mocks.ptyApi.create).toHaveBeenCalledTimes(1))
+
+      const terminal = mocks.terminalInstances[0]
+      const subscription = terminal.buffer.onBufferChange.mock.results[0].value
+
+      unmount()
+      expect(subscription.dispose).toHaveBeenCalled()
     })
   })
 })
