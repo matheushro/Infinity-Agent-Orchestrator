@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { UsageReport } from '@shared/types/usage'
+import { localDay } from '../lib/format'
 import { REFRESH_INTERVAL_MS, useUsageReport } from './useUsageReport'
 
 const days = vi.fn()
@@ -62,6 +63,20 @@ describe('useUsageReport', () => {
 
     await waitFor(() => expect(result.current.days[0]).toBe('2026-08-28'))
     expect(result.current.days).toContain('2026-01-01')
+  })
+
+  it('nunca deixa selecionar um dia depois de hoje', async () => {
+    const { result } = renderHook(() => useUsageReport('codex', '2026-08-28'))
+    await waitFor(() => expect(result.current.report).not.toBeNull())
+
+    expect(result.current.maxDay).toBe(localDay())
+
+    act(() => result.current.setDay('2999-01-01'))
+    expect(result.current.day).toBe(localDay())
+
+    act(() => result.current.setDay(localDay()))
+    act(() => result.current.stepDay(1))
+    expect(result.current.day).toBe(localDay())
   })
 
   it('atualiza sozinho enquanto o modo tempo real está ligado', async () => {

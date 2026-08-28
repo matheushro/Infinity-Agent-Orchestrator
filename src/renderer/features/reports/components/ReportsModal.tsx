@@ -1,9 +1,10 @@
 // Reports screen: prompt-by-prompt consumption for one day, per agent.
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Modal, Select, IChevRight, IRefresh } from '@renderer/components/ui'
 import type { PromptUsage, UsageAgent } from '@shared/types/usage'
 import { useUsageReport } from '../hooks/useUsageReport'
-import { formatPercent, formatTokens } from '../lib/format'
+import { sumTotals, terminalOptions } from '../lib/aggregate'
+import { formatPercent, formatTokens, shiftDay } from '../lib/format'
 import { AgentTabs } from './AgentTabs'
 import { PromptDetailModal } from './PromptDetailModal'
 import { PromptUsageTable } from './PromptUsageTable'
@@ -18,7 +19,7 @@ export function ReportsModal({ onClose }: ReportsModalProps): JSX.Element {
   const {
     day,
     setDay,
-    days,
+    maxDay,
     report,
     loading,
     fetching,
@@ -31,11 +32,33 @@ export function ReportsModal({ onClose }: ReportsModalProps): JSX.Element {
     stepDay,
   } = useUsageReport(agent)
   const [selected, setSelected] = useState<PromptUsage | null>(null)
-  const totals = report?.totals
-  const entries = report?.entries ?? []
+  const [terminalId, setTerminalId] = useState<string | null>(null)
+
+  const allEntries = report?.entries ?? []
+  const allSessions = report?.sessions ?? []
   // Claude does not log rate-limit percentages — hide those columns and cards
   // instead of showing a column of dashes.
   const hasLimits = report?.hasLimits ?? false
+
+  // Terminals that sent a prompt today, so the report can be narrowed to one.
+  const terminals = useMemo(() => terminalOptions(allEntries), [allEntries])
+
+  // Drop the terminal filter when that terminal has no prompts on the new day.
+  useEffect(() => {
+    if (terminalId && !terminals.some((option) => option.id === terminalId)) {
+      setTerminalId(null)
+    }
+  }, [terminals, terminalId])
+
+  const entries = terminalId
+    ? allEntries.filter((entry) => entry.terminalId === terminalId)
+    : allEntries
+  const sessions = terminalId
+    ? allSessions.filter((session) => session.terminalId === terminalId)
+    : allSessions
+  const totals = terminalId ? sumTotals(entries) : report?.totals
+
+  const yesterday = shiftDay(maxDay, -1)
 
   return (
     <>
@@ -46,49 +69,119 @@ export function ReportsModal({ onClose }: ReportsModalProps): JSX.Element {
         onClose={() => (selected ? setSelected(null) : onClose())}
         className="flex flex-col w-[min(1360px,96vw)] h-[min(880px,93vh)]"
       >
-        <div className="flex items-center gap-2 flex-wrap mb-3">
-          <AgentTabs value={agent} onChange={setAgent} />
+        <div
+          className="flex flex-col gap-2.5 mb-3 pb-3"
+          style={{ borderBottom: '1px solid var(--line)', flexShrink: 0 }}
+        >
+          <div className="flex items-center gap-2 flex-wrap">
+            <AgentTabs value={agent} onChange={setAgent} />
 
-          <div className="w-px h-5 mx-1" style={{ background: 'var(--line)' }} />
+            <div className="w-px h-5 mx-1" style={{ background: 'var(--line)' }} />
 
-          <button className="icon-btn" onClick={() => stepDay(-1)} aria-label="Dia anterior">
-            <span style={{ transform: 'rotate(180deg)', display: 'flex' }}>
-              <IChevRight size={12} />
-            </span>
-          </button>
-          <Select
-            ariaLabel="Dia"
-            value={day}
-            options={days.map((value) => ({ value, label: value }))}
-            onChange={setDay}
-            className="min-w-[150px]"
-          />
-          <button className="icon-btn" onClick={() => stepDay(1)} aria-label="Próximo dia">
-            <IChevRight size={12} />
-          </button>
+            <div className="flex items-center gap-1">
+              <QuickDayButton
+                label="Hoje"
+                active={day === maxDay}
+                onClick={() => setDay(maxDay)}
+              />
+              <QuickDayButton
+                label="Ontem"
+                active={day === yesterday}
+                onClick={() => setDay(yesterday)}
+              />
+            </div>
 
-          <button className="icon-btn" onClick={refresh} aria-label="Atualizar agora">
-            <IRefresh size={12} />
-          </button>
-          <label className="flex items-center gap-1.5 text-[12px]" style={{ color: 'var(--fg-3)' }}>
-            <input type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} />
-            Tempo real
-          </label>
-          <label className="flex items-center gap-1.5 text-[12px]" style={{ color: 'var(--fg-3)' }}>
-            <input
-              type="checkbox"
-              checked={onlyIao}
-              onChange={(e) => setOnlyIao(e.target.checked)}
-            />
-            Só prompts do IAO
-          </label>
+            <div
+              className="flex items-center rounded-[8px] overflow-hidden"
+              style={{ border: '1px solid var(--line-2)' }}
+            >
+              <button
+                className="icon-btn !w-7 !h-7 !rounded-none"
+                onClick={() => stepDay(-1)}
+                aria-label="Dia anterior"
+              >
+                <span style={{ transform: 'rotate(180deg)', display: 'flex' }}>
+                  <IChevRight size={12} />
+                </span>
+              </button>
+              <input
+                type="date"
+                aria-label="Dia"
+                value={day}
+                max={maxDay}
+                onChange={(e) => {
+                  if (e.target.value) setDay(e.target.value)
+                }}
+                className="px-2 py-1 text-[12px] tabular-nums outline-none"
+                style={{
+                  background: 'var(--bg)',
+                  color: 'var(--fg)',
+                  borderLeft: '1px solid var(--line-2)',
+                  borderRight: '1px solid var(--line-2)',
+                  colorScheme: 'light dark',
+                }}
+              />
+              <button
+                className="icon-btn !w-7 !h-7 !rounded-none"
+                onClick={() => stepDay(1)}
+                aria-label="Próximo dia"
+                disabled={day >= maxDay}
+              >
+                <IChevRight size={12} />
+              </button>
+            </div>
 
-          <div className="flex-1" />
-          {fetching && (
-            <span className="text-[12px]" style={{ color: 'var(--fg-3)' }}>
-              lendo os logs…
-            </span>
-          )}
+            <button className="icon-btn" onClick={refresh} aria-label="Atualizar agora">
+              <IRefresh size={12} />
+            </button>
+
+            <div className="flex-1" />
+            {fetching && (
+              <span className="text-[12px]" style={{ color: 'var(--fg-3)' }}>
+                lendo os logs…
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3 flex-wrap">
+            <label
+              className="flex items-center gap-1.5 text-[12px]"
+              style={{ color: 'var(--fg-3)' }}
+            >
+              <input type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} />
+              Tempo real
+            </label>
+            <label
+              className="flex items-center gap-1.5 text-[12px]"
+              style={{ color: 'var(--fg-3)' }}
+            >
+              <input
+                type="checkbox"
+                checked={onlyIao}
+                onChange={(e) => setOnlyIao(e.target.checked)}
+              />
+              Só prompts do IAO
+            </label>
+
+            <div className="w-px h-4" style={{ background: 'var(--line)' }} />
+
+            <div className="flex items-center gap-1.5 text-[12px]" style={{ color: 'var(--fg-3)' }}>
+              Terminal
+              <Select
+                ariaLabel="Filtrar por terminal do IAO"
+                value={terminalId ?? ''}
+                options={[
+                  { value: '', label: 'Todos os terminais' },
+                  ...terminals.map((option) => ({
+                    value: option.id,
+                    label: `${option.label} · ${option.prompts}`,
+                  })),
+                ]}
+                onChange={(value) => setTerminalId(value || null)}
+                className="min-w-[190px]"
+              />
+            </div>
+          </div>
         </div>
 
         <div className="flex gap-2 flex-wrap mb-3" style={{ flexShrink: 0 }}>
@@ -130,7 +223,7 @@ export function ReportsModal({ onClose }: ReportsModalProps): JSX.Element {
           {!loading && report && !report.missingRoot && entries.length === 0 && (
             <p className="text-[12px] py-4" style={{ color: 'var(--fg-3)' }}>
               Nenhum prompt em {day}
-              {onlyIao ? ' vindo de um terminal do IAO' : ''}.
+              {terminalId ? ' neste terminal' : onlyIao ? ' vindo de um terminal do IAO' : ''}.
             </p>
           )}
 
@@ -143,10 +236,10 @@ export function ReportsModal({ onClose }: ReportsModalProps): JSX.Element {
                   className="text-[12px] font-semibold cursor-pointer"
                   style={{ color: 'var(--fg-2)' }}
                 >
-                  Por sessão ({report?.sessions.length ?? 0})
+                  Por sessão ({sessions.length})
                 </summary>
                 <div className="mt-2 overflow-auto" style={{ maxHeight: 220 }}>
-                  <SessionUsageTable sessions={report?.sessions ?? []} hasLimits={hasLimits} />
+                  <SessionUsageTable sessions={sessions} hasLimits={hasLimits} />
                 </div>
               </details>
             </>
@@ -162,6 +255,31 @@ export function ReportsModal({ onClose }: ReportsModalProps): JSX.Element {
         />
       )}
     </>
+  )
+}
+
+function QuickDayButton({
+  label,
+  active,
+  onClick,
+}: {
+  label: string
+  active: boolean
+  onClick: () => void
+}): JSX.Element {
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={active}
+      className="px-2.5 py-1 rounded-[8px] text-[12px]"
+      style={{
+        border: `1px solid ${active ? 'var(--accent)' : 'var(--line)'}`,
+        background: active ? 'color-mix(in oklch, var(--accent) 12%, transparent)' : 'transparent',
+        color: active ? 'var(--accent)' : 'var(--fg-2)',
+      }}
+    >
+      {label}
+    </button>
   )
 }
 

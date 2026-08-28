@@ -13,6 +13,16 @@ export function shiftDay(day: string, offset: number): string {
   return localDay(new Date(year, month - 1, date + offset))
 }
 
+/** True when the `YYYY-MM-DD` day is later than today (local). */
+export function isFutureDay(day: string, today: string = localDay()): boolean {
+  return day > today
+}
+
+/** Clamp a `YYYY-MM-DD` day so it never lands after today (local). */
+export function clampDay(day: string, today: string = localDay()): string {
+  return day > today ? today : day
+}
+
 export function formatTokens(value: number): string {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`
   if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`

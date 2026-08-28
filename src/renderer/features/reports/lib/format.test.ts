@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import {
   cacheHitRate,
+  clampDay,
   formatDuration,
   formatPercent,
   formatTokens,
+  isFutureDay,
   localDay,
   shiftDay,
   shortPath,
@@ -17,6 +19,15 @@ describe('localDay / shiftDay', () => {
   it('anda dias respeitando virada de mês', () => {
     expect(shiftDay('2026-08-01', -1)).toBe('2026-07-31')
     expect(shiftDay('2026-08-31', 1)).toBe('2026-09-01')
+  })
+})
+
+describe('isFutureDay / clampDay', () => {
+  it('reconhece e limita dias após hoje', () => {
+    expect(isFutureDay('2026-08-29', '2026-08-28')).toBe(true)
+    expect(isFutureDay('2026-08-28', '2026-08-28')).toBe(false)
+    expect(clampDay('2026-08-29', '2026-08-28')).toBe('2026-08-28')
+    expect(clampDay('2026-08-20', '2026-08-28')).toBe('2026-08-20')
   })
 })
 

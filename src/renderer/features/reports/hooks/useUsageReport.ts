@@ -3,14 +3,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { UsageAgent, UsageReport } from '@shared/types/usage'
 import { usageRepository } from '../services/usageRepository'
-import { localDay, shiftDay } from '../lib/format'
+import { clampDay, localDay, shiftDay } from '../lib/format'
 
 /** How often an open report re-reads the logs while live refresh is on. */
 export const REFRESH_INTERVAL_MS = 5000
 
 export interface UseUsageReportResult {
   day: string
+  /** Sets the day, clamped so it never lands after today (local). */
   setDay: (day: string) => void
+  /** Today (local, `YYYY-MM-DD`) — the latest day the report can show. */
+  maxDay: string
   /** Days that have logs, newest first — always includes the selected day. */
   days: string[]
   report: UsageReport | null
@@ -32,8 +35,13 @@ export function useUsageReport(
   agent: UsageAgent,
   initialDay: string = localDay(),
 ): UseUsageReportResult {
-  const [day, setDay] = useState(initialDay)
+  const maxDay = localDay()
+  const [day, setDayRaw] = useState(() => clampDay(initialDay, maxDay))
   const [days, setDays] = useState<string[]>([initialDay])
+  const setDay = useCallback(
+    (next: string) => setDayRaw(clampDay(next, localDay())),
+    [],
+  )
   const [report, setReport] = useState<UsageReport | null>(null)
   const [loading, setLoading] = useState(true)
   const [fetching, setFetching] = useState(true)
@@ -97,7 +105,7 @@ export function useUsageReport(
   }, [live, refresh])
 
   const stepDay = useCallback((offset: number) => {
-    setDay((current) => shiftDay(current, offset))
+    setDayRaw((current) => clampDay(shiftDay(current, offset), localDay()))
   }, [])
 
   const dayOptions = days.includes(day) ? days : [day, ...days].sort((a, b) => b.localeCompare(a))
@@ -105,6 +113,7 @@ export function useUsageReport(
   return {
     day,
     setDay,
+    maxDay,
     days: dayOptions,
     report,
     loading,

@@ -179,6 +179,62 @@ describe('ReportsModal', () => {
     expect(screen.getByText('ajusta o layout do terminal')).toBeInTheDocument()
   })
 
+  it('recarrega ao clicar no atalho "Ontem"', async () => {
+    render(<ReportsModal onClose={vi.fn()} />)
+    await screen.findByText('ajusta o layout do terminal')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ontem' }))
+
+    await waitFor(() => expect(loadReport).toHaveBeenCalledTimes(2))
+    const lastDay = loadReport.mock.calls.at(-1)?.[0].day as string
+    const firstDay = loadReport.mock.calls[0][0].day as string
+    expect(lastDay < firstDay).toBe(true)
+    expect(screen.getByRole('button', { name: 'Ontem' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('filtra a tabela por um terminal específico do IAO', async () => {
+    const outra: PromptUsage = {
+      ...entry,
+      id: 'b#0',
+      prompt: 'prompt de outro terminal',
+      origin: 'iao',
+      terminalId: 'term-9',
+      terminalTitle: 'Web Codex',
+    }
+    loadReport.mockResolvedValue(
+      report({ entries: [entry, outra], totals: { ...report().totals, prompts: 2 } }),
+    )
+    render(<ReportsModal onClose={vi.fn()} />)
+    await screen.findByText('ajusta o layout do terminal')
+    expect(screen.getByText('prompt de outro terminal')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Filtrar por terminal do IAO' }))
+    fireEvent.click(screen.getByRole('option', { name: /API Codex/ }))
+
+    await waitFor(() =>
+      expect(screen.queryByText('prompt de outro terminal')).not.toBeInTheDocument(),
+    )
+    expect(screen.getByText('ajusta o layout do terminal')).toBeInTheDocument()
+  })
+
+  it('ordena a tabela ao clicar no cabeçalho de uma coluna', async () => {
+    const rows = [
+      { ...entry, id: 'r0', prompt: 'menor', totalTokens: 10 },
+      { ...entry, id: 'r1', prompt: 'maior', totalTokens: 999_999 },
+    ]
+    loadReport.mockResolvedValue(report({ entries: rows }))
+    render(<ReportsModal onClose={vi.fn()} />)
+    await screen.findByText('menor')
+
+    fireEvent.click(screen.getByText('Total'))
+
+    const cells = screen.getAllByRole('cell')
+    const promptCells = cells
+      .map((cell) => cell.textContent)
+      .filter((text) => text === 'menor' || text === 'maior')
+    expect(promptCells).toEqual(['maior', 'menor'])
+  })
+
   it('filtra somente os prompts enviados pelo IAO', async () => {
     render(<ReportsModal onClose={vi.fn()} />)
     await screen.findByText('ajusta o layout do terminal')
